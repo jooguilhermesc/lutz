@@ -4,8 +4,8 @@ type: software
 authors:
   - family-names: Cabral
     given-names: João Guilherme Silva
-  - family-names: Azevedo Farias
-    given-names: Anna Karoline
+  - family-names: Azevedo
+    given-names: Karoline
     orcid: https://orcid.org/0000-0002-6302-4187
     website: http://lattes.cnpq.br/5407395559226556
 title: "Lutz: AI-powered academic article screening and analysis tool"
