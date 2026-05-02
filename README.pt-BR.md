@@ -6,9 +6,9 @@
 
 [![DOI](https://zenodo.org/badge/1227342715.svg)](https://doi.org/10.5281/zenodo.19982571)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
-![Version](https://img.shields.io/badge/Version-0.1.1-blueviolet)
+![Version](https://img.shields.io/badge/Version-0.1.2-blueviolet)
 ![License](https://img.shields.io/badge/License-MIT-green)
-![Status](https://img.shields.io/badge/Status-Alpha-orange)
+![Status](https://img.shields.io/badge/Status-Public%20Preview-blue)
 ![CLI](https://img.shields.io/badge/Interface-CLI-informational)
 
 **Tags:** revisão sistemática, triagem acadêmica, artigos científicos, IA generativa, LLM, RAG, embeddings, PDF, LanceDB, Python, ciencia aberta, pesquisa acadêmica.
@@ -716,6 +716,30 @@ pytest
 ```
 
 Antes de propor mudanças grandes, abra uma issue para discutir a ideia.
+
+---
+
+## Como citar
+
+Se voce utilizar o Lutz em sua pesquisa, por favor cite usando as informacoes abaixo ou consulte o arquivo [`CITATION.cff`](CITATION.cff).
+
+**APA**
+
+> Cabral, J. G. S., & Azevedo Farias, A. K. (2026). *Lutz: AI-powered academic article screening and analysis tool* (Versao 0.1.2) [Software]. Zenodo. https://doi.org/10.5281/zenodo.19982571
+
+**BibTeX**
+
+```bibtex
+@software{cabral2026lutz,
+  author  = {Cabral, João Guilherme Silva and Azevedo Farias, Anna Karoline},
+  title   = {{Lutz: AI-powered academic article screening and analysis tool}},
+  year    = {2026},
+  version = {0.1.2},
+  doi     = {10.5281/zenodo.19982571},
+  url     = {https://github.com/jooguilhermesc/lutz},
+  license = {MIT}
+}
+```
 
 ---
 

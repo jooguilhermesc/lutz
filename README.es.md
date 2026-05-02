@@ -6,16 +6,16 @@
 
 [![DOI](https://zenodo.org/badge/1227342715.svg)](https://doi.org/10.5281/zenodo.19982571)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
-![Version](https://img.shields.io/badge/Version-0.1.1-blueviolet)
+![Version](https://img.shields.io/badge/Version-0.1.2-blueviolet)
 ![License](https://img.shields.io/badge/License-MIT-green)
-![Status](https://img.shields.io/badge/Status-Alpha-orange)
+![Status](https://img.shields.io/badge/Status-Public%20Preview-blue)
 ![CLI](https://img.shields.io/badge/Interface-CLI-informational)
 
 **Etiquetas:** revisión sistemática, cribado académico, artículos científicos, IA generativa, LLM, RAG, embeddings, PDF, LanceDB, Python, ciencia abierta, investigación académica.
 
 Lutz ayuda a investigadores, estudiantes y equipos de revisión bibliográfica a trabajar con grandes conjuntos de artículos en PDF. Crea una estructura reproducible de proyecto, copia los PDFs al lugar correcto, realiza verificaciones básicas de seguridad, extrae texto, genera embeddings, guarda todo en una base vectorial local y usa un modelo de lenguaje para responder prompts de análisis.
 
-Versión actual del paquete: `0.1.1`.
+Versión actual del paquete: `0.1.2`.
 
 El paquete lleva el nombre de **Bertha Maria Julia Lutz**, importante científica brasileña, bióloga e investigadora que contribuyó a la biología y al reconocimiento de la ciencia en Brasil.
 
@@ -36,6 +36,7 @@ El paquete lleva el nombre de **Bertha Maria Julia Lutz**, importante científic
 - [Modelo de seguridad](#modelo-de-seguridad)
 - [Arquitectura](#arquitectura)
 - [Contribuir](#contribuir)
+- [Cómo citar](#cómo-citar)
 - [Licencia](#licencia)
 
 ---
@@ -715,6 +716,30 @@ pytest
 ```
 
 Antes de proponer cambios grandes, abre una issue para discutir la idea.
+
+---
+
+## Cómo citar
+
+Si utilizas Lutz en tu investigación, por favor cítalo usando la información a continuación o consulta el archivo [`CITATION.cff`](CITATION.cff).
+
+**APA**
+
+> Cabral, J. G. S., & Azevedo Farias, A. K. (2026). *Lutz: AI-powered academic article screening and analysis tool* (Versión 0.1.2) [Software]. Zenodo. https://doi.org/10.5281/zenodo.19982571
+
+**BibTeX**
+
+```bibtex
+@software{cabral2026lutz,
+  author  = {Cabral, João Guilherme Silva and Azevedo Farias, Anna Karoline},
+  title   = {{Lutz: AI-powered academic article screening and analysis tool}},
+  year    = {2026},
+  version = {0.1.2},
+  doi     = {10.5281/zenodo.19982571},
+  url     = {https://github.com/jooguilhermesc/lutz},
+  license = {MIT}
+}
+```
 
 ---
 

@@ -4,14 +4,14 @@ build-backend = "hatchling.build"
 
 [project]
 name = "lutz-research"
-version = "0.1.1"
+version = "0.1.2"
 description = "AI-powered academic article screening and analysis tool"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 keywords = ["research", "ai", "nlp", "pdf", "systematic-review", "screening"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
