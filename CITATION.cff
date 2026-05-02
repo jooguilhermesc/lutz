@@ -1,0 +1,28 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+authors:
+  - family-names: Cabral
+    given-names: João Guilherme Silva
+  - family-names: Azevedo Farias
+    given-names: Anna Karoline
+    orcid: https://orcid.org/0000-0002-6302-4187
+    website: http://lattes.cnpq.br/5407395559226556
+title: "Lutz: AI-powered academic article screening and analysis tool"
+version: 0.1.1
+doi: 10.5281/zenodo.19982571
+date-released: 2026-05-02
+url: "https://github.com/jooguilhermesc/lutz"
+repository-code: "https://github.com/jooguilhermesc/lutz"
+license: MIT
+keywords:
+  - systematic review
+  - academic screening
+  - scientific articles
+  - generative AI
+  - LLM
+  - RAG
+  - embeddings
+  - PDF
+  - Python
+  - open science

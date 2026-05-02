@@ -35,6 +35,7 @@ O nome do pacote e inspirado em **Bertha Maria Julia Lutz**, importante cientist
 - [Modelo de seguranca](#modelo-de-seguranca)
 - [Arquitetura](#arquitetura)
 - [Contribuindo](#contribuindo)
+- [Como citar](#como-citar)
 - [Licenca](#licenca)
 
 ---
@@ -715,6 +716,30 @@ pytest
 ```
 
 Antes de propor mudancas grandes, abra uma issue para discutir a ideia.
+
+---
+
+## Como citar
+
+Se voce utilizar o Lutz em sua pesquisa, por favor cite usando as informacoes abaixo ou consulte o arquivo [`CITATION.cff`](CITATION.cff).
+
+**APA**
+
+> Cabral, J. G. S., & Azevedo Farias, A. K. (2026). *Lutz: AI-powered academic article screening and analysis tool* (Versao 0.1.1) [Software]. Zenodo. https://doi.org/10.5281/zenodo.19982571
+
+**BibTeX**
+
+```bibtex
+@software{cabral2026lutz,
+  author  = {Cabral, João Guilherme Silva and Azevedo Farias, Anna Karoline},
+  title   = {{Lutz: AI-powered academic article screening and analysis tool}},
+  year    = {2026},
+  version = {0.1.1},
+  doi     = {10.5281/zenodo.19982571},
+  url     = {https://github.com/jooguilhermesc/lutz},
+  license = {MIT}
+}
+```
 
 ---
 
