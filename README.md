@@ -4,6 +4,7 @@
 
 > Python library and command-line tool for organizing, vectorizing, and analyzing academic PDF articles with AI.
 
+[![DOI](https://zenodo.org/badge/1227342715.svg)](https://doi.org/10.5281/zenodo.19982571)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![Version](https://img.shields.io/badge/Version-0.1.1-blueviolet)
 ![License](https://img.shields.io/badge/License-MIT-green)
