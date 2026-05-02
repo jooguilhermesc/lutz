@@ -1,5 +1,9 @@
 # Lutz
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/jooguilhermesc/lutz/main/lutz.png" alt="Lutz logo" width="180"/>
+</p>
+
 **Languages:** **English** | [Português](README.pt-BR.md) | [Español](README.es.md)
 
 > Python library and command-line tool for organizing, vectorizing, and analyzing academic PDF articles with AI.
