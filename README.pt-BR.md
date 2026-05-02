@@ -5,16 +5,16 @@
 > Biblioteca e ferramenta de linha de comando para organizar, vetorizar e analisar artigos academicos em PDF com IA.
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
-![Version](https://img.shields.io/badge/Version-0.1.1-blueviolet)
+![Version](https://img.shields.io/badge/Version-0.1.2-blueviolet)
 ![License](https://img.shields.io/badge/License-MIT-green)
-![Status](https://img.shields.io/badge/Status-Alpha-orange)
+![Status](https://img.shields.io/badge/Status-Public%20Preview-blue)
 ![CLI](https://img.shields.io/badge/Interface-CLI-informational)
 
 **Tags:** revisao sistematica, triagem academica, artigos cientificos, IA generativa, LLM, RAG, embeddings, PDF, LanceDB, Python, ciencia aberta, pesquisa academica.
 
 Lutz ajuda pesquisadores, estudantes e equipes de revisao bibliografica a lidar com muitos artigos em PDF. O pacote cria uma estrutura de projeto, copia os PDFs para o lugar correto, faz uma verificacao basica de seguranca, extrai o texto, gera embeddings, salva tudo em um banco vetorial local e usa um modelo de linguagem para responder a prompts de analise.
 
-Versao atual do pacote: `0.1.1`.
+Versao atual do pacote: `0.1.2`.
 
 O nome do pacote e inspirado em **Bertha Maria Julia Lutz**, importante cientista brasileira, biologa e pesquisadora que contribuiu para a biologia e para a valorizacao da ciencia no Brasil.
 
@@ -725,7 +725,7 @@ Se voce utilizar o Lutz em sua pesquisa, por favor cite usando as informacoes ab
 
 **APA**
 
-> Cabral, J. G. S., & Azevedo Farias, A. K. (2026). *Lutz: AI-powered academic article screening and analysis tool* (Versao 0.1.1) [Software]. Zenodo. https://doi.org/10.5281/zenodo.19982571
+> Cabral, J. G. S., & Azevedo Farias, A. K. (2026). *Lutz: AI-powered academic article screening and analysis tool* (Versao 0.1.2) [Software]. Zenodo. https://doi.org/10.5281/zenodo.19982571
 
 **BibTeX**
 
@@ -734,7 +734,7 @@ Se voce utilizar o Lutz em sua pesquisa, por favor cite usando as informacoes ab
   author  = {Cabral, João Guilherme Silva and Azevedo Farias, Anna Karoline},
   title   = {{Lutz: AI-powered academic article screening and analysis tool}},
   year    = {2026},
-  version = {0.1.1},
+  version = {0.1.2},
   doi     = {10.5281/zenodo.19982571},
   url     = {https://github.com/jooguilhermesc/lutz},
   license = {MIT}
