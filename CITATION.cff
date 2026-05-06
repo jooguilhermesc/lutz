@@ -9,9 +9,9 @@ authors:
     orcid: https://orcid.org/0000-0002-6302-4187
     website: http://lattes.cnpq.br/5407395559226556
 title: "Lutz: AI-powered academic article screening and analysis tool"
-version: 0.1.2
+version: 0.1.3
 doi: 10.5281/zenodo.19982571
-date-released: 2026-05-02
+date-released: 2026-05-06
 url: "https://github.com/jooguilhermesc/lutz"
 repository-code: "https://github.com/jooguilhermesc/lutz"
 license: MIT
