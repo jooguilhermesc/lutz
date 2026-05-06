@@ -17,6 +17,7 @@ from lutz.core.security_checker import SecurityChecker, SecurityReport, detect_c
 from lutz.core.pdf_processor import PDFProcessor
 from lutz.core.vector_store import VectorStore
 from lutz.core.embedding_client import EmbeddingClient
+from lutz.core.section_parser import SectionParser
 
 console = Console()
 
@@ -56,7 +57,36 @@ console = Console()
         "The security scan is skipped — use only after manually reviewing the quarantined files."
     ),
 )
-def vectorize(skip_security: bool, chunk_size: int, chunk_overlap: int, quarantine: bool) -> None:
+@click.option(
+    "--section-parse/--no-section-parse",
+    default=False,
+    show_default=True,
+    help=(
+        "Split each article into sections (abstract, introduction, methodology, …) "
+        "before chunking.  Each chunk is annotated with its section name so the LLM "
+        "receives richer context.  Chunks never cross section boundaries. "
+        "Uses layout-parser if installed, otherwise falls back to text heuristics."
+    ),
+)
+@click.option(
+    "--layout-parse/--no-layout-parse",
+    default=True,
+    show_default=True,
+    help=(
+        "When --section-parse is active, attempt to use layout-parser for visual "
+        "layout detection of section headers (requires 'lutz-research[layout]'). "
+        "If layout-parser is not installed the flag is ignored and text heuristics "
+        "are used instead.  Has no effect without --section-parse."
+    ),
+)
+def vectorize(
+    skip_security: bool,
+    chunk_size: int,
+    chunk_overlap: int,
+    quarantine: bool,
+    section_parse: bool,
+    layout_parse: bool,
+) -> None:
     """Index PDF articles into the local vector database (.lutz/vector_store/).
 
     \b
@@ -66,11 +96,17 @@ def vectorize(skip_security: bool, chunk_size: int, chunk_overlap: int, quaranti
                           detection (IsolationForest, applied when >= 5 PDFs).
          Suspicious files are moved to articles/_quarantine/ and excluded.
       2. Text extraction — pdfplumber (primary), pypdf (fallback).
-      3. Chunking        — sliding window over words (not LLM tokens).
+      3. Section parsing — (optional, --section-parse) splits each article into
+                          sections (abstract, introduction, methodology, results,
+                          discussion, conclusion, references …) before chunking.
+                          Uses layout-parser if installed, otherwise text heuristics.
+                          Each chunk is tagged with its section name.
+      4. Chunking        — sliding window over words (not LLM tokens).
                           chunk-size=512 words ≈ 680 LLM tokens.
-      4. Embedding       — one embedding API call per article; provider and model
+                          With --section-parse, chunks never cross section boundaries.
+      5. Embedding       — one embedding API call per article; provider and model
                           are read from .env (EMBEDDING_PROVIDER, EMBEDDING_MODEL).
-      5. Storage         — chunks are upserted into LanceDB.
+      6. Storage         — chunks are upserted into LanceDB.
 
     \b
     Quarantine mode (--quarantine):
@@ -88,6 +124,17 @@ def vectorize(skip_security: bool, chunk_size: int, chunk_overlap: int, quaranti
       number of chunks and embedding cost.
 
     \b
+    Section parsing (--section-parse):
+      Splits the document into semantic sections before chunking, so each chunk
+      is tagged with its section name (abstract, introduction, methodology, …).
+      Two backends are tried in order:
+        1. layout-parser  — visual block detection using PubLayNet Detectron2
+                            model. Requires: pip install "lutz-research[layout]"
+        2. Text heuristics — regex patterns on extracted text (no extra deps).
+      The section label appears in the vector store and is shown in the analysis
+      context sent to the LLM ("section: methodology").
+
+    \b
     Re-running vectorize appends new chunks; it does not deduplicate.
     Use 'lutz unvectorize' first if you want to rebuild the index from scratch.
 
@@ -97,6 +144,8 @@ def vectorize(skip_security: bool, chunk_size: int, chunk_overlap: int, quaranti
       lutz vectorize --skip-security
       lutz vectorize --chunk-size 256 --chunk-overlap 32
       lutz vectorize --quarantine
+      lutz vectorize --section-parse
+      lutz vectorize --section-parse --no-layout-parse
     """
     env = load_env()
     project_root = require_project_root()
@@ -187,22 +236,48 @@ def vectorize(skip_security: bool, chunk_size: int, chunk_overlap: int, quaranti
     # ------------------------------------------------------------------
     # Extraction phase
     # ------------------------------------------------------------------
-    console.print("[bold]Phase 2/3 — Text extraction[/]")
+    phase_label = "Phase 2/3" if not section_parse else "Phase 2–3/4"
+    console.print(f"[bold]{phase_label} — Text extraction[/]")
+
     processor = PDFProcessor(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    section_parser: SectionParser | None = None
+
+    if section_parse:
+        section_parser = SectionParser(use_layout_parser=layout_parse)
+
     chunks_by_file: dict[str, list[dict]] = {}
 
     with Progress(
         SpinnerColumn(), TextColumn("{task.description}"),
         BarColumn(), TaskProgressColumn(), console=console,
     ) as progress:
-        task = progress.add_task("Extracting text...", total=len(approved))
+        label = "Extracting & parsing sections..." if section_parse else "Extracting text..."
+        task = progress.add_task(label, total=len(approved))
         for pdf in approved:
-            chunks = processor.extract_chunks(pdf)
+            if section_parser is not None:
+                chunks = processor.extract_chunks_with_sections(pdf, section_parser)
+            else:
+                chunks = processor.extract_chunks(pdf)
             chunks_by_file[pdf.stem] = chunks
             progress.advance(task)
 
     total_chunks = sum(len(c) for c in chunks_by_file.values())
-    console.print(f"[green]✓[/] Extracted {total_chunks} chunk(s) from {len(approved)} file(s).\n")
+    section_note = " (section-aware)" if section_parse else ""
+    console.print(
+        f"[green]✓[/] Extracted {total_chunks} chunk(s){section_note} "
+        f"from {len(approved)} file(s).\n"
+    )
+
+    if section_parse:
+        # Show a quick breakdown of sections found across all files
+        from collections import Counter
+        section_counts: Counter[str] = Counter()
+        for chunks in chunks_by_file.values():
+            for c in chunks:
+                section_counts[c.get("section", "") or "unknown"] += 1
+        top = section_counts.most_common(8)
+        breakdown = "  ".join(f"[cyan]{s}[/]={n}" for s, n in top)
+        console.print(f"  Sections detected: {breakdown}\n")
 
     # ------------------------------------------------------------------
     # Embedding + storage phase
