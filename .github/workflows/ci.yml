@@ -86,7 +86,7 @@ jobs:
         run: |
           detect-secrets scan \
             --exclude-files '(\.git|dist|build|\.venv|node_modules)' \
-            --output .secrets.baseline
+            > .secrets.baseline
 
           python - <<'EOF'
           import json, sys
