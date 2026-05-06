@@ -57,14 +57,14 @@ Lutz no sustituye la lectura crítica ni las decisiones metodológicas de invest
 ## Cómo funciona Lutz
 
 ```text
-PDFs -> verificación de seguridad -> extracción de texto -> embeddings -> base vectorial -> análisis con LLM -> informe JSON
+PDFs -> verificación de seguridad -> extracción de texto -> [análisis de secciones] -> embeddings -> base vectorial -> análisis con LLM -> informe JSON
 ```
 
 Flujo básico:
 
 1. `lutz init` crea una carpeta de proyecto con subcarpetas, plantillas de prompts y `.env.example`.
 2. `lutz load` copia tus PDFs en `articles/`.
-3. `lutz vectorize` verifica los PDFs, extrae texto, divide el contenido en fragmentos y crea embeddings.
+3. `lutz vectorize` verifica los PDFs, extrae texto, opcionalmente divide los artículos en secciones etiquetadas (resumen, introducción, metodología…), fragmenta el contenido y crea embeddings.
 4. `lutz analysis` usa un prompt en Markdown para analizar los artículos vectorizados.
 5. Los resultados se guardan en `analysis/execution_reports/`.
 
@@ -399,7 +399,7 @@ Windows PowerShell:
 lutz load --f "C:\Users\Ana\Downloads\articulos" --so windows
 ```
 
-### `lutz vectorize [--skip-security] [--chunk-size N] [--chunk-overlap N] [--quarantine]`
+### `lutz vectorize [opciones]`
 
 Procesa los PDFs de `articles/` y crea la base vectorial local en `.lutz/vector_store/`.
 
@@ -409,13 +409,39 @@ Procesa los PDFs de `articles/` y crea la base vectorial local en `.lutz/vector_
 | `--chunk-size` | Tamaño de los fragmentos de texto en palabras. | `512` |
 | `--chunk-overlap` | Superposición entre fragmentos. | `64` |
 | `--quarantine` | Procesa archivos en `articles/_quarantine/`. | desactivado |
+| `--section-parse` | Divide cada artículo en secciones etiquetadas (resumen, introducción, metodología, resultados, discusión, conclusión, referencias…) antes de fragmentar. Cada fragmento queda marcado con el nombre de su sección. Los fragmentos nunca cruzan límites de sección. | desactivado |
+| `--layout-parse` / `--no-layout-parse` | Cuando `--section-parse` está activo, usa layout-parser para detectar secciones visualmente. Requiere `pip install "lutz-research[layout]"`. Si no está instalado, usa heurísticas de texto. Sin efecto sin `--section-parse`. | activado |
 
 Ejemplos:
 
 ```bash
 lutz vectorize
 lutz vectorize --chunk-size 256 --chunk-overlap 32
+
+# Vectorización por sección (heurísticas de texto, sin dependencias extra)
+lutz vectorize --section-parse --no-layout-parse
+
+# Vectorización por sección con detección visual de layout
+pip install "lutz-research[layout]"
+lutz vectorize --section-parse
 ```
+
+**Instalación del backend de detección de layout**
+
+La detección visual de layout usa [layout-parser](https://layout-parser.readthedocs.io/) con un modelo Detectron2 entrenado en PubLayNet. Los pesos del modelo (~250 MB) se descargan automáticamente en el primer uso.
+
+```bash
+# Instalar dependencias opcionales
+pip install "lutz-research[layout]"
+
+# Dependencia de sistema (requerida por pdf2image)
+# Debian/Ubuntu:
+apt install poppler-utils
+# macOS:
+brew install poppler
+```
+
+Si layout-parser no está instalado, `--section-parse` usa heurísticas de texto con expresiones regulares, sin dependencias adicionales.
 
 ### `lutz unvectorize`
 
@@ -446,6 +472,7 @@ Realiza una llamada separada al modelo para cada artículo de la base vectorial.
 | `--per-article` | Analiza cada artículo en una llamada separada al modelo. | desactivado |
 | `--workers` | Llamadas paralelas al modelo en modo `--per-article`. | `1` |
 | `--max-chunks-per-article` | Límite de fragmentos por artículo en modo `--per-article`. | sin límite |
+| `--filter-sections` | Lista de secciones separadas por comas a incluir en el análisis (ej: `abstract,methodology,results`). Solo se recuperan fragmentos cuya etiqueta de sección coincida. Requiere artículos vectorizados con `--section-parse`. Usa `lutz vector-store --sections` para verificar qué hay disponible. | sin filtro |
 | `--output-name` | Nombre base del archivo de salida. | generado automáticamente |
 
 Ejemplos:
@@ -469,9 +496,26 @@ lutz analysis --p prompts/screening.md --per-article --workers 4
 # Cribado por artículo limitando el contexto a 10 fragmentos por artículo
 lutz analysis --p prompts/screening.md --per-article --workers 4 --max-chunks-per-article 10
 
+# Analizar solo metodología y resultados (modo RAG)
+lutz analysis --p prompts/methodology_analysis.md \
+  --filter-sections methodology,results
+
+# Cribar artículos usando solo el resumen (por artículo, paralelo)
+lutz analysis --p prompts/screening.md --per-article --workers 4 \
+  --filter-sections abstract
+
 # Salida con nombre personalizado
 lutz analysis --p prompts/systematic_review.md --output-name mi-analisis-v1
 ```
+
+**Filtro de secciones (`--filter-sections`)**
+
+Cuando los artículos han sido vectorizados con `--section-parse`, cada fragmento lleva una etiqueta de sección (`abstract`, `introduction`, `background`, `methodology`, `results`, `discussion`, `conclusion`, `references`, `acknowledgements`, `appendix`). El flag `--filter-sections` restringe el análisis solo a esas secciones, reduciendo el tamaño del contexto y enfocando la atención del modelo.
+
+- En **modo RAG** la búsqueda por similitud se ejecuta solo sobre las secciones especificadas, luego se ordena por relevancia normalmente.
+- En **modo por artículo** cada artículo recibe solo los fragmentos de las secciones especificadas. Los artículos sin fragmentos en esas secciones aparecen con `chunks_used: 0` en el informe.
+- Los artículos vectorizados sin `--section-parse` no tienen etiqueta de sección y son **excluidos** cuando el filtro está activo.
+- Ejecuta `lutz vector-store --sections` primero para confirmar qué secciones están presentes en la base.
 
 **Rendimiento en modo `--per-article`**
 
@@ -522,21 +566,28 @@ lutz citations --analysis analysis/execution_reports/screening_20260501.json \
 
 > **Prerequisito:** el informe de entrada debe haber sido generado con `lutz analysis --per-article`. La base vectorial debe estar disponible en `.lutz/vector_store/`, porque las citas se extraen de los fragmentos originales de los artículos.
 
-### `lutz vector-store [--summarize] [--export [FILE]]`
+### `lutz vector-store [--summarize] [--sections] [--export [FILE]]`
 
 Inspecciona la base vectorial local.
 
 | Opción | Descripción |
 |--------|-------------|
 | `--summarize` | Muestra el resumen en la terminal. |
+| `--sections` | Muestra el desglose de secciones por artículo (resumen, introducción, metodología…). Los artículos vectorizados sin `--section-parse` aparecen bajo `(no section)`. |
 | `--export` | Exporta el resumen como JSON, con ruta automática en `.lutz/`. |
 | `--export FILE` | Exporta a una ruta específica. Usa `-` para imprimir en stdout. |
 
 Las opciones se pueden combinar.
 
 ```bash
-# Mostrar en la terminal
+# Mostrar resumen
 lutz vector-store --summarize
+
+# Ver qué secciones se detectaron por artículo
+lutz vector-store --sections
+
+# Resumen + desglose de secciones juntos
+lutz vector-store --summarize --sections
 
 # Exportar JSON con ruta automática
 lutz vector-store --export
@@ -546,9 +597,6 @@ lutz vector-store --export summary.json
 
 # Imprimir JSON en stdout
 lutz vector-store --export -
-
-# Mostrar y exportar al mismo tiempo
-lutz vector-store --summarize --export summary.json
 ```
 
 ---
@@ -664,6 +712,7 @@ lutz/
 ├── core/
 │   ├── security_checker.py   # verificaciones de seguridad en PDF
 │   ├── pdf_processor.py      # extracción de texto y división en fragmentos
+│   ├── section_parser.py     # detección de secciones (layout-parser o heurísticas de texto)
 │   ├── vector_store.py       # wrapper de LanceDB
 │   ├── embedding_client.py   # proveedores de embeddings
 │   └── llm_client.py         # proveedores de LLM
@@ -686,17 +735,25 @@ lutz init mi-revision && cd mi-revision
 # 2. Agregar PDFs
 lutz load --f ~/Downloads/articulos --so linux
 
-# 3. Vectorizar con verificación de seguridad
-lutz vectorize
+# 3. Vectorizar con división por secciones (opcional pero recomendado)
+lutz vectorize --section-parse
 
-# 4. Cribado por artículo
-lutz analysis --p prompts/screening.md --per-article --workers 4
+# 4. Inspeccionar el desglose de secciones para confirmar la detección
+lutz vector-store --sections
 
-# 5. Extraer citas de los artículos relevantes
+# 5. Cribado por artículo (solo resumen — más rápido y más económico)
+lutz analysis --p prompts/screening.md --per-article --workers 4 \
+  --filter-sections abstract
+
+# 6. Análisis profundo sobre metodología y resultados
+lutz analysis --p prompts/methodology_analysis.md \
+  --filter-sections methodology,results
+
+# 7. Extraer citas de los artículos relevantes
 lutz citations --analysis analysis/execution_reports/screening_<timestamp>.json \
   --workers 4 --only-relevant
 
-# 6. Inspeccionar la base vectorial
+# 8. Inspeccionar la base vectorial
 lutz vector-store --summarize
 lutz vector-store --export
 ```

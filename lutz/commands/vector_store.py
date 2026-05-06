@@ -53,6 +53,17 @@ def _build_payload(info: dict, db_path: Path, project_root: Path, db_size_mb: fl
     ),
 )
 @click.option(
+    "--sections",
+    is_flag=True,
+    default=False,
+    help=(
+        "Show a per-article section breakdown: how many chunks each article has in "
+        "each section (abstract, introduction, methodology, …). "
+        "Articles vectorized without --section-parse will appear under '(no section)'. "
+        "Useful to verify that section-aware vectorization worked correctly."
+    ),
+)
+@click.option(
     "--export",
     "export_path",
     # flag_value="" → used as bare flag (--export, no filename)
@@ -68,12 +79,11 @@ def _build_payload(info: dict, db_path: Path, project_root: Path, db_size_mb: fl
         "Use '-' to print the JSON to stdout."
     ),
 )
-def vector_store(summarize: bool, export_path: str | None) -> None:
+def vector_store(summarize: bool, sections: bool, export_path: str | None) -> None:
     """Inspect the local vector store (.lutz/vector_store/).
 
     \b
-    Both flags can be combined to display the terminal summary and write the
-    JSON file in the same invocation.
+    Flags can be combined freely, e.g. --summarize --sections --export.
 
     \b
     Exported JSON fields:
@@ -91,14 +101,17 @@ def vector_store(summarize: bool, export_path: str | None) -> None:
     \b
     Examples:
       lutz vector-store --summarize
+      lutz vector-store --sections
+      lutz vector-store --summarize --sections
       lutz vector-store --export
       lutz vector-store --export summary.json
       lutz vector-store --export -
       lutz vector-store --summarize --export summary.json
     """
-    if not summarize and export_path is None:
+    if not summarize and not sections and export_path is None:
         console.print(
-            "Use [bold]lutz vector-store --summarize[/] to display store details, or\n"
+            "Use [bold]lutz vector-store --summarize[/] to display store details,\n"
+            "    [bold]lutz vector-store --sections[/] to inspect section breakdown, or\n"
             "    [bold]lutz vector-store --export[/] to save a JSON summary."
         )
         return
@@ -150,6 +163,59 @@ def vector_store(summarize: bool, export_path: str | None) -> None:
             )
 
         console.print(table)
+
+    # --sections: section breakdown per article
+    if sections:
+        breakdown = store.section_breakdown()
+
+        if not breakdown:
+            console.print("[yellow]No section data found.[/]")
+        else:
+            # Collect all distinct section names across all articles, sorted
+            all_sections: list[str] = sorted(
+                {s for counts in breakdown.values() for s in counts if s},
+                key=lambda s: [
+                    "abstract", "introduction", "background", "methodology",
+                    "results", "discussion", "conclusion", "references",
+                    "acknowledgements", "appendix",
+                ].index(s) if s in [
+                    "abstract", "introduction", "background", "methodology",
+                    "results", "discussion", "conclusion", "references",
+                    "acknowledgements", "appendix",
+                ] else 99,
+            )
+            has_unlabeled = any("" in counts for counts in breakdown.values())
+
+            sec_table = Table(
+                title="Section breakdown",
+                show_lines=True,
+                header_style="bold cyan",
+            )
+            sec_table.add_column("Article", style="dim", no_wrap=False, min_width=20)
+            for sec in all_sections:
+                sec_table.add_column(sec, justify="right")
+            if has_unlabeled:
+                sec_table.add_column("(no section)", justify="right", style="dim")
+
+            for filename in sorted(breakdown.keys()):
+                counts = breakdown[filename]
+                row = [filename]
+                for sec in all_sections:
+                    n = counts.get(sec, 0)
+                    row.append(str(n) if n else "[dim]—[/]")
+                if has_unlabeled:
+                    n = counts.get("", 0)
+                    row.append(str(n) if n else "[dim]—[/]")
+                sec_table.add_row(*row)
+
+            console.print(sec_table)
+
+            if has_unlabeled:
+                console.print(
+                    "[dim]Articles under '(no section)' were vectorized without "
+                    "--section-parse. Re-run 'lutz unvectorize' then "
+                    "'lutz vectorize --section-parse' to add section labels.[/]"
+                )
 
     # --export: write JSON
     if export_path is not None:

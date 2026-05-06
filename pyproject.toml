@@ -48,6 +48,13 @@ dev = [
     "ruff>=0.4",
     "mypy>=1.10",
 ]
+layout = [
+    # Visual layout detection for section-aware chunking (--section-parse flag).
+    # Also requires: poppler system library (apt install poppler-utils / brew install poppler)
+    # Model weights (~250 MB) are downloaded automatically on first use.
+    "layoutparser[layoutmodels]>=0.3.4",
+    "pdf2image>=1.16",
+]
 
 [project.scripts]
 lutz = "lutz.cli:cli"
