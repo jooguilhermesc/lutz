@@ -62,14 +62,14 @@ Lutz does not replace critical reading or methodological decisions by researcher
 ## How Lutz works
 
 ```text
-PDFs -> security check -> text extraction -> embeddings -> vector database -> LLM analysis -> JSON report
+PDFs -> security check -> text extraction -> [section parsing] -> embeddings -> vector database -> LLM analysis -> JSON report
 ```
 
 Basic flow:
 
 1. `lutz init` creates a project folder with subfolders, prompt templates, and `.env.example`.
 2. `lutz load` copies your PDFs into `articles/`.
-3. `lutz vectorize` checks PDFs, extracts text, splits content into chunks, and creates embeddings.
+3. `lutz vectorize` checks PDFs, extracts text, optionally splits articles into labeled sections (abstract, introduction, methodology…), chunks, and creates embeddings.
 4. `lutz analysis` uses a Markdown prompt to analyze the vectorized articles.
 5. Results are stored in `analysis/execution_reports/`.
 
@@ -404,7 +404,7 @@ Windows PowerShell:
 lutz load --f "C:\Users\Ana\Downloads\articles" --so windows
 ```
 
-### `lutz vectorize [--skip-security] [--chunk-size N] [--chunk-overlap N] [--quarantine]`
+### `lutz vectorize [options]`
 
 Processes PDFs from `articles/` and creates the local vector database in `.lutz/vector_store/`.
 
@@ -414,13 +414,39 @@ Processes PDFs from `articles/` and creates the local vector database in `.lutz/
 | `--chunk-size` | Text chunk size in words. | `512` |
 | `--chunk-overlap` | Overlap between chunks. | `64` |
 | `--quarantine` | Process files in `articles/_quarantine/`. | disabled |
+| `--section-parse` | Split each article into labeled sections (abstract, introduction, methodology, results, discussion, conclusion, references…) before chunking. Each chunk is tagged with its section name. Chunks never cross section boundaries. | disabled |
+| `--layout-parse` / `--no-layout-parse` | When `--section-parse` is active, use layout-parser for visual section detection. Requires `pip install "lutz-research[layout]"`. Falls back to text heuristics if not installed. Has no effect without `--section-parse`. | enabled |
 
 Examples:
 
 ```bash
 lutz vectorize
 lutz vectorize --chunk-size 256 --chunk-overlap 32
+
+# Section-aware vectorization (text heuristics, no extra deps)
+lutz vectorize --section-parse --no-layout-parse
+
+# Section-aware vectorization with visual layout detection
+pip install "lutz-research[layout]"
+lutz vectorize --section-parse
 ```
+
+**Installing the layout detection backend**
+
+Visual layout detection uses [layout-parser](https://layout-parser.readthedocs.io/) with a Detectron2 model trained on PubLayNet. Model weights (~250 MB) are downloaded on first use.
+
+```bash
+# Install optional deps
+pip install "lutz-research[layout]"
+
+# System dependency (required by pdf2image)
+# Debian/Ubuntu:
+apt install poppler-utils
+# macOS:
+brew install poppler
+```
+
+If layout-parser is not installed, `--section-parse` falls back to regex-based text heuristics with no extra dependencies.
 
 ### `lutz unvectorize`
 
@@ -451,6 +477,7 @@ Makes a separate model call for each article in the vector database. Useful for 
 | `--per-article` | Analyze each article in a separate model call. | disabled |
 | `--workers` | Parallel model calls in `--per-article` mode. | `1` |
 | `--max-chunks-per-article` | Chunk limit per article in `--per-article` mode. | no limit |
+| `--filter-sections` | Comma-separated list of sections to include (e.g. `abstract,methodology,results`). Only chunks with a matching section label are retrieved. Requires articles vectorized with `--section-parse`. Use `lutz vector-store --sections` to check what is available. | no filter |
 | `--output-name` | Base output filename. | generated automatically |
 
 Examples:
@@ -474,9 +501,26 @@ lutz analysis --p prompts/screening.md --per-article --workers 4
 # Per-article screening with a 10-chunk context limit per article
 lutz analysis --p prompts/screening.md --per-article --workers 4 --max-chunks-per-article 10
 
+# Analyze only methodology and results sections (RAG mode)
+lutz analysis --p prompts/methodology_analysis.md \
+  --filter-sections methodology,results
+
+# Screen articles using only the abstract (per-article, parallel)
+lutz analysis --p prompts/screening.md --per-article --workers 4 \
+  --filter-sections abstract
+
 # Custom output name
 lutz analysis --p prompts/systematic_review.md --output-name my-analysis-v1
 ```
+
+**Section filter (`--filter-sections`)**
+
+When articles have been vectorized with `--section-parse`, each chunk carries a section label (`abstract`, `introduction`, `background`, `methodology`, `results`, `discussion`, `conclusion`, `references`, `acknowledgements`, `appendix`). The `--filter-sections` flag restricts the analysis to only those sections, reducing context size and focusing the model's attention.
+
+- In **RAG mode** the similarity search is run only over the specified sections, then ranked by relevance as usual.
+- In **per-article mode** each article receives only the chunks from the specified sections. Articles with no chunks in those sections show `chunks_used: 0` in the report.
+- Articles vectorized without `--section-parse` have no section label and are **excluded** when the filter is active.
+- Run `lutz vector-store --sections` first to confirm which sections are present in the store.
 
 **Performance in `--per-article` mode**
 
@@ -527,21 +571,28 @@ lutz citations --analysis analysis/execution_reports/screening_20260501.json \
 
 > **Prerequisite:** the input report must have been generated with `lutz analysis --per-article`. The vector database must be available at `.lutz/vector_store/` because citations are extracted from original article chunks.
 
-### `lutz vector-store [--summarize] [--export [FILE]]`
+### `lutz vector-store [--summarize] [--sections] [--export [FILE]]`
 
 Inspects the local vector database.
 
 | Option | Description |
 |--------|-------------|
 | `--summarize` | Display a summary in the terminal. |
+| `--sections` | Show a per-article section breakdown (abstract, introduction, methodology…). Articles vectorized without `--section-parse` appear under `(no section)`. |
 | `--export` | Export the summary as JSON, with an automatic path in `.lutz/`. |
 | `--export FILE` | Export to a specific path. Use `-` to print to stdout. |
 
 The options can be combined.
 
 ```bash
-# Display in terminal
+# Display summary
 lutz vector-store --summarize
+
+# Check which sections were detected per article
+lutz vector-store --sections
+
+# Summary + section breakdown together
+lutz vector-store --summarize --sections
 
 # Export JSON with automatic path
 lutz vector-store --export
@@ -551,9 +602,6 @@ lutz vector-store --export summary.json
 
 # Print JSON to stdout
 lutz vector-store --export -
-
-# Display and export at the same time
-lutz vector-store --summarize --export summary.json
 ```
 
 ---
@@ -669,6 +717,7 @@ lutz/
 ├── core/
 │   ├── security_checker.py   # PDF security checks
 │   ├── pdf_processor.py      # text extraction and chunking
+│   ├── section_parser.py     # section detection (layout-parser or text heuristics)
 │   ├── vector_store.py       # LanceDB wrapper
 │   ├── embedding_client.py   # embedding providers
 │   └── llm_client.py         # LLM providers
@@ -691,17 +740,25 @@ lutz init my-review && cd my-review
 # 2. Add PDFs
 lutz load --f ~/Downloads/articles --so linux
 
-# 3. Vectorize with security checks
-lutz vectorize
+# 3. Vectorize with section-aware parsing (optional but recommended)
+lutz vectorize --section-parse
 
-# 4. Per-article screening
-lutz analysis --p prompts/screening.md --per-article --workers 4
+# 4. Inspect the section breakdown to confirm detection worked
+lutz vector-store --sections
 
-# 5. Extract citations from relevant articles
+# 5. Per-article screening (abstract only — faster and cheaper)
+lutz analysis --p prompts/screening.md --per-article --workers 4 \
+  --filter-sections abstract
+
+# 6. Deep analysis on methodology and results sections
+lutz analysis --p prompts/methodology_analysis.md \
+  --filter-sections methodology,results
+
+# 7. Extract citations from relevant articles
 lutz citations --analysis analysis/execution_reports/screening_<timestamp>.json \
   --workers 4 --only-relevant
 
-# 6. Inspect the vector database
+# 8. Inspect the vector database
 lutz vector-store --summarize
 lutz vector-store --export
 ```

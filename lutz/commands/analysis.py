@@ -59,8 +59,11 @@ _TOP_K_TYPE = _TopKType()
 def _build_context(chunks: list[dict]) -> str:
     parts = []
     for i, chunk in enumerate(chunks, 1):
+        section = chunk.get("section", "")
+        section_label = f", section: {section}" if section else ""
         parts.append(
-            f"--- Excerpt {i} (from: {chunk['filename']}, page {chunk.get('page', '?')}) ---\n"
+            f"--- Excerpt {i} "
+            f"(from: {chunk['filename']}, page {chunk.get('page', '?')}{section_label}) ---\n"
             f"{chunk['text']}"
         )
     return "\n\n".join(parts)
@@ -135,6 +138,22 @@ def _user_message(prompt_content: str, context: str) -> str:
     ),
 )
 @click.option(
+    "--filter-sections",
+    default=None,
+    metavar="SECTIONS",
+    help=(
+        "Comma-separated list of section names to include in the analysis. "
+        "Only chunks whose section label matches one of the given names are "
+        "retrieved or sent to the LLM. "
+        "Example: --filter-sections abstract,methodology,results "
+        "Valid names: abstract, introduction, background, methodology, results, "
+        "discussion, conclusion, references, acknowledgements, appendix. "
+        "Has no effect on articles vectorized without --section-parse (those chunks "
+        "have no section label and will be excluded when this filter is active). "
+        "Use 'lutz vector-store --sections' to check what sections are available."
+    ),
+)
+@click.option(
     "--output-name", default=None,
     help=(
         "Custom base name for the output JSON file saved in analysis/execution_reports/. "
@@ -147,6 +166,7 @@ def analysis(
     per_article: bool,
     workers: int,
     max_chunks_per_article: int | None,
+    filter_sections: str | None,
     output_name: str | None,
 ) -> None:
     """Analyse vectorised articles using a Markdown prompt.
@@ -176,6 +196,14 @@ def analysis(
         The vector store is read once (bulk load) before workers start.
 
     \b
+    Section filter (--filter-sections)
+      Restricts the analysis to specific sections of the articles. Only chunks
+      whose section label matches one of the given names are retrieved.
+      Works in both RAG and per-article modes.
+      Requires articles to have been vectorized with --section-parse.
+      Use 'lutz vector-store --sections' to see what sections are available.
+
+    \b
     Output
       A single JSON file in analysis/execution_reports/ containing metadata
       (mode, prompt, timestamps, token counts) and the analysis body.
@@ -190,6 +218,8 @@ def analysis(
       lutz analysis --p prompts/screening.md --per-article --workers 4
       lutz analysis --p prompts/screening.md --per-article --workers 4 --max-chunks-per-article 10
       lutz analysis --p prompts/screening.md --output-name screening_pilot_v1
+      lutz analysis --p prompts/methodology.md --filter-sections methodology,results
+      lutz analysis --p prompts/screening.md --per-article --filter-sections abstract
     """
     env = load_env()
     project_root = require_project_root()
@@ -201,6 +231,11 @@ def analysis(
     if not prompt_content:
         console.print("[bold red]Error:[/] prompt file is empty.")
         raise click.Abort()
+
+    # Parse section filter
+    section_filter: list[str] | None = None
+    if filter_sections:
+        section_filter = [s.strip() for s in filter_sections.split(",") if s.strip()]
 
     mode = "per_article" if per_article else "rag"
     top_k_display = "*" if (not per_article and top_k is None) else (top_k if not per_article else "—")
@@ -216,6 +251,8 @@ def analysis(
         panel_lines.append(f"Workers: {workers}")
         if max_chunks_per_article:
             panel_lines.append(f"Max chunks/article: {max_chunks_per_article}")
+    if section_filter:
+        panel_lines.append(f"Sections: [cyan]{', '.join(section_filter)}[/]")
 
     console.print(Panel.fit("\n".join(panel_lines), border_style="cyan"))
 
@@ -244,11 +281,13 @@ def analysis(
         output = _run_per_article(
             store, llm_client, prompt_content, store_info,
             embedding_client, workers, max_chunks_per_article,
+            section_filter=section_filter,
         )
     else:
         output = _run_rag(
             store, llm_client, embedding_client, prompt_content,
             top_k, store_info,
+            section_filter=section_filter,
         )
 
     finished_at = datetime.now(timezone.utc)
@@ -266,6 +305,7 @@ def analysis(
             "mode": mode,
             "prompt_path": str(prompt_path),
             "prompt_content": prompt_content,
+            "filter_sections": section_filter,
             "started_at": started_at.isoformat(),
             "finished_at": finished_at.isoformat(),
             "elapsed_seconds": elapsed_seconds,
@@ -326,6 +366,7 @@ def _run_rag(
     prompt_content: str,
     top_k: int | None,
     store_info: dict,
+    section_filter: list[str] | None = None,
 ) -> dict:
     console.print("[bold]Step 1/2 — Retrieving relevant context[/]")
     with Progress(SpinnerColumn(), TextColumn("Embedding prompt..."), console=console, transient=True) as p:
@@ -333,7 +374,7 @@ def _run_rag(
         query_embeddings, embed_tokens = embedding_client.embed([prompt_content])
 
     query_embedding = query_embeddings[0]
-    chunks = store.search(query_embedding, top_k=top_k)
+    chunks = store.search(query_embedding, top_k=top_k, sections=section_filter)
     unique_docs = sorted({c["filename"] for c in chunks})
 
     top_k_label = "*" if top_k is None else top_k
@@ -384,10 +425,11 @@ def _run_per_article(
     embedding_client: EmbeddingClient,
     workers: int,
     max_chunks: int | None,
+    section_filter: list[str] | None = None,
 ) -> dict:
     # Single bulk read — avoids N full table scans
     console.print("[dim]Loading vector store into memory...[/]")
-    all_chunks = store.get_all_grouped()
+    all_chunks = store.get_all_grouped(sections=section_filter)
     filenames = sorted(all_chunks.keys())
 
     if not filenames:
