@@ -27,3 +27,91 @@ jobs:
 
       - name: Build package
         run: python -m build
+
+  security:
+    name: Security
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install security tools
+        run: python -m pip install --upgrade pip bandit[toml] detect-secrets
+
+      - name: Run Bandit (high and critical only)
+        run: |
+          bandit -r lutz \
+            --severity-level high \
+            --confidence-level high \
+            --format json \
+            --output bandit-report.json || true
+          python - <<'EOF'
+          import json, sys
+
+          with open("bandit-report.json") as f:
+              report = json.load(f)
+
+          issues = [
+              i for i in report.get("results", [])
+              if i["issue_severity"] in ("HIGH", "CRITICAL")
+              and i["issue_confidence"] in ("HIGH", "MEDIUM", "LOW")
+          ]
+
+          if issues:
+              print(f"::error::Bandit encontrou {len(issues)} vulnerabilidade(s) de severidade HIGH/CRITICAL:")
+              for i in issues:
+                  print(
+                      f"  [{i['issue_severity']}] {i['issue_text']} "
+                      f"— {i['filename']}:{i['line_number']}"
+                  )
+              sys.exit(1)
+
+          print("Bandit: nenhuma vulnerabilidade HIGH/CRITICAL encontrada.")
+          EOF
+
+      - name: Upload Bandit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bandit-report
+          path: bandit-report.json
+
+      - name: Scan for hardcoded secrets (detect-secrets)
+        run: |
+          detect-secrets scan \
+            --exclude-files '(\.git|dist|build|\.venv|node_modules)' \
+            --output .secrets.baseline
+
+          python - <<'EOF'
+          import json, sys
+
+          with open(".secrets.baseline") as f:
+              baseline = json.load(f)
+
+          findings = []
+          for path, secrets in baseline.get("results", {}).items():
+              for secret in secrets:
+                  if not secret.get("is_verified", False):
+                      findings.append((path, secret))
+
+          if findings:
+              print(f"::error::detect-secrets encontrou {len(findings)} possível(is) secret(s) hardcoded:")
+              for path, s in findings:
+                  print(f"  {path}:{s.get('line_number', '?')} — tipo: {s.get('type', '?')}")
+              sys.exit(1)
+
+          print("detect-secrets: nenhum secret hardcoded encontrado.")
+          EOF
+
+      - name: Upload secrets baseline
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: secrets-baseline
+          path: .secrets.baseline
