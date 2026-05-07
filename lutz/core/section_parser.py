@@ -127,9 +127,10 @@ class SectionParser:
                 logger.info("layout-parser detected — using visual layout detection.")
             else:
                 logger.warning(
-                    "layout-parser or pdf2image not installed. "
+                    "layout-parser is installed but detectron2 is not available. "
                     "Falling back to text-heuristic section detection. "
-                    "Install the optional deps with:  pip install \"lutz-research[layout]\""
+                    "detectron2 is not on PyPI and must be installed manually — see: "
+                    "https://detectron2.readthedocs.io/en/latest/tutorials/install.html"
                 )
 
     # ------------------------------------------------------------------
@@ -303,10 +304,10 @@ class SectionParser:
 
 
 def _probe_layout_parser() -> bool:
-    """Return True if layoutparser and pdf2image can be imported."""
+    """Return True if layoutparser, pdf2image, and detectron2 are all available."""
     try:
-        import layoutparser  # noqa: F401
-        import pdf2image     # noqa: F401
-        return True
+        import layoutparser as lp
+        import pdf2image  # noqa: F401
+        return lp.is_detectron2_available()
     except ImportError:
         return False
