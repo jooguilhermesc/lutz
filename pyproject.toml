@@ -39,6 +39,7 @@ dependencies = [
     "transformers>=4.40",
     "torch>=2.0",
     "tantivy>=0.22",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
