@@ -40,6 +40,7 @@ dependencies = [
     "torch>=2.0",
     "tantivy>=0.22",
     "pyyaml>=6.0",
+    "streamlit>=1.32",
 ]
 
 [project.optional-dependencies]
@@ -69,6 +70,7 @@ packages = ["lutz"]
 
 [tool.hatch.build.targets.wheel.sources]
 "lutz/templates" = "lutz/templates"
+"lutz/ui" = "lutz/ui"
 
 [tool.ruff]
 line-length = 100

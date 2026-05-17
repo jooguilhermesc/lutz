@@ -34,6 +34,7 @@ The package is named after **Bertha Maria Julia Lutz**, an important Brazilian s
 - [First use, step by step](#first-use-step-by-step)
 - [Model configuration](#model-configuration)
 - [Main commands](#main-commands)
+- [Visual interface](#visual-interface)
 - [Complete systematic review workflow](#complete-systematic-review-workflow)
 - [How to write prompts](#how-to-write-prompts)
 - [Where results are stored](#where-results-are-stored)
@@ -479,6 +480,7 @@ Makes a separate model call for each article in the vector database. Useful for 
 | `--max-chunks-per-article` | Chunk limit per article in `--per-article` mode. | no limit |
 | `--filter-sections` | Comma-separated list of sections to include (e.g. `abstract,methodology,results`). Only chunks with a matching section label are retrieved. Requires articles vectorized with `--section-parse`. Use `lutz vector-store --sections` to check what is available. | no filter |
 | `--output-name` | Base output filename. | generated automatically |
+| `--multiple` | Path to a YAML file defining multiple experiments to run sequentially. When used, all other flags are ignored — each experiment defines its own parameters inside the YAML. | not used |
 
 Examples:
 
@@ -511,7 +513,50 @@ lutz analysis --p prompts/screening.md --per-article --workers 4 \
 
 # Custom output name
 lutz analysis --p prompts/systematic_review.md --output-name my-analysis-v1
+
+# Run multiple experiments from a YAML file
+lutz analysis --multiple experiments/pilot.yaml
 ```
+
+**Multiple experiments (`--multiple`)**
+
+Run several experiments in sequence using a single YAML file. Each experiment defines its own prompt, mode, and parameters. A consolidated summary JSON is produced alongside individual reports.
+
+```yaml
+# experiments/pilot.yaml
+screening_abstract:
+  prompt: prompts/screening.md
+  mode: per_article
+  workers: 4
+  filter_sections:
+    - abstract
+
+deep_methodology:
+  prompt: prompts/methodology_analysis.md
+  mode: top_k
+  top_k: 20
+  main_model: claude-haiku-4-5      # optional: override LLM_MODEL from .env
+```
+
+**Relevance verdict in per-article mode**
+
+When running `--per-article`, Lutz instructs the model to append a structured verdict block at the end of each analysis:
+
+```
+---VERDICT---
+RELEVANCE: INCLUDE
+```
+
+The verdict is automatically extracted and stored as the `relevance` field in the JSON report. Valid labels are:
+
+| Label | Meaning |
+|-------|---------|
+| `INCLUDE` | Article meets the relevance criterion stated in the prompt. |
+| `EXCLUDE` | Article does not meet the criterion. |
+| `UNCERTAIN` | Available excerpts are not sufficient to decide. |
+| `UNKNOWN` | No verdict block found in the model response. |
+
+For the verdict to be reliable, the prompt should define a clear inclusion or exclusion criterion. Lutz warns at runtime if no criterion keywords are detected.
 
 **Section filter (`--filter-sections`)**
 
@@ -661,10 +706,13 @@ The generated file is a `.json`. It includes:
 - covered articles;
 - model response.
 
-Example filename:
+In **per-article mode**, an `.html` report is also generated alongside the JSON, with a formatted table of results, relevance verdicts, and expandable analysis text per article.
+
+Example filenames:
 
 ```text
-systematic_review_20260501_153000.json
+screening_20260501_153000.json
+screening_20260501_153000.html
 ```
 
 ---
@@ -711,9 +759,11 @@ lutz/
 │   ├── init.py               # lutz init
 │   ├── load.py               # lutz load
 │   ├── vectorize.py          # lutz vectorize / lutz unvectorize
-│   ├── analysis.py           # lutz analysis
+│   ├── analysis.py           # lutz analysis (RAG and per-article modes)
+│   ├── experiments.py        # lutz analysis --multiple (YAML experiment runner)
 │   ├── citations.py          # lutz citations
-│   └── vector_store.py       # lutz vector-store
+│   ├── vector_store.py       # lutz vector-store
+│   └── web.py                # lutz web (Streamlit launcher)
 ├── core/
 │   ├── security_checker.py   # PDF security checks
 │   ├── pdf_processor.py      # text extraction and chunking
@@ -721,13 +771,61 @@ lutz/
 │   ├── vector_store.py       # LanceDB wrapper
 │   ├── embedding_client.py   # embedding providers
 │   └── llm_client.py         # LLM providers
+├── ui/                       # Streamlit visual interface (lutz web)
+│   ├── Home.py               # dashboard entry point
+│   ├── _utils.py             # shared helpers
+│   └── pages/                # one file per page (sidebar navigation)
 └── utils/
+    ├── html_report.py        # HTML report generation for per-article mode
     ├── pdf.py                # basic PDF validation
     ├── project.py            # project detection and .env loading
     └── templates.py          # files created by lutz init
 ```
 
 The vector database uses [LanceDB](https://lancedb.github.io/lancedb/) and is stored in `.lutz/vector_store/` inside the project. This directory should not be committed to Git.
+
+### `lutz web [options]`
+
+Starts the visual research interface in the browser.
+
+```bash
+lutz web
+lutz web --port 8080
+lutz web --host 0.0.0.0 --port 8888   # expose on local network
+lutz web --no-browser                  # start server without opening the browser
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--port` | Port for the Streamlit server. | `8501` |
+| `--host` | Network address to bind to. | `localhost` |
+| `--browser` / `--no-browser` | Open the browser automatically on start. | enabled |
+
+---
+
+## Visual interface
+
+Lutz includes a Streamlit-based visual interface designed for researchers who prefer not to use the command line. It covers the full workflow through a browser window.
+
+**Starting the interface:**
+
+```bash
+lutz web
+```
+
+**Pages:**
+
+| Page | What it does |
+|------|-------------|
+| Home | Project dashboard: PDF count, vectorized chunks, and analyses run. |
+| Vetorização | Upload PDFs, view articles in `articles/`, and run vectorization with configurable options. |
+| Vector Store | Inspect indexed articles, chunk counts, embedding model, and section breakdown. Includes a safe unvectorize action. |
+| Análise | Write or upload a Markdown prompt, choose RAG or per-article mode, set parameters, and run a single analysis or a multi-experiment YAML batch. |
+| Relatórios | View all past analyses in a table, expand per-article results, and download JSON or HTML reports. |
+| Citações | Select a per-article report, run citation extraction, and view extracted passages with confidence and reasoning. |
+| Configurações | Set LLM and embedding providers, API keys (masked), and base URLs — saved directly to `.env`. |
+
+The interface reads the same `.env` and project structure as the CLI. All operations run against the project root detected from the working directory.
 
 ---
 
