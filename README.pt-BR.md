@@ -30,6 +30,7 @@ O nome do pacote é inspirado em **Bertha Maria Julia Lutz**, importante cientis
 - [Primeiro uso passo a passo](#primeiro-uso-passo-a-passo)
 - [Configuracao dos modelos](#configuracao-dos-modelos)
 - [Comandos principais](#comandos-principais)
+- [Interface visual](#interface-visual)
 - [Fluxo completo de revisão sistemática](#fluxo-completo-de-revisao-sistematica)
 - [Como escrever prompts](#como-escrever-prompts)
 - [Onde ficam os resultados](#onde-ficam-os-resultados)
@@ -474,6 +475,7 @@ Faz uma chamada separada ao modelo para cada artigo no banco vetorial. Útil par
 | `--max-chunks-per-article` | Limite de trechos enviados por artigo no modo `--per-article`. | sem limite |
 | `--filter-sections` | Lista de secoes separadas por virgula a incluir na analise (ex: `abstract,methodology,results`). Apenas trechos com o rotulo de secao correspondente sao recuperados. Requer artigos vetorizados com `--section-parse`. Use `lutz vector-store --sections` para verificar o que esta disponivel. | sem filtro |
 | `--output-name` | Nome base do arquivo de saida. | gerado automaticamente |
+| `--multiple` | Caminho para um arquivo YAML com múltiplos experimentos para executar em sequência. Quando usado, todas as outras flags são ignoradas — cada experimento define seus próprios parâmetros no YAML. | não usado |
 
 Exemplos:
 
@@ -506,7 +508,50 @@ lutz analysis --p prompts/screening.md --per-article --workers 4 \
 
 # Saida com nome personalizado
 lutz analysis --p prompts/systematic_review.md --output-name minha-analise-v1
+
+# Executar múltiplos experimentos a partir de um arquivo YAML
+lutz analysis --multiple experimentos/piloto.yaml
 ```
+
+**Múltiplos experimentos (`--multiple`)**
+
+Execute vários experimentos em sequência usando um único arquivo YAML. Cada experimento define seu próprio prompt, modo e parâmetros. Um JSON consolidado de resumo é salvo junto com os relatórios individuais.
+
+```yaml
+# experimentos/piloto.yaml
+triagem_resumo:
+  prompt: prompts/screening.md
+  mode: per_article
+  workers: 4
+  filter_sections:
+    - abstract
+
+analise_metodologia:
+  prompt: prompts/methodology_analysis.md
+  mode: top_k
+  top_k: 20
+  main_model: claude-haiku-4-5      # opcional: sobrescreve LLM_MODEL do .env
+```
+
+**Veredicto de relevância no modo por artigo**
+
+Ao rodar `--per-article`, o Lutz instrui o modelo a adicionar um bloco de veredicto estruturado ao final de cada análise:
+
+```
+---VERDICT---
+RELEVANCE: INCLUDE
+```
+
+O veredicto é extraído automaticamente e salvo como campo `relevance` no JSON. Os rótulos válidos são:
+
+| Rótulo | Significado |
+|--------|-------------|
+| `INCLUDE` | O artigo atende ao critério de relevância definido no prompt. |
+| `EXCLUDE` | O artigo não atende ao critério. |
+| `UNCERTAIN` | Os trechos disponíveis não são suficientes para decidir. |
+| `UNKNOWN` | Nenhum bloco de veredicto foi encontrado na resposta do modelo. |
+
+Para que o veredicto seja confiável, o prompt deve definir um critério claro de inclusão ou exclusão. O Lutz emite um aviso em tempo de execução se nenhuma palavra-chave de critério for detectada.
 
 **Filtro de secoes (`--filter-sections`)**
 
@@ -657,10 +702,13 @@ O arquivo gerado e um `.json`. Ele inclui:
 - artigos cobertos;
 - resposta produzida pelo modelo.
 
-Exemplo de nome de arquivo:
+No **modo por artigo**, um relatório `.html` também é gerado junto com o JSON, com uma tabela formatada de resultados, veredictos de relevância e texto de análise expansível por artigo.
+
+Exemplos de nomes de arquivo:
 
 ```text
-systematic_review_20260501_153000.json
+screening_20260501_153000.json
+screening_20260501_153000.html
 ```
 
 ---
@@ -707,9 +755,11 @@ lutz/
 │   ├── init.py               # lutz init
 │   ├── load.py               # lutz load
 │   ├── vectorize.py          # lutz vectorize / lutz unvectorize
-│   ├── analysis.py           # lutz analysis
+│   ├── analysis.py           # lutz analysis (modos RAG e por artigo)
+│   ├── experiments.py        # lutz analysis --multiple (executor de experimentos YAML)
 │   ├── citations.py          # lutz citations
-│   └── vector_store.py       # lutz vector-store
+│   ├── vector_store.py       # lutz vector-store
+│   └── web.py                # lutz web (iniciador do Streamlit)
 ├── core/
 │   ├── security_checker.py   # verificacoes de seguranca em PDF
 │   ├── pdf_processor.py      # extracao de texto e divisao em chunks
@@ -717,13 +767,61 @@ lutz/
 │   ├── vector_store.py       # wrapper do LanceDB
 │   ├── embedding_client.py   # provedores de embeddings
 │   └── llm_client.py         # provedores de LLM
+├── ui/                       # interface visual Streamlit (lutz web)
+│   ├── Home.py               # ponto de entrada do dashboard
+│   ├── _utils.py             # utilitários compartilhados
+│   └── pages/                # um arquivo por página (navegação na barra lateral)
 └── utils/
+    ├── html_report.py        # geração de relatório HTML para o modo por artigo
     ├── pdf.py                # validação básica de PDF
     ├── project.py            # detecção do projeto e leitura de .env
     └── templates.py          # arquivos criados pelo lutz init
 ```
 
 O banco vetorial usa [LanceDB](https://lancedb.github.io/lancedb/) e fica em `.lutz/vector_store/` dentro do projeto. Esse diretório não deve ser versionado no Git.
+
+### `lutz web [opções]`
+
+Inicia a interface visual de pesquisa no navegador.
+
+```bash
+lutz web
+lutz web --port 8080
+lutz web --host 0.0.0.0 --port 8888   # expõe na rede local
+lutz web --no-browser                  # inicia o servidor sem abrir o navegador
+```
+
+| Opção | Descrição | Padrão |
+|-------|-----------|--------|
+| `--port` | Porta do servidor Streamlit. | `8501` |
+| `--host` | Endereço de rede ao qual o servidor irá se vincular. | `localhost` |
+| `--browser` / `--no-browser` | Abrir o navegador automaticamente ao iniciar. | ativado |
+
+---
+
+## Interface visual
+
+O Lutz inclui uma interface visual baseada em Streamlit, projetada para pesquisadores que preferem não usar a linha de comando. Ela cobre o fluxo completo de trabalho pelo navegador.
+
+**Para iniciar:**
+
+```bash
+lutz web
+```
+
+**Páginas:**
+
+| Página | O que faz |
+|--------|-----------|
+| Home | Dashboard do projeto: contagem de PDFs, chunks vetorizados e análises executadas. |
+| Vetorização | Faça upload de PDFs, veja os artigos em `articles/` e execute a vetorização com opções configuráveis. |
+| Vector Store | Inspecione artigos indexados, contagem de chunks, modelo de embedding e breakdown de seções. Inclui ação segura de unvectorize. |
+| Análise | Escreva ou carregue um prompt Markdown, escolha o modo RAG ou por artigo, configure os parâmetros e execute uma análise simples ou um lote de experimentos via YAML. |
+| Relatórios | Visualize todas as análises anteriores em uma tabela, expanda resultados por artigo e baixe relatórios JSON ou HTML. |
+| Citações | Selecione um relatório por artigo, execute a extração de citações e visualize as passagens extraídas com confiança e justificativa. |
+| Configurações | Configure provedores de LLM e embeddings, chaves de API (mascaradas) e URLs base — salvo diretamente no `.env`. |
+
+A interface lê o mesmo `.env` e estrutura de projeto que a CLI. Todas as operações são executadas contra a raiz do projeto detectada a partir do diretório de trabalho.
 
 ---
 

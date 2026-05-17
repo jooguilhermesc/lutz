@@ -203,12 +203,17 @@ _PROMPT_SYSTEMATIC_REVIEW = """\
 ## Objective
 Conduct a systematic review of the provided articles to synthesise evidence on the research topic.
 
+## Relevance Criterion
+<!-- Define your inclusion/exclusion rule. The LLM will use this to emit a structured RELEVANCE verdict. -->
+*[Enter your relevance criterion here — e.g. "Studies must report empirical data on X in context Y"]*
+
 ## Instructions
 
 1. **Identification**: List all articles by filename and provide a one-sentence summary of each.
 
 2. **Inclusion/Exclusion**: Based on the excerpts provided, indicate which articles are directly
-   relevant to the research question and which are tangential. Justify each decision.
+   relevant to the research question and which are tangential. Justify each decision with reference
+   to the eligibility criteria stated above.
 
 3. **Data extraction**: For each included article extract:
    - Study design (RCT, cohort, case study, review, etc.)
@@ -234,6 +239,10 @@ _PROMPT_METHODOLOGY = """\
 
 ## Objective
 Critically analyse the research methodologies employed in the provided articles.
+
+## Relevance Criterion
+<!-- Define what makes an article eligible for methodology analysis. -->
+*[Enter your eligibility criterion — e.g. "Articles must describe a primary research study with an explicit methodology section"]*
 
 ## Instructions
 
@@ -264,6 +273,10 @@ _PROMPT_EVIDENCE_QUALITY = """\
 
 ## Objective
 Assess the quality of evidence and potential sources of bias in each article.
+
+## Relevance Criterion
+<!-- Define what qualifies an article for quality assessment. -->
+*[Enter your eligibility criterion — e.g. "Articles must present original empirical findings with a defined study design"]*
 
 ## Assessment criteria
 
@@ -300,6 +313,10 @@ _PROMPT_THEMATIC_SYNTHESIS = """\
 
 ## Objective
 Identify and synthesise recurring themes, concepts, and theoretical frameworks across the articles.
+
+## Relevance Criterion
+<!-- Define what makes an article eligible for thematic synthesis. -->
+*[Enter your eligibility criterion — e.g. "Articles must address the topic of X and present qualitative or mixed-methods findings"]*
 
 ## Instructions
 

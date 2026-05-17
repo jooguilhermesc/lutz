@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -18,6 +19,7 @@ from lutz.utils.project import require_project_root, load_env
 from lutz.core.vector_store import VectorStore
 from lutz.core.llm_client import LLMClient
 from lutz.core.embedding_client import EmbeddingClient
+from lutz.utils.html_report import generate_html_report
 
 console = Console()
 
@@ -28,6 +30,61 @@ _SYSTEM_PROMPT = (
     "Always cite the source article filename when referencing specific content. "
     "Be objective, concise, and academically rigorous."
 )
+
+# ---------------------------------------------------------------------------
+# Relevance verdict — labels, injection, and extraction
+# ---------------------------------------------------------------------------
+
+_RELEVANCE_LABELS = ("INCLUDE", "EXCLUDE", "UNCERTAIN")
+
+_RELEVANCE_INSTRUCTION = (
+    "\n\n## Relevance Verdict\n\n"
+    "After completing your analysis you MUST end your response with the following block "
+    "(no extra text after it):\n\n"
+    "```\n"
+    "---VERDICT---\n"
+    "RELEVANCE: <label>\n"
+    "```\n\n"
+    "Replace `<label>` with EXACTLY one of: **INCLUDE**, **EXCLUDE**, or **UNCERTAIN**.\n"
+    "- **INCLUDE** — the article meets the relevance criterion stated in the instructions above.\n"
+    "- **EXCLUDE** — the article does NOT meet the relevance criterion.\n"
+    "- **UNCERTAIN** — the excerpts do not contain enough information to decide.\n"
+)
+
+_VERDICT_RE = re.compile(
+    r"---VERDICT---\s*\n\s*RELEVANCE:\s*([A-Z_]+)", re.IGNORECASE
+)
+
+# Patterns that suggest the prompt contains a relevance criterion.
+_CRITERION_KEYWORDS = re.compile(
+    r"\b(relevance|relevance criterion|inclusion criteria|exclusion criteria|"
+    r"eligibility criteria|eligible|must (report|include|contain|address)|"
+    r"should (report|include|contain)|study criterion|screening criterion|"
+    r"include only|exclude if)\b",
+    re.IGNORECASE,
+)
+
+
+def _extract_relevance(text: str) -> str:
+    """Parse the RELEVANCE verdict from an LLM response. Returns 'UNKNOWN' if absent."""
+    if not text:
+        return "UNKNOWN"
+    m = _VERDICT_RE.search(text)
+    if m:
+        label = m.group(1).upper()
+        return label if label in _RELEVANCE_LABELS else "UNKNOWN"
+    return "UNKNOWN"
+
+
+def _validate_prompt_relevance(prompt_content: str) -> None:
+    """Emit a console warning when no relevance criterion is detected in the prompt."""
+    if not _CRITERION_KEYWORDS.search(prompt_content):
+        console.print(
+            "[bold yellow]Warning:[/] No relevance criterion detected in the prompt. "
+            "The LLM will still emit a RELEVANCE verdict, but it may be unreliable "
+            "without a clear criterion. Consider adding an "
+            "'## Relevance Criterion' section to your prompt.\n"
+        )
 
 
 class _TopKType(click.ParamType):
@@ -69,24 +126,28 @@ def _build_context(chunks: list[dict]) -> str:
     return "\n\n".join(parts)
 
 
-def _user_message(prompt_content: str, context: str) -> str:
+def _user_message(prompt_content: str, context: str, *, include_verdict: bool = False) -> str:
+    verdict_section = _RELEVANCE_INSTRUCTION if include_verdict else ""
     return (
         f"## Researcher Instructions\n\n{prompt_content}\n\n"
         f"## Article Excerpts\n\n{context}\n\n"
         f"## Your Analysis\n\n"
         f"Based on the excerpts above, provide a detailed response following the instructions."
+        f"{verdict_section}"
     )
 
 
 @click.command()
 @click.option(
     "--p", "prompt_path",
-    required=True,
+    required=False,
+    default=None,
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
     help=(
         "Path to the Markdown (.md) prompt file that instructs the LLM. "
         "The file content becomes the researcher instructions section of the LLM request. "
-        "Use the templates in prompts/ created by 'lutz init' as a starting point."
+        "Use the templates in prompts/ created by 'lutz init' as a starting point. "
+        "Required unless --multiple is used."
     ),
 )
 @click.option(
@@ -160,14 +221,27 @@ def _user_message(prompt_content: str, context: str) -> str:
         "Default: <prompt_stem>_<YYYYMMDD_HHMMSS>.json."
     ),
 )
+@click.option(
+    "--multiple", "experiments_path",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help=(
+        "Path to a YAML file defining multiple experiments to run sequentially. "
+        "When this option is used all other flags are ignored — each experiment "
+        "defines its own parameters inside the YAML file. "
+        "A summary JSON is saved alongside the individual experiment reports. "
+        "See 'lutz analysis --multiple experiments.yaml' for the expected YAML schema."
+    ),
+)
 def analysis(
-    prompt_path: Path,
+    prompt_path: Path | None,
     top_k: int | None,
     per_article: bool,
     workers: int,
     max_chunks_per_article: int | None,
     filter_sections: str | None,
     output_name: str | None,
+    experiments_path: Path | None,
 ) -> None:
     """Analyse vectorised articles using a Markdown prompt.
 
@@ -196,6 +270,27 @@ def analysis(
         The vector store is read once (bulk load) before workers start.
 
     \b
+    Multiple experiments mode (--multiple)
+      Run several experiments defined in a YAML file in a single command.
+      Each experiment specifies its own prompt, mode, and optional parameters.
+      A consolidated summary JSON is produced alongside the individual reports.
+
+      YAML schema (one block per experiment):
+
+        exp_name:
+          prompt: prompts/screening.md        # required
+          mode: per_article                   # required: per_article | top_k
+          main_model: claude-haiku-4-5        # optional: override LLM_MODEL from .env
+          workers: 4                          # optional: default 1
+          top_k: 10                           # optional: only for mode=top_k
+          filter_sections:                    # optional
+            - abstract
+            - methodology
+          only_relevant: false                # optional: default false
+          output_name_analysis: exp_analysis  # optional: default <name>_analysis_<ts>.json
+          output_name_citations: exp_cit      # optional: presence triggers citations step
+
+    \b
     Section filter (--filter-sections)
       Restricts the analysis to specific sections of the articles. Only chunks
       whose section label matches one of the given names are retrieved.
@@ -220,7 +315,20 @@ def analysis(
       lutz analysis --p prompts/screening.md --output-name screening_pilot_v1
       lutz analysis --p prompts/methodology.md --filter-sections methodology,results
       lutz analysis --p prompts/screening.md --per-article --filter-sections abstract
+      lutz analysis --multiple experiments/pilot.yaml
     """
+    # --multiple: delegate entirely to the experiments runner
+    if experiments_path is not None:
+        from lutz.commands.experiments import run_experiments
+        run_experiments(experiments_path)
+        return
+
+    if prompt_path is None:
+        raise click.UsageError(
+            "Missing option '--p'. "
+            "Provide a prompt file with --p or run multiple experiments with --multiple."
+        )
+
     env = load_env()
     project_root = require_project_root()
 
@@ -231,6 +339,9 @@ def analysis(
     if not prompt_content:
         console.print("[bold red]Error:[/] prompt file is empty.")
         raise click.Abort()
+
+    if per_article:
+        _validate_prompt_relevance(prompt_content)
 
     # Parse section filter
     section_filter: list[str] | None = None
@@ -324,13 +435,30 @@ def analysis(
         encoding="utf-8",
     )
 
+    # ---- HTML report (per-article only) -------------------------------------
+    html_path: Path | None = None
+    if per_article:
+        html_path = report_path.with_suffix(".html")
+        html_path.write_text(generate_html_report(report), encoding="utf-8")
+
     # ---- summary panel -------------------------------------------------------
     llm_meta = report["metadata"]["llm"]
     embed_meta = report["metadata"]["embedding"]
 
     if per_article:
-        articles_covered = len(output["body"].get("articles", []))
-        extra = f"Articles covered: [cyan]{articles_covered}[/]"
+        articles_list = output["body"].get("articles", [])
+        articles_covered = len(articles_list)
+        relevance_counts: dict[str, int] = {}
+        for a in articles_list:
+            lbl = a.get("relevance", "UNKNOWN")
+            relevance_counts[lbl] = relevance_counts.get(lbl, 0) + 1
+        relevance_summary = "  ".join(
+            f"[cyan]{lbl}[/]: {cnt}" for lbl, cnt in sorted(relevance_counts.items())
+        )
+        extra = (
+            f"Articles covered: [cyan]{articles_covered}[/]\n"
+            f"Relevance:        {relevance_summary}"
+        )
     else:
         articles_covered = len(output["body"].get("articles_covered", []))
         chunks = output["body"].get("chunks_retrieved", 0)
@@ -339,10 +467,14 @@ def analysis(
             f"Chunks retrieved: [cyan]{chunks}[/]"
         )
 
+    saved_files = str(report_path.relative_to(project_root))
+    if html_path:
+        saved_files += f"\n{html_path.relative_to(project_root)}"
+
     console.print(
         Panel.fit(
             f"[bold green]Report saved![/]\n\n"
-            f"{report_path.relative_to(project_root)}\n\n"
+            f"{saved_files}\n\n"
             f"{extra}\n"
             f"LLM model:        [cyan]{llm_client.model_id}[/]\n"
             f"LLM tokens:       [cyan]{llm_meta['total_tokens']:,}[/] "
@@ -453,12 +585,13 @@ def _run_per_article(
                 "llm_prompt_tokens": 0,
                 "llm_completion_tokens": 0,
                 "llm_total_tokens": 0,
+                "relevance": "UNKNOWN",
                 "analysis": None,
                 "error": "No chunks found in store.",
             }
 
         context = _build_context(chunks)
-        user_msg = _user_message(prompt_content, context)
+        user_msg = _user_message(prompt_content, context, include_verdict=True)
         llm_text, llm_usage = llm_client.complete(system=_SYSTEM_PROMPT, user=user_msg)
 
         return {
@@ -467,6 +600,7 @@ def _run_per_article(
             "llm_prompt_tokens": llm_usage["prompt_tokens"],
             "llm_completion_tokens": llm_usage["completion_tokens"],
             "llm_total_tokens": llm_usage["total_tokens"],
+            "relevance": _extract_relevance(llm_text),
             "analysis": llm_text,
         }
 
@@ -496,6 +630,7 @@ def _run_per_article(
                         "llm_prompt_tokens": 0,
                         "llm_completion_tokens": 0,
                         "llm_total_tokens": 0,
+                        "relevance": "UNKNOWN",
                         "analysis": None,
                         "error": str(exc),
                     }
@@ -513,20 +648,25 @@ def _run_per_article(
     total_completion_tokens = sum(r["llm_completion_tokens"] for r in articles_results)
 
     # Summary table
+    _RELEVANCE_COLOR = {"INCLUDE": "green", "EXCLUDE": "red", "UNCERTAIN": "yellow"}
     table = Table(title="Per-article results", show_lines=False, header_style="bold cyan")
     table.add_column("Article", style="dim", no_wrap=False)
     table.add_column("Chunks", justify="right")
     table.add_column("LLM tokens", justify="right")
+    table.add_column("Relevance")
     table.add_column("Status")
     for r in articles_results:
         if r.get("error"):
             status = f"[red]✗ {r['error']}[/]"
         else:
             status = "[green]✓[/]"
+        relevance_label = r.get("relevance", "UNKNOWN")
+        color = _RELEVANCE_COLOR.get(relevance_label, "dim")
         table.add_row(
             r["filename"],
             str(r["chunks_used"]),
             f"{r['llm_total_tokens']:,}",
+            f"[{color}]{relevance_label}[/]",
             status,
         )
     console.print(table)
