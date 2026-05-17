@@ -16,6 +16,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskPr
 from rich.table import Table
 
 from lutz.utils.project import require_project_root, load_env
+from lutz.utils.html_report import generate_html_citations_report
 from lutz.core.vector_store import VectorStore
 from lutz.core.llm_client import LLMClient
 
@@ -487,6 +488,9 @@ def citations(
         json.dumps(output_report, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+
+    html_path = out_path.with_suffix(".html")
+    html_path.write_text(generate_html_citations_report(output_report), encoding="utf-8")
 
     console.print(
         Panel.fit(

@@ -8,12 +8,19 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from _utils import find_project_root, get_vector_store, run_command
+from _style import apply, page_title, info_card, TEAL, TEAL_DARK, MUTED, CHARCOAL
+from lutz.utils.html_report import generate_html_vector_store_report
 
-st.set_page_config(page_title="Lutz — Vector Store", layout="wide")
-st.title("Vector Store")
-st.caption("Metadados e estatísticas da base vetorial")
+st.set_page_config(
+    page_title="Lutz — Vector Store",
+    page_icon=str(Path(__file__).resolve().parent.parent / "lutz.png"),
+    layout="wide",
+)
 
 project_root = find_project_root()
+apply(project_root)
+page_title("Vector Store", "Metadados e estatísticas da base vetorial")
+
 if project_root is None:
     st.error("Nenhum projeto Lutz encontrado.")
     st.stop()
@@ -31,17 +38,25 @@ if info["total_records"] == 0:
     )
     st.stop()
 
-# --- Métricas ---
+# ── Métricas ──────────────────────────────────────────────────────────────────
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Chunks indexados", f"{info['total_records']:,}")
 c2.metric("Artigos únicos", info["unique_documents"])
 c3.metric("Modelo de embedding", info["embedding_model"] or "—")
 c4.metric("Provedor", info["embedding_provider"] or "—")
-st.caption(f"Última atualização: {info['last_updated'] or '—'}")
+
+st.markdown(
+    f'<p style="color:{MUTED}; font-size:0.78rem; margin-top:0.3rem;">'
+    f'Última atualização: {info["last_updated"] or "—"}</p>',
+    unsafe_allow_html=True,
+)
 st.divider()
 
-# --- Tabela de artigos ---
-st.subheader("Artigos indexados")
+# ── Artigos indexados ─────────────────────────────────────────────────────────
+st.markdown(
+    f'<h3 style="margin-bottom:0.6rem;">Artigos indexados</h3>',
+    unsafe_allow_html=True,
+)
 df_articles = pd.DataFrame([{
     "Artigo": a["filename"],
     "Chunks": a["chunk_count"],
@@ -51,8 +66,11 @@ df_articles = pd.DataFrame([{
 } for a in info["articles"]])
 st.dataframe(df_articles, use_container_width=True, hide_index=True)
 
-# --- Distribuição por seções ---
-st.subheader("Distribuição por seções")
+# ── Distribuição por seções ───────────────────────────────────────────────────
+st.markdown(
+    f'<h3 style="margin-bottom:0.6rem; margin-top:1.4rem;">Distribuição por seções</h3>',
+    unsafe_allow_html=True,
+)
 try:
     breakdown = store.section_breakdown()
     has_sections = any(k for counts in breakdown.values() for k in counts if k)
@@ -73,7 +91,7 @@ try:
 except Exception as e:
     st.warning(f"Não foi possível carregar o breakdown de seções: {e}")
 
-# --- Exportar resumo ---
+# ── Exportar resumo ───────────────────────────────────────────────────────────
 st.divider()
 try:
     db_path = project_root / ".lutz" / "vector_store"
@@ -86,16 +104,24 @@ try:
         **{k: v for k, v in info.items() if k != "articles"},
         "articles": info["articles"],
     }
-    st.download_button(
+    col_vs1, col_vs2 = st.columns(2)
+    col_vs1.download_button(
         "Exportar resumo JSON",
         data=json.dumps(export_payload, ensure_ascii=False, indent=2),
         file_name="vector_store_summary.json",
         mime="application/json",
     )
+    col_vs2.download_button(
+        "Exportar resumo HTML",
+        data=generate_html_vector_store_report(export_payload),
+        file_name="vector_store_summary.html",
+        mime="text/html",
+    )
 except Exception:
     pass
 
-# --- Zona de Perigo ---
+# ── Zona de Perigo ────────────────────────────────────────────────────────────
+st.markdown("<div style='margin-top:1rem;'></div>", unsafe_allow_html=True)
 with st.expander("Zona de Perigo"):
     st.warning(
         "Esta operação remove **todos** os dados do vector store de forma irreversível. "

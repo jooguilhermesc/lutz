@@ -8,22 +8,28 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from _utils import find_project_root, run_command
+from _style import apply, page_title, relevance_badge, section_badge, TEAL, TEAL_LIGHT, MUTED, CHARCOAL
 
-st.set_page_config(page_title="Lutz — Citações", layout="wide")
-st.title("Extração de Citações")
-st.caption(
-    "Extraia as passagens mais relevantes dos artigos classificados como incluídos, "
-    "com nível de confiança e raciocínio para cada citação."
+st.set_page_config(
+    page_title="Lutz — Citações",
+    page_icon=str(Path(__file__).resolve().parent.parent / "lutz.png"),
+    layout="wide",
 )
 
 project_root = find_project_root()
+apply(project_root)
+page_title(
+    "Citações",
+    "Extraia passagens relevantes dos artigos incluídos, com confiança e justificativa",
+)
+
 if project_root is None:
     st.error("Nenhum projeto Lutz encontrado.")
     st.stop()
 
 reports_dir = project_root / "analysis" / "execution_reports"
 
-# Buscar apenas relatórios gerados no modo por artigo
+# ── Buscar apenas relatórios gerados no modo por artigo ───────────────────────
 per_article_files: list[Path] = []
 if reports_dir.exists():
     for f in sorted(
@@ -45,7 +51,7 @@ if not per_article_files:
     )
     st.stop()
 
-# --- Seleção do relatório ---
+# ── Seleção do relatório ──────────────────────────────────────────────────────
 selected_name = st.selectbox(
     "Relatório de análise",
     [f.name for f in per_article_files],
@@ -53,7 +59,7 @@ selected_name = st.selectbox(
 )
 selected_file = next(f for f in per_article_files if f.name == selected_name)
 
-# --- Resumo do relatório selecionado ---
+# ── Resumo do relatório selecionado ───────────────────────────────────────────
 try:
     data = json.loads(selected_file.read_text(encoding="utf-8"))
     articles = data.get("articles", [])
@@ -84,7 +90,7 @@ except Exception as e:
 
 st.divider()
 
-# --- Opções ---
+# ── Opções ────────────────────────────────────────────────────────────────────
 col1, col2 = st.columns(2)
 with col1:
     workers = st.number_input(
@@ -135,7 +141,7 @@ if st.button("Extrair Citações", type="primary", disabled=(include_count == 0)
         with st.expander("Saída do processo", expanded=(rc != 0)):
             st.code(output, language=None)
 
-# --- Exibir relatório de citações existente (se houver) ---
+# ── Exibir relatório de citações existente ────────────────────────────────────
 citations_files = sorted(
     (f for f in reports_dir.glob("*_citations_*.json") if f.exists()),
     key=lambda f: f.stat().st_mtime,
@@ -143,7 +149,10 @@ citations_files = sorted(
 )
 if citations_files:
     st.divider()
-    st.subheader("Relatórios de citações gerados")
+    st.markdown(
+        f'<h3 style="margin-bottom:0.6rem;">Relatórios de citações gerados</h3>',
+        unsafe_allow_html=True,
+    )
 
     chosen_cit = st.selectbox(
         "Visualizar relatório de citações",
@@ -162,9 +171,20 @@ if citations_files:
 
         relevant_articles = cit_data.get("relevant_articles", [])
         if relevant_articles:
-            st.subheader("Artigos incluídos e citações")
+            st.markdown(
+                f'<h3 style="margin-bottom:0.6rem; margin-top:1.2rem;">Artigos incluídos e citações</h3>',
+                unsafe_allow_html=True,
+            )
             for art in relevant_articles:
-                with st.expander(f"{art['filename']} — {art.get('label', '—')} (conf. {art.get('confidence', '—')})"):
+                label = art.get("label", "—")
+                conf = art.get("confidence", "—")
+                header = (
+                    f'{art["filename"]} &nbsp;'
+                    f'{relevance_badge(label)} &nbsp;'
+                    f'<span style="color:{MUTED}; font-size:0.78rem;">conf. {conf}</span>'
+                )
+                with st.expander(art["filename"]):
+                    st.markdown(header, unsafe_allow_html=True)
                     if art.get("reasoning"):
                         st.markdown(f"**Justificativa:** {art['reasoning']}")
                     citations = art.get("citations", [])
@@ -175,11 +195,20 @@ if citations_files:
                     else:
                         st.caption("Nenhuma citação extraída.")
 
-        st.download_button(
+        col_dl1, col_dl2 = st.columns(2)
+        col_dl1.download_button(
             "Baixar relatório de citações JSON",
             data=json.dumps(cit_data, ensure_ascii=False, indent=2),
             file_name=chosen_cit,
             mime="application/json",
         )
+        html_cit_file = cit_file.with_suffix(".html")
+        if html_cit_file.exists():
+            col_dl2.download_button(
+                "Baixar relatório de citações HTML",
+                data=html_cit_file.read_bytes(),
+                file_name=html_cit_file.name,
+                mime="text/html",
+            )
     except Exception as e:
         st.warning(f"Não foi possível carregar o relatório de citações: {e}")
