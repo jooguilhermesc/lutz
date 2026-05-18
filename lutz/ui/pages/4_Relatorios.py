@@ -8,12 +8,18 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from _utils import find_project_root
+from _style import apply, page_title, relevance_badge, TEAL, TEAL_LIGHT, MUTED, CHARCOAL
 
-st.set_page_config(page_title="Lutz — Relatórios", layout="wide")
-st.title("Relatórios de Análise")
-st.caption("Visualize e baixe todas as análises executadas")
+st.set_page_config(
+    page_title="Lutz — Relatórios",
+    page_icon=str(Path(__file__).resolve().parent.parent / "lutz.png"),
+    layout="wide",
+)
 
 project_root = find_project_root()
+apply(project_root)
+page_title("Relatórios", "Visualize e baixe todas as análises executadas")
+
 if project_root is None:
     st.error("Nenhum projeto Lutz encontrado.")
     st.stop()
@@ -32,7 +38,7 @@ if not json_files:
     st.info("Nenhum relatório encontrado. Execute uma análise na página **Análise**.")
     st.stop()
 
-# --- Carregar metadados de todos os relatórios ---
+# ── Carregar metadados de todos os relatórios ─────────────────────────────────
 rows: list[dict] = []
 report_map: dict[str, tuple[Path, dict]] = {}
 
@@ -62,8 +68,11 @@ if not rows:
 st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 st.divider()
 
-# --- Visualizador de relatório individual ---
-st.subheader("Visualizar relatório")
+# ── Visualizador de relatório individual ──────────────────────────────────────
+st.markdown(
+    f'<h3 style="margin-bottom:0.6rem;">Visualizar relatório</h3>',
+    unsafe_allow_html=True,
+)
 selected = st.selectbox("Selecionar relatório", [r["Nome"] for r in rows])
 
 if selected and selected in report_map:
@@ -81,7 +90,7 @@ if selected and selected in report_map:
     if mode == "per_article":
         articles = data.get("articles", [])
 
-        # Contagem de relevância
+        # Contagem de relevância com badges
         rel_counts: dict[str, int] = {}
         for a in articles:
             lbl = a.get("relevance", "UNKNOWN")
@@ -92,7 +101,19 @@ if selected and selected in report_map:
             for col, (label, count) in zip(cols, sorted(rel_counts.items())):
                 col.metric(label, count)
 
-        st.subheader("Resultados por artigo")
+        st.markdown(
+            f'<h3 style="margin-bottom:0.6rem; margin-top:1.2rem;">Resultados por artigo</h3>',
+            unsafe_allow_html=True,
+        )
+
+        # Tabela com badges de relevância renderizados
+        art_rows_html = []
+        for a in articles:
+            relevance = a.get("relevance", "—")
+            badge = relevance_badge(relevance) if relevance in ("INCLUDE", "EXCLUDE", "UNCERTAIN", "UNKNOWN") else relevance
+            art_rows_html.append((a["filename"], badge, a.get("chunks_used", 0),
+                                   f"{a.get('llm_total_tokens', 0):,}", a.get("error") or ""))
+
         art_df = pd.DataFrame([{
             "Artigo": a["filename"],
             "Relevância": a.get("relevance", "—"),
@@ -109,20 +130,32 @@ if selected and selected in report_map:
                 art = next((a for a in articles if a["filename"] == chosen), None)
                 if art:
                     relevance = art.get("relevance", "—")
-                    st.markdown(f"**Relevância:** `{relevance}`")
+                    st.markdown(
+                        f'<div style="margin-bottom:0.6rem;">'
+                        f'<span style="color:{MUTED}; font-size:0.8rem; font-weight:600; '
+                        f'text-transform:uppercase; letter-spacing:0.06em;">Relevância</span><br>'
+                        f'{relevance_badge(relevance)}</div>',
+                        unsafe_allow_html=True,
+                    )
                     if art.get("error"):
                         st.error(f"Erro: {art['error']}")
                     st.markdown(art.get("analysis") or "_Sem análise disponível._")
     else:
-        st.subheader("Análise")
+        st.markdown(
+            f'<h3 style="margin-bottom:0.6rem; margin-top:1.2rem;">Análise</h3>',
+            unsafe_allow_html=True,
+        )
         articles_covered = data.get("articles_covered", [])
         if articles_covered:
-            st.caption(f"Artigos cobertos: {', '.join(articles_covered)}")
+            st.markdown(
+                f'<p style="color:{MUTED}; font-size:0.83rem;">Artigos cobertos: '
+                f'{", ".join(articles_covered)}</p>',
+                unsafe_allow_html=True,
+            )
         st.markdown(data.get("analysis") or "_Sem conteúdo disponível._")
 
     st.divider()
 
-    # Botões de download
     col_dl1, col_dl2 = st.columns(2)
     with col_dl1:
         st.download_button(

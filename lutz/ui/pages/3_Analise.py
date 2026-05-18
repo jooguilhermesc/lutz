@@ -8,11 +8,18 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from _utils import find_project_root, get_vector_store, run_command
+from _style import apply, page_title, TEAL, TEAL_LIGHT, MUTED, BORDER, CHARCOAL
 
-st.set_page_config(page_title="Lutz — Análise", layout="wide")
-st.title("Análise de Artigos")
+st.set_page_config(
+    page_title="Lutz — Análise",
+    page_icon=str(Path(__file__).resolve().parent.parent / "lutz.png"),
+    layout="wide",
+)
 
 project_root = find_project_root()
+apply(project_root)
+page_title("Análise", "Execute análises por prompt — RAG ou por artigo com veredicto")
+
 if project_root is None:
     st.error("Nenhum projeto Lutz encontrado.")
     st.stop()
@@ -30,19 +37,27 @@ if vs_info["total_records"] == 0:
     )
     st.stop()
 
-st.info(
-    f"Base vetorial: **{vs_info['total_records']:,}** chunks de "
-    f"**{vs_info['unique_documents']}** artigo(s)"
+st.markdown(
+    f"""
+    <div style="background:{TEAL_LIGHT}; border-radius:10px; padding:0.55rem 1rem;
+                font-size:0.83rem; color:#166B68; margin-bottom:1.2rem; display:inline-block;
+                border:1px solid #C8E6E5;">
+        Base vetorial: <strong>{vs_info['total_records']:,}</strong> chunks de
+        <strong>{vs_info['unique_documents']}</strong> artigo(s)
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
-st.divider()
 
 tab_simples, tab_experimentos = st.tabs(["Análise Simples", "Múltiplos Experimentos"])
 
 # ── Aba: Análise Simples ──────────────────────────────────────────────────────
 with tab_simples:
-    st.subheader("Prompt de análise")
+    st.markdown(
+        f'<h3 style="margin-bottom:0.6rem;">Prompt de análise</h3>',
+        unsafe_allow_html=True,
+    )
 
-    # Carregar prompt existente
     prompts_dir = project_root / "prompts"
     existing_prompts = sorted(prompts_dir.glob("*.md")) if prompts_dir.exists() else []
 
@@ -80,7 +95,10 @@ with tab_simples:
         ),
     )
 
-    st.subheader("Configurações de execução")
+    st.markdown(
+        f'<h3 style="margin-bottom:0.6rem; margin-top:1rem;">Configurações de execução</h3>',
+        unsafe_allow_html=True,
+    )
     col1, col2 = st.columns(2)
 
     with col1:
@@ -191,11 +209,15 @@ with tab_simples:
 
 # ── Aba: Múltiplos Experimentos ───────────────────────────────────────────────
 with tab_experimentos:
-    st.subheader("Múltiplos experimentos via YAML")
-    st.caption(
-        "Execute vários experimentos em sequência. "
-        "Cada experimento define seu próprio prompt, modo e parâmetros. "
-        "Os prompts referenciados no YAML devem existir em `prompts/` do projeto."
+    st.markdown(
+        f'<h3 style="margin-bottom:0.3rem;">Múltiplos experimentos via YAML</h3>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f'<p style="color:{MUTED}; font-size:0.83rem; margin-bottom:1rem;">'
+        f'Execute vários experimentos em sequência. Cada experimento define seu próprio prompt, '
+        f'modo e parâmetros. Os prompts referenciados no YAML devem existir em <code>prompts/</code> do projeto.</p>',
+        unsafe_allow_html=True,
     )
 
     yaml_example = (
