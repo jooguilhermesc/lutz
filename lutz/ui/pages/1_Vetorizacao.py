@@ -7,11 +7,18 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from _utils import find_project_root, is_valid_pdf, run_command, safe_filename
+from _style import apply, page_title, TEAL, TEAL_LIGHT, MUTED, BORDER, CHARCOAL
 
-st.set_page_config(page_title="Lutz — Vetorização", layout="wide")
-st.title("Vetorização de Artigos")
+st.set_page_config(
+    page_title="Lutz — Vetorização",
+    page_icon=str(Path(__file__).resolve().parent.parent / "lutz.png"),
+    layout="wide",
+)
 
 project_root = find_project_root()
+apply(project_root)
+page_title("Vetorização", "Indexe artigos PDF na base vetorial para buscas semânticas")
+
 if project_root is None:
     st.error("Nenhum projeto Lutz encontrado.")
     st.stop()
@@ -23,24 +30,30 @@ tab_artigos, tab_vetorizar = st.tabs(["Artigos", "Vetorizar"])
 
 # ── Aba: Artigos ──────────────────────────────────────────────────────────────
 with tab_artigos:
-    st.subheader("Artigos disponíveis em articles/")
-
     pdfs = sorted(
         p for p in articles_dir.iterdir()
         if p.suffix.lower() == ".pdf" and p.name != ".gitkeep"
     )
 
     if pdfs:
+        st.markdown(
+            f'<p style="color:{MUTED}; font-size:0.85rem; margin-bottom:0.6rem;">'
+            f'{len(pdfs)} arquivo(s) em <code>articles/</code></p>',
+            unsafe_allow_html=True,
+        )
         df = pd.DataFrame([{
             "Nome": p.name,
             "Tamanho": f"{p.stat().st_size / 1024:.1f} KB",
         } for p in pdfs])
         st.dataframe(df, use_container_width=True, hide_index=True)
-        st.caption(f"{len(pdfs)} arquivo(s) encontrado(s)")
     else:
         st.info("Nenhum PDF encontrado em `articles/`. Faça upload abaixo.")
 
-    st.subheader("Adicionar PDFs")
+    st.markdown("<div style='margin-top:1.2rem;'></div>", unsafe_allow_html=True)
+    st.markdown(
+        f'<h3 style="margin-bottom:0.6rem;">Adicionar PDFs</h3>',
+        unsafe_allow_html=True,
+    )
     uploaded = st.file_uploader(
         "Selecione arquivos PDF",
         type=["pdf"],
@@ -49,7 +62,7 @@ with tab_artigos:
     )
 
     if uploaded:
-        if st.button("Salvar arquivos em articles/"):
+        if st.button("Salvar arquivos em articles/", type="primary"):
             saved, errors = [], []
             for f in uploaded:
                 content = f.read()
@@ -68,8 +81,6 @@ with tab_artigos:
 
 # ── Aba: Vetorizar ────────────────────────────────────────────────────────────
 with tab_vetorizar:
-    st.subheader("Opções de Vetorização")
-
     col1, col2 = st.columns(2)
     with col1:
         chunk_size = st.number_input(
@@ -108,7 +119,7 @@ with tab_vetorizar:
         if p.suffix.lower() == ".pdf" and p.name != ".gitkeep"
     )
     if pdf_count == 0 and not quarantine_mode:
-        st.warning("Nenhum PDF encontrado em `articles/`. Adicione arquivos na aba Artigos.")
+        st.warning("Nenhum PDF encontrado em `articles/`. Adicione arquivos na aba **Artigos**.")
 
     st.divider()
 
