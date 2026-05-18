@@ -23,37 +23,58 @@ BORDER     = "#C8E6E5"
 _LOGO = Path(__file__).resolve().parent / "lutz.png"
 LOGO_PATH = str(_LOGO) if _LOGO.exists() else None
 
-# ── CSS global ────────────────────────────────────────────────────────────────
+# ── Streamlit config.toml — força tema claro ──────────────────────────────────
+_THEME_TOML = """\
+[theme]
+base = "light"
+primaryColor = "#1D8B87"
+backgroundColor = "#F4F9F9"
+secondaryBackgroundColor = "#E8F7F7"
+textColor = "#3A5858"
+font = "sans serif"
+"""
+
+
+def _ensure_theme_config() -> None:
+    """Cria .streamlit/config.toml com tema claro se necessário."""
+    import sys
+    main_script = sys.argv[0] if sys.argv else None
+    if main_script:
+        app_dir = Path(main_script).resolve().parent
+    else:
+        app_dir = Path(__file__).resolve().parent
+
+    config_dir = app_dir / ".streamlit"
+    config_file = config_dir / "config.toml"
+
+    if config_file.exists():
+        content = config_file.read_text(encoding="utf-8")
+        if 'base = "light"' in content:
+            return
+
+    config_dir.mkdir(exist_ok=True)
+
+    if config_file.exists():
+        existing = config_file.read_text(encoding="utf-8")
+        if "[theme]" in existing:
+            import re
+            existing = re.sub(
+                r"\[theme\].*?(?=\n\[|\Z)", "", existing, flags=re.DOTALL
+            )
+        new_content = existing.rstrip() + "\n\n" + _THEME_TOML
+    else:
+        new_content = _THEME_TOML
+
+    config_file.write_text(new_content, encoding="utf-8")
+
+
+# ── CSS global (apenas identidade visual — o tema claro cuida das cores base) ─
 GLOBAL_CSS = f"""
 <style>
-/* ── Base ──────────────────────────────────────────────────────────── */
-[data-testid="stAppViewContainer"] {{
-    background: #F4F9F9;
-}}
+/* ── Header ────────────────────────────────────────────────────────── */
 [data-testid="stHeader"] {{
     background: transparent !important;
     border-bottom: none !important;
-}}
-
-/* ── Texto principal (impede herança de branco do tema escuro) ────── */
-[data-testid="stAppViewContainer"] label,
-[data-testid="stAppViewContainer"] p,
-[data-testid="stAppViewContainer"] span,
-[data-testid="stAppViewContainer"] li,
-[data-testid="stAppViewContainer"] small,
-[data-testid="stAppViewContainer"] .stMarkdown,
-[data-testid="stAppViewContainer"] .stRadio label,
-[data-testid="stAppViewContainer"] .stCheckbox label,
-[data-testid="stAppViewContainer"] .stSelectbox label,
-[data-testid="stAppViewContainer"] .stMultiSelect label,
-[data-testid="stAppViewContainer"] .stNumberInput label,
-[data-testid="stAppViewContainer"] .stTextInput label,
-[data-testid="stAppViewContainer"] .stTextArea label,
-[data-testid="stAppViewContainer"] [data-testid="stWidgetLabel"],
-[data-testid="stAppViewContainer"] [data-testid="stWidgetLabel"] p,
-[data-testid="stAppViewContainer"] [data-testid="stCaptionContainer"],
-[data-testid="stAppViewContainer"] [data-testid="stCaptionContainer"] p {{
-    color: {CHARCOAL} !important;
 }}
 
 /* ── Sidebar ────────────────────────────────────────────────────────── */
@@ -63,7 +84,6 @@ GLOBAL_CSS = f"""
 [data-testid="stSidebarContent"] {{
     background: transparent !important;
 }}
-/* Texto geral na sidebar */
 [data-testid="stSidebar"] p,
 [data-testid="stSidebar"] span,
 [data-testid="stSidebar"] label,
@@ -75,11 +95,7 @@ GLOBAL_CSS = f"""
     margin: 0.75rem 0 !important;
 }}
 
-/* ── Botão de colapso / expansão ────────────────────────────────────
-   O botão vive FORA da sidebar (no header do app) nas versões
-   recentes do Streamlit, então o estilo padrão precisa ser visível
-   sobre o fundo claro. O seletor mais específico (dentro da sidebar)
-   aplica ícone branco quando a sidebar está aberta. */
+/* ── Collapse button ──────────────────────────────────────────────── */
 [data-testid="stSidebarCollapseButton"] {{
     background: transparent !important;
 }}
@@ -89,7 +105,6 @@ GLOBAL_CSS = f"""
     border: none !important;
     box-shadow: 0 1px 4px rgba(0,0,0,0.1) !important;
     border-radius: 6px !important;
-    transition: all 0.18s ease !important;
 }}
 [data-testid="stSidebarCollapseButton"] button:hover {{
     color: {TEAL_DARK} !important;
@@ -99,7 +114,6 @@ GLOBAL_CSS = f"""
     fill: currentColor !important;
     color: inherit !important;
 }}
-/* Dentro da sidebar aberta — ícone branco sobre fundo teal */
 [data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] button {{
     color: rgba(255,255,255,0.8) !important;
     background: transparent !important;
@@ -110,7 +124,7 @@ GLOBAL_CSS = f"""
     background: rgba(255,255,255,0.15) !important;
 }}
 
-/* Links de navegação entre páginas (Streamlit 1.36+ usa stSidebarNavLink) */
+/* ── Nav links ─────────────────────────────────────────────────────── */
 [data-testid="stSidebarNavLink"] {{
     border-radius: 8px !important;
     margin: 1px 4px !important;
@@ -130,7 +144,6 @@ GLOBAL_CSS = f"""
 [data-testid="stSidebarNavLink"] p {{
     color: inherit !important;
 }}
-/* Compatibilidade com versões que ainda usam stSidebarNav */
 [data-testid="stSidebarNav"] a span {{
     color: rgba(255,255,255,0.80) !important;
     font-size: 0.88rem !important;
@@ -189,243 +202,94 @@ h3 {{
     border: 1.5px solid {BORDER} !important;
     font-weight: 500 !important;
     padding: 0.4rem 1.2rem !important;
-    transition: all 0.18s ease !important;
-    background: white !important;
-    color: {CHARCOAL} !important;
 }}
 .stButton > button:hover {{
     border-color: {TEAL} !important;
     color: {TEAL} !important;
     box-shadow: 0 2px 8px rgba(29,139,135,0.15) !important;
 }}
-/* Primary — múltiplos seletores para cobrir versões do Streamlit */
-.stButton > button[kind="primary"],
-[data-testid="stBaseButton-primary"],
-.stFormSubmitButton > button {{
-    background: {TEAL} !important;
-    border-color: {TEAL} !important;
-    color: white !important;
+
+/* ── Tabs ───────────────────────────────────────────────────────────── */
+.stTabs [data-baseweb="tab-list"] {{
+    gap: 0 !important;
+    border-bottom: 2px solid {BORDER} !important;
 }}
-.stButton > button[kind="primary"]:hover,
-[data-testid="stBaseButton-primary"]:hover,
-.stFormSubmitButton > button:hover {{
-    background: {TEAL_DARK} !important;
-    border-color: {TEAL_DARK} !important;
-    transform: translateY(-1px) !important;
-    box-shadow: 0 4px 14px rgba(29,139,135,0.35) !important;
-    color: white !important;
+.stTabs [data-baseweb="tab"] {{
+    border-radius: 8px 8px 0 0 !important;
+    padding: 0.5rem 1.2rem !important;
+    font-weight: 500 !important;
+    color: {MUTED} !important;
 }}
-/* Disabled — legível mesmo desabilitado */
-.stButton > button:disabled {{
-    opacity: 0.5 !important;
-    cursor: not-allowed !important;
+.stTabs [data-baseweb="tab"]:hover {{
+    color: {TEAL} !important;
+    background: {TEAL_LIGHT} !important;
 }}
-.stButton > button[kind="primary"]:disabled,
-[data-testid="stBaseButton-primary"]:disabled,
-.stFormSubmitButton > button:disabled {{
-    background: {TEAL} !important;
-    color: rgba(255,255,255,0.75) !important;
-    opacity: 0.55 !important;
+.stTabs [aria-selected="true"] {{
+    color: {TEAL_DARK} !important;
+    font-weight: 600 !important;
+    background: white !important;
+    border-bottom: 2px solid {TEAL} !important;
+}}
+.stTabs [data-baseweb="tab-highlight"] {{
+    background-color: {TEAL} !important;
 }}
 
-/* ── Métricas ───────────────────────────────────────────────────────── */
+/* ── Metrics ───────────────────────────────────────────────────────── */
 [data-testid="stMetric"] {{
     background: white !important;
     border-radius: 12px !important;
-    padding: 1rem 1.25rem !important;
-    border-left: 4px solid {TEAL} !important;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.05) !important;
+    padding: 0.85rem 1rem !important;
+    border: 1px solid {BORDER} !important;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.04) !important;
 }}
-[data-testid="stMetricLabel"] > div {{
+[data-testid="stMetricLabel"] p {{
     color: {MUTED} !important;
-    font-size: 0.75rem !important;
     font-weight: 600 !important;
     text-transform: uppercase !important;
+    font-size: 0.7rem !important;
     letter-spacing: 0.06em !important;
 }}
 [data-testid="stMetricValue"] {{
     color: {CHARCOAL} !important;
     font-weight: 700 !important;
-    font-size: 1.6rem !important;
 }}
 
-/* ── Tabs ───────────────────────────────────────────────────────────── */
-.stTabs [data-baseweb="tab-list"] {{
-    gap: 2px !important;
-    border-bottom: 2px solid {BORDER} !important;
-    background: transparent !important;
-    padding: 0 !important;
-}}
-.stTabs [data-baseweb="tab"] {{
-    border-radius: 8px 8px 0 0 !important;
-    padding: 0.55rem 1.3rem !important;
-    font-weight: 500 !important;
-    color: {MUTED} !important;
-    border: none !important;
-    background: transparent !important;
-    font-size: 0.88rem !important;
-}}
-.stTabs [aria-selected="true"] {{
-    color: {TEAL} !important;
-    background: {TEAL_LIGHT} !important;
-    border-bottom: 2px solid {TEAL} !important;
-    font-weight: 600 !important;
-}}
-
-/* ── Expanders ──────────────────────────────────────────────────────── */
-details summary {{
-    background: white !important;
-    border-radius: 8px !important;
-    border: 1px solid {BORDER} !important;
-    padding: 0.6rem 1rem !important;
-    font-weight: 500 !important;
-    color: {CHARCOAL} !important;
-    cursor: pointer !important;
-}}
-details[open] summary {{
-    border-radius: 8px 8px 0 0 !important;
-    border-bottom-color: transparent !important;
-}}
-details > div {{
-    border: 1px solid {BORDER} !important;
-    border-top: none !important;
-    border-radius: 0 0 8px 8px !important;
-    background: #FAFEFE !important;
-    padding: 1rem !important;
-}}
-
-/* ── DataFrames ─────────────────────────────────────────────────────── */
-[data-testid="stDataFrame"] > div {{
+/* ── Dataframe ─────────────────────────────────────────────────────── */
+[data-testid="stDataFrame"] {{
     border-radius: 10px !important;
-    overflow: hidden !important;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.05) !important;
     border: 1px solid {BORDER} !important;
+    overflow: hidden !important;
+}}
+
+/* ── Expander ──────────────────────────────────────────────────────── */
+[data-testid="stExpander"] {{
+    border-radius: 12px !important;
+    border: 1px solid {BORDER} !important;
+    background: white !important;
+}}
+[data-testid="stExpander"] summary {{
+    font-weight: 500 !important;
 }}
 
 /* ── Inputs ─────────────────────────────────────────────────────────── */
-.stTextInput input,
-.stTextArea textarea,
-.stNumberInput input {{
-    border-radius: 8px !important;
-    border-color: {BORDER} !important;
-    background: white !important;
-    color: {CHARCOAL} !important;
-}}
 .stTextInput input:focus,
 .stTextArea textarea:focus,
 .stNumberInput input:focus {{
     border-color: {TEAL} !important;
     box-shadow: 0 0 0 2px rgba(29,139,135,0.18) !important;
 }}
-/* Botões stepper (+/−) do number input */
-[data-testid="stNumberInput"] button {{
-    background: white !important;
-    color: {CHARCOAL} !important;
-    border: 1px solid {BORDER} !important;
-}}
-[data-testid="stNumberInput"] button:hover {{
-    border-color: {TEAL} !important;
-    color: {TEAL} !important;
-}}
-[data-testid="stNumberInput"] button svg {{
-    fill: currentColor !important;
-}}
-/* Checkbox — caixa visual e label */
-[data-testid="stCheckbox"] label {{
-    color: {CHARCOAL} !important;
-}}
-[data-testid="stCheckbox"] label span,
-[data-testid="stCheckbox"] label p {{
-    color: {CHARCOAL} !important;
-}}
-[data-testid="stCheckbox"] label > span:first-child,
-[data-testid="stCheckbox"] [role="checkbox"] {{
-    background: white !important;
-    border: 2px solid {BORDER} !important;
-    border-radius: 4px !important;
-}}
-[data-testid="stCheckbox"] [role="checkbox"][aria-checked="true"],
-[data-testid="stCheckbox"] label > span:first-child[aria-checked="true"] {{
-    background: {TEAL} !important;
-    border-color: {TEAL} !important;
-}}
-/* Radio */
-.stRadio label,
-.stRadio [role="radiogroup"] label,
-.stRadio [role="radiogroup"] label span,
-.stRadio [role="radiogroup"] label p {{
-    color: {CHARCOAL} !important;
-}}
-/* Selectbox */
-.stSelectbox > div > div,
-[data-testid="stSelectbox"] > div > div {{
-    border-radius: 8px !important;
-    border-color: {BORDER} !important;
-    background: white !important;
-    color: {CHARCOAL} !important;
-}}
-.stSelectbox > div > div span,
-[data-testid="stSelectbox"] span {{
-    color: {CHARCOAL} !important;
-}}
-/* MultiSelect — força fundo claro */
-.stMultiSelect > div > div,
-[data-testid="stMultiSelect"] > div > div {{
-    border-radius: 8px !important;
-    border-color: {BORDER} !important;
-    background: white !important;
-    color: {CHARCOAL} !important;
-}}
-[data-testid="stMultiSelect"] span {{
-    color: {CHARCOAL} !important;
-}}
-/* Textarea — texto visível */
-.stTextArea textarea {{
-    color: {CHARCOAL} !important;
-}}
-.stTextArea textarea::placeholder {{
-    color: {MUTED} !important;
-    opacity: 0.7 !important;
-}}
 
 /* ── File uploader ──────────────────────────────────────────────────── */
 [data-testid="stFileUploaderDropzone"] {{
     border: 2px dashed {BORDER} !important;
     border-radius: 12px !important;
-    background: white !important;
-    transition: border-color 0.2s !important;
-}}
-[data-testid="stFileUploaderDropzone"] span,
-[data-testid="stFileUploaderDropzone"] small,
-[data-testid="stFileUploaderDropzone"] p {{
-    color: {MUTED} !important;
 }}
 [data-testid="stFileUploaderDropzone"]:hover {{
     border-color: {TEAL} !important;
     background: {TEAL_LIGHT} !important;
 }}
 
-/* ── Baseweb dropdowns / popover (força tema claro) ────────────────── */
-[data-baseweb="popover"],
-[data-baseweb="menu"],
-[data-baseweb="select"] > div,
-[data-baseweb="input"] {{
-    background: white !important;
-    color: {CHARCOAL} !important;
-}}
-[data-baseweb="select"] > div {{
-    background: white !important;
-    border-color: {BORDER} !important;
-}}
-[data-baseweb="select"] span,
-[data-baseweb="select"] div[role="option"],
-[data-baseweb="menu"] li {{
-    color: {CHARCOAL} !important;
-}}
-[data-baseweb="menu"] li:hover {{
-    background: {TEAL_LIGHT} !important;
-}}
-/* Tooltip / help icon */
+/* ── Tooltip / help icon ───────────────────────────────────────────── */
 [data-testid="stTooltipIcon"] svg {{
     color: {TEAL} !important;
     fill: {TEAL} !important;
@@ -435,22 +299,12 @@ details > div {{
 [data-testid="stAlert"] {{
     border-radius: 10px !important;
 }}
-[data-testid="stAlert"] p,
-[data-testid="stAlert"] span,
-[data-testid="stAlert"] code,
-[data-testid="stAlert"] strong,
-[data-testid="stAlert"] a {{
-    color: {CHARCOAL} !important;
-}}
 
 /* ── Download button ────────────────────────────────────────────────── */
 [data-testid="stDownloadButton"] > button {{
     border-radius: 8px !important;
     border: 1.5px solid {BORDER} !important;
-    background: white !important;
-    color: {CHARCOAL} !important;
     font-weight: 500 !important;
-    transition: all 0.18s ease !important;
 }}
 [data-testid="stDownloadButton"] > button:hover {{
     border-color: {TEAL} !important;
@@ -470,16 +324,6 @@ hr {{
     border-top-color: {TEAL} !important;
 }}
 
-/* ── Catch-all: texto escuro fora da sidebar ───────────────────────── */
-[data-testid="stMainBlockContainer"] {{
-    color: {CHARCOAL} !important;
-}}
-[data-testid="stMainBlockContainer"] [data-testid="stMarkdownContainer"] p,
-[data-testid="stMainBlockContainer"] [data-testid="stMarkdownContainer"] li,
-[data-testid="stMainBlockContainer"] [data-testid="stMarkdownContainer"] span {{
-    color: inherit !important;
-}}
-
 </style>
 """
 
@@ -489,6 +333,7 @@ hr {{
 def apply(project_root=None) -> None:
     """Injeta o CSS global e renderiza o cabeçalho da sidebar."""
     import streamlit as st
+    _ensure_theme_config()
     st.markdown(GLOBAL_CSS, unsafe_allow_html=True)
     _sidebar_header(project_root)
 
