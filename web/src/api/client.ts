@@ -62,13 +62,28 @@ export const resetVectorStore = () => request<{ ok: boolean }>('DELETE', '/vecto
 
 export interface QueryResult {
   columns: string[]
-  rows: (string | number | boolean | null)[][]
+  // Rows may contain arrays from UDF outputs (pca_project, embedding_normalize…)
+  rows: (string | number | boolean | null | unknown[])[][]
   count: number
   elapsed_ms: number
   error?: string
 }
 export const queryVectorStore = (sql: string) =>
   request<QueryResult>('POST', '/vector-store/query', { sql })
+
+export const queryVectorStoreAnalytics = (sql: string, includeEmbeddings = false) =>
+  request<QueryResult>('POST', '/vector-store/query', {
+    sql,
+    include_embeddings: includeEmbeddings,
+  })
+
+export interface UDFInfo {
+  name: string
+  description: string
+  vectorized: boolean
+}
+export const listUDFs = () =>
+  request<{ udfs: UDFInfo[] }>('GET', '/vector-store/udfs')
 
 // ── Prompts ───────────────────────────────────────────────────────────────────
 export interface Prompt { name: string; path: string }

@@ -10,6 +10,7 @@ from lutz.commands.analysis import analysis
 from lutz.commands.vector_store import vector_store
 from lutz.commands.citations import citations
 from lutz.commands.web import web
+from lutz.commands.query import query
 
 console = Console()
 
@@ -31,3 +32,4 @@ cli.add_command(analysis)
 cli.add_command(vector_store)
 cli.add_command(citations)
 cli.add_command(web)
+cli.add_command(query)
