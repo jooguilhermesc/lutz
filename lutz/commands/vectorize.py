@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -181,9 +183,11 @@ def vectorize(
     console.print(f"Found [bold cyan]{len(pdf_files)}[/] PDF(s) to process.\n")
 
     # ------------------------------------------------------------------
-    # Security phase
+    # Security phase — parallel scan using ThreadPoolExecutor
     # ------------------------------------------------------------------
     approved: list[Path] = []
+    # Map from PDF path to its SecurityReport (for cached_pages access later)
+    security_reports: dict[Path, SecurityReport] = {}
 
     if skip_security:
         if not quarantine:
@@ -194,22 +198,34 @@ def vectorize(
         checker = SecurityChecker()
         quarantine_dir = articles_dir / "_quarantine"
 
-        reports: list[SecurityReport] = []
+        # Determine parallelism: PDF parsing is I/O-bound so threads scale well
+        scan_workers = min(len(pdf_files), os.cpu_count() or 4)
+
+        reports_map: dict[Path, SecurityReport] = {}
         with Progress(
             SpinnerColumn(), TextColumn("{task.description}"),
             BarColumn(), TaskProgressColumn(), console=console,
         ) as progress:
-            task = progress.add_task("Scanning PDFs...", total=len(pdf_files))
-            for pdf in pdf_files:
-                report = checker.check(pdf)
-                reports.append(report)
-                progress.advance(task)
+            task = progress.add_task(
+                f"Scanning PDFs... (workers={scan_workers})", total=len(pdf_files)
+            )
+            with ThreadPoolExecutor(max_workers=scan_workers) as pool:
+                future_to_pdf = {pool.submit(checker.check, pdf): pdf for pdf in pdf_files}
+                for future in as_completed(future_to_pdf):
+                    pdf = future_to_pdf[future]
+                    reports_map[pdf] = future.result()
+                    progress.advance(task)
+
+        # Restore original ordering
+        reports: list[SecurityReport] = [reports_map[pdf] for pdf in pdf_files]
 
         # Corpus-level anomaly detection (applied when >= 5 docs)
+        # Uses cached_pages from each SecurityReport — no re-read needed
         reports = detect_corpus_anomalies(reports)
 
         safe = [r for r in reports if r.is_safe]
         flagged = [r for r in reports if not r.is_safe]
+        security_reports = {r.path: r for r in safe}
 
         if flagged:
             quarantine_dir.mkdir(exist_ok=True)
@@ -234,7 +250,7 @@ def vectorize(
         return
 
     # ------------------------------------------------------------------
-    # Extraction phase
+    # Extraction phase — parallel extraction using ThreadPoolExecutor
     # ------------------------------------------------------------------
     phase_label = "Phase 2/3" if not section_parse else "Phase 2–3/4"
     console.print(f"[bold]{phase_label} — Text extraction[/]")
@@ -247,19 +263,36 @@ def vectorize(
 
     chunks_by_file: dict[str, list[dict]] = {}
 
+    # layout-parser (Detectron2) is not thread-safe — limit to 1 worker when active
+    lp_active = section_parse and getattr(section_parser, "_lp_available", False)
+    extract_workers = 1 if lp_active else min(len(approved), os.cpu_count() or 4)
+
+    def _extract_one(pdf: Path) -> tuple[str, list[dict]]:
+        """Extract chunks from a single PDF, reusing cached pages when available."""
+        cached = security_reports.get(pdf)
+        pre_pages = cached.cached_pages if cached is not None else None
+
+        if section_parser is not None:
+            return pdf.stem, processor.extract_chunks_with_sections(
+                pdf, section_parser, pre_extracted_pages=pre_pages
+            )
+        return pdf.stem, processor.extract_chunks(pdf, pre_extracted_pages=pre_pages)
+
     with Progress(
         SpinnerColumn(), TextColumn("{task.description}"),
         BarColumn(), TaskProgressColumn(), console=console,
     ) as progress:
         label = "Extracting & parsing sections..." if section_parse else "Extracting text..."
+        if extract_workers > 1:
+            label += f" (workers={extract_workers})"
         task = progress.add_task(label, total=len(approved))
-        for pdf in approved:
-            if section_parser is not None:
-                chunks = processor.extract_chunks_with_sections(pdf, section_parser)
-            else:
-                chunks = processor.extract_chunks(pdf)
-            chunks_by_file[pdf.stem] = chunks
-            progress.advance(task)
+
+        with ThreadPoolExecutor(max_workers=extract_workers) as pool:
+            futures = {pool.submit(_extract_one, pdf): pdf for pdf in approved}
+            for future in as_completed(futures):
+                stem, chunks = future.result()
+                chunks_by_file[stem] = chunks
+                progress.advance(task)
 
     total_chunks = sum(len(c) for c in chunks_by_file.values())
     section_note = " (section-aware)" if section_parse else ""

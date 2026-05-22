@@ -21,8 +21,22 @@ class PDFProcessor:
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
 
-    def extract_chunks(self, pdf_path: Path) -> list[dict]:
+    def extract_chunks(
+        self,
+        pdf_path: Path,
+        pre_extracted_pages: list[tuple[int, str]] | None = None,
+    ) -> list[dict]:
         """Return a list of chunk dicts ready for embedding.
+
+        Parameters
+        ----------
+        pdf_path:
+            Path to the PDF file. Used only when ``pre_extracted_pages`` is
+            ``None``.
+        pre_extracted_pages:
+            Optional list of ``(page_number, text)`` tuples already extracted
+            by a previous step (e.g. ``SecurityChecker.check``).  When
+            provided the PDF is not opened again, eliminating redundant I/O.
 
         Each dict contains:
             text        — the chunk text
@@ -32,7 +46,8 @@ class PDFProcessor:
             section     — always empty string (use extract_chunks_with_sections
                           when section metadata is needed)
         """
-        pages = self._extract_pages(pdf_path)
+        pages = pre_extracted_pages if pre_extracted_pages is not None \
+            else self._extract_pages(pdf_path)
         chunks: list[dict] = []
         chunk_index = 0
 
@@ -63,7 +78,10 @@ class PDFProcessor:
         return chunks
 
     def extract_chunks_with_sections(
-        self, pdf_path: Path, section_parser: "SectionParser"
+        self,
+        pdf_path: Path,
+        section_parser: "SectionParser",
+        pre_extracted_pages: list[tuple[int, str]] | None = None,
     ) -> list[dict]:
         """Return chunks annotated with a ``section`` field.
 
@@ -71,6 +89,15 @@ class PDFProcessor:
         chunks never span section boundaries.  This preserves the semantic
         coherence of each section and allows downstream filtering by section
         name (e.g. retrieve only *abstract* or *methodology* chunks).
+
+        Parameters
+        ----------
+        pdf_path:
+            Path to the PDF file.
+        section_parser:
+            Configured ``SectionParser`` instance.
+        pre_extracted_pages:
+            Optional pre-extracted pages (see ``extract_chunks`` for details).
 
         Each dict contains:
             text        — the chunk text
@@ -80,7 +107,8 @@ class PDFProcessor:
             section     — canonical section name ('abstract', 'introduction', …)
                           or 'body' / 'unknown' when no header was detected
         """
-        pages = self._extract_pages(pdf_path)
+        pages = pre_extracted_pages if pre_extracted_pages is not None \
+            else self._extract_pages(pdf_path)
         sections = section_parser.parse(pdf_path, pages)
 
         chunks: list[dict] = []
@@ -113,29 +141,39 @@ class PDFProcessor:
         return chunks
 
     def _extract_pages(self, pdf_path: Path) -> list[tuple[int, str]]:
-        """Extract (page_number, text) pairs from a PDF."""
-        pages: list[tuple[int, str]] = []
+        """Extract (page_number, text) pairs from a PDF.
 
-        # Try pdfplumber first (better text quality) then fall back to pypdf
+        Extractor priority:
+            1. pymupdf  — binding C para MuPDF (10-50x mais rápido)
+            2. pdfplumber — fallback Python puro
+            3. pypdf    — último recurso
+        """
+        # 1. pymupdf (MuPDF C binding — fastest, best layout handling)
+        try:
+            import fitz  # pymupdf
+
+            doc = fitz.open(str(pdf_path))
+            pages = [(i + 1, page.get_text("text") or "") for i, page in enumerate(doc)]
+            doc.close()
+            return pages
+        except Exception as exc:
+            logger.debug("pymupdf failed for %s: %s — trying pdfplumber", pdf_path.name, exc)
+
+        # 2. pdfplumber (better text quality than pypdf, pure Python)
         try:
             import pdfplumber
 
             with pdfplumber.open(str(pdf_path)) as pdf:
-                for i, page in enumerate(pdf.pages, 1):
-                    text = page.extract_text() or ""
-                    pages.append((i, text))
-            return pages
+                return [(i, page.extract_text() or "") for i, page in enumerate(pdf.pages, 1)]
         except Exception as exc:
             logger.debug("pdfplumber failed for %s: %s — trying pypdf", pdf_path.name, exc)
 
+        # 3. pypdf (last resort)
         try:
             import pypdf
 
             reader = pypdf.PdfReader(str(pdf_path))
-            for i, page in enumerate(reader.pages, 1):
-                text = page.extract_text() or ""
-                pages.append((i, text))
-            return pages
+            return [(i, page.extract_text() or "") for i, page in enumerate(reader.pages, 1)]
         except Exception as exc:
             logger.error("Could not extract text from %s: %s", pdf_path.name, exc)
             return []

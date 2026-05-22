@@ -9,10 +9,28 @@ Supported providers (configured via .env):
 from __future__ import annotations
 
 import logging
-import os
+import threading
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# SentenceTransformer singleton cache — avoids reloading the model from disk
+# on every embed() call (loading takes 2-5 seconds per model).
+# ---------------------------------------------------------------------------
+_ST_MODEL_CACHE: dict[str, Any] = {}
+_ST_MODEL_LOCK = threading.Lock()
+
+
+def _get_st_model(model_id: str) -> Any:
+    """Return a cached SentenceTransformer instance, loading once per process."""
+    if model_id not in _ST_MODEL_CACHE:
+        with _ST_MODEL_LOCK:
+            if model_id not in _ST_MODEL_CACHE:  # double-check inside lock
+                from sentence_transformers import SentenceTransformer
+                logger.debug("Loading SentenceTransformer model '%s' (first use)", model_id)
+                _ST_MODEL_CACHE[model_id] = SentenceTransformer(model_id)
+    return _ST_MODEL_CACHE[model_id]
 
 
 class EmbeddingClient:
@@ -22,6 +40,25 @@ class EmbeddingClient:
         self.provider = provider
         self.model_id = model_id
         self._kwargs = kwargs
+        # Lazy-initialised on the first embed() call.  A lock ensures the
+        # client is created exactly once even under concurrent access.
+        self._client: Any = None
+        self._client_lock = threading.Lock()
+
+    def _get_openai_client(self) -> Any:
+        """Return the OpenAI SDK client, initialising it on first call (thread-safe)."""
+        if self._client is not None:
+            return self._client
+        with self._client_lock:
+            if self._client is not None:  # double-check inside lock
+                return self._client
+            from openai import OpenAI
+
+            client_kwargs: dict[str, Any] = {"api_key": self._kwargs.get("api_key", "dummy")}
+            if base_url := self._kwargs.get("base_url"):
+                client_kwargs["base_url"] = base_url
+            self._client = OpenAI(**client_kwargs)
+        return self._client
 
     # ------------------------------------------------------------------
     # Factory
@@ -92,18 +129,10 @@ class EmbeddingClient:
     # ------------------------------------------------------------------
 
     def _embed_openai(self, texts: list[str]) -> tuple[list[list[float]], int]:
-        from openai import OpenAI
-
-        client_kwargs: dict[str, Any] = {"api_key": self._kwargs.get("api_key", "dummy")}
-        if base_url := self._kwargs.get("base_url"):
-            client_kwargs["base_url"] = base_url
-
-        client = OpenAI(**client_kwargs)
-
-        # OpenAI API accepts max 2048 inputs per request; batch if needed
         batch_size = 256
         all_embeddings: list[list[float]] = []
         total_tokens = 0
+        client = self._get_openai_client()
         for i in range(0, len(texts), batch_size):
             batch = texts[i : i + batch_size]
             response = client.embeddings.create(
@@ -117,14 +146,14 @@ class EmbeddingClient:
 
     def _embed_sentence_transformers(self, texts: list[str]) -> tuple[list[list[float]], int]:
         try:
-            from sentence_transformers import SentenceTransformer
+            from sentence_transformers import SentenceTransformer  # noqa: F401
         except ImportError as exc:
             raise ImportError(
                 "sentence-transformers is required for EMBEDDING_PROVIDER=sentence_transformers. "
                 "Install it with: pip install sentence-transformers"
             ) from exc
 
-        model = SentenceTransformer(self.model_id)
+        model = _get_st_model(self.model_id)
         embeddings = model.encode(texts, show_progress_bar=False, normalize_embeddings=True)
         # sentence_transformers is local — estimate tokens (~4 chars per token)
         estimated_tokens = sum(len(t) // 4 for t in texts)
