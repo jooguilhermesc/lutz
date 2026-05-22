@@ -1,0 +1,89 @@
+name: Build Binaries
+
+# Triggered on every release tag (same as the Release workflow).
+# Produces platform-native executables attached to the GitHub release.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write   # needed to upload release assets
+
+jobs:
+  build:
+    name: ${{ matrix.os-label }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04        # build on 22.04 for glibc compatibility with older distros
+            os-label: Linux x86_64
+            asset-name: lutz-linux-x86_64
+
+          - os: windows-latest
+            os-label: Windows x64
+            asset-name: lutz-windows-x64.exe
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build React frontend
+        run: |
+          cd web
+          npm ci
+          npm run build
+
+      # Copy web/dist → lutz/web so PyInstaller finds it at lutz/web/
+      - name: Stage web assets for PyInstaller
+        shell: bash
+        run: |
+          rm -rf lutz/web
+          cp -r web/dist lutz/web
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          pip install .
+
+      - name: Build binary (Linux)
+        if: runner.os == 'Linux'
+        run: pyinstaller lutz.spec
+
+      - name: Build binary (Windows)
+        if: runner.os == 'Windows'
+        run: pyinstaller lutz.spec
+
+      # ── Rename output to platform asset name ──────────────────────────────
+
+      - name: Rename output (Linux)
+        if: runner.os == 'Linux'
+        run: mv dist/lutz dist/${{ matrix.asset-name }}
+
+      - name: Rename output (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Move-Item dist\lutz.exe dist\${{ matrix.asset-name }}
+
+      # ── Upload to the GitHub release created by release.yml ───────────────
+
+      - name: Upload to GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/${{ matrix.asset-name }}
