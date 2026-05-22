@@ -1,0 +1,159 @@
+{
+  "metadata": {
+    "report_type": "reading_roadmap",
+    "analysis_file": "/home/jooguilhermesc/Documentos/lutz/web/analysis/execution_reports/tmpos7ngyir_20260521_154541.json",
+    "generated_at": "2026-05-21T15:46:19.283722+00:00",
+    "elapsed_seconds": 5.31,
+    "original_prompt_path": "/home/jooguilhermesc/Documentos/lutz/web/prompts/tmpos7ngyir.md",
+    "prompt_content": "# LLM Applications in Cybersecurity: Systematic Review Screening and Classification\n\n## Objective\nScreen and classify articles from systematic literature reviews (SLRs) and mapping studies that investigate the use of Large Language Models (LLMs) in cybersecurity. The goal is to support a meta-analysis that synthesizes how these reviews have been conducted, what application domains they cover, which evaluation metrics they report, and whether they propose or adopt analytical frameworks.\n\n## Classification Framework\n\n### 1. Application Domain\n\n| Code | Domain | Description | Keywords |\n|------|--------|-------------|----------|\n| `VUL` | Vulnerability Analysis | LLMs applied to vulnerability detection, CVE triage, code auditing, static/dynamic analysis | vulnerability, CVE, SAST, DAST, code audit, weakness detection |\n| `MAL` | Malware & Threat Intelligence | LLMs for malware classification, threat hunting, IOC extraction, CTI enrichment | malware, threat intelligence, IOC, YARA, APT, threat hunting |\n| `PEN` | Offensive Security & Pen Testing | LLMs assisting in penetration testing, exploit generation, red teaming, attack simulation | pentest, red team, exploit, attack simulation, offensive |\n| `SOC` | Security Operations & Incident Response | LLMs in SOC automation, alert triage, log analysis, SIEM/SOAR augmentation, forensics | SOC, SIEM, SOAR, incident response, alert triage, forensics |\n| `PHI` | Phishing & Social Engineering | LLMs for detecting or generating phishing, deepfake analysis, social engineering research | phishing, social engineering, deepfake, BEC, spam |\n| `GRC` | Governance, Risk & Compliance | LLMs applied to policy analysis, risk assessment, compliance automation, privacy | GRC, compliance, risk assessment, policy, GDPR, NIST, ISO 27001 |\n| `SEC` | Secure Development & DevSecOps | LLMs integrated into SDLC, secure coding assistants, CI/CD security gates | DevSecOps, secure coding, SDLC, code review, supply chain |\n| `ADV` | Adversarial ML & LLM Security | Research on attacks against LLMs themselves — prompt injection, jailbreaking, model poisoning | adversarial, prompt injection, jailbreak, alignment, poisoning, guardrails |\n| `GEN` | General / Cross-Domain | Review covers multiple domains without a single dominant focus | survey, overview, landscape, taxonomy, broad |\n\n### 2. Review Methodology Quality\n\n| Code | Aspect | Description |\n|------|--------|-------------|\n| `PRO` | Protocol & Registration | Review follows a registered protocol (PROSPERO, OSF) or explicitly describes one |\n| `SRC` | Search Strategy | Describes databases, queries, and inclusion/exclusion criteria with sufficient detail for reproduction |\n| `QAS` | Quality Assessment | Applies a quality appraisal tool or checklist to included primary studies (e.g., CASP, JBI, custom rubric) |\n| `BIA` | Bias Reporting | Discusses risk of bias, publication bias, or methodological limitations |\n| `RPR` | Reproducibility | Provides enough detail (queries, data, code, PRISMA flow) for independent replication |\n\n### 3. Evaluation Metrics Reported\n\n| Code | Metric Category | Examples |\n|------|----------------|----------|\n| `PER` | Performance Metrics | Accuracy, precision, recall, F1, AUC-ROC, detection rate, FPR |\n| `EFF` | Efficiency Metrics | Latency, throughput, token cost, resource consumption, time-to-detect |\n| `HUM` | Human-Centric Metrics | User study, expert agreement, analyst productivity gain, false positive reduction |\n| `SEC` | Security-Specific Metrics | CVE coverage, CVSS correlation, MITRE ATT&CK mapping accuracy, evasion rate |\n| `NON` | No Metrics Reported | Review does not aggregate or compare quantitative evaluation metrics |\n\n### 4. Framework & Taxonomy Contribution\n\n| Code | Contribution Type | Description |\n|------|------------------|-------------|\n| `FWK` | Framework Proposed | Proposes a new analytical, architectural, or evaluation framework |\n| `TAX` | Taxonomy Proposed | Proposes a classification, typology, or categorization scheme |\n| `ADO` | Framework Adopted | Adopts or extends an existing framework (cite which one) |\n| `NON` | None | No framework or taxonomy proposed or adopted |\n\n## Instructions\n\nFor each article represented in the excerpts:\n\n1. **Relevance**: Decide `RELEVANT` or `IRRELEVANT`. Mark as `RELEVANT` only if the article is a systematic review, scoping review, mapping study, or meta-analysis that investigates LLM/AI-language-model usage in any cybersecurity domain.\n2. **Application Domain**: Assign exactly one domain code from §1. If the review spans multiple domains without a dominant one, use `GEN`.\n3. **Methodology Quality**: List all applicable codes from §2 that describe the review's methodological rigor based on available evidence.\n4. **Evaluation Metrics**: List all applicable codes from §3 for metrics aggregated or discussed in the review.\n5. **Framework Contribution**: Assign exactly one code from §4.\n6. **Confidence**: Score from 0 to 100 reflecting how clearly the excerpts support your classification.\n7. **Rationale**: Brief evidence-based justification citing the source filename and specific textual evidence.\n\n## Output Format\n\nRepeat the block below for each article:\n\n```text\nArticle: <filename>\nRelevance: <RELEVANT | IRRELEVANT>\nDomain: <VUL | MAL | PEN | SOC | PHI | GRC | SEC | ADV | GEN | N/A>\nMethodology: <comma-separated codes from §2, or N/A>\nMetrics: <comma-separated codes from §3, or N/A>\nFramework: <FWK | TAX | ADO | NON | N/A>\nConfidence: <0-100 | N/A>\nReasoning: <brief explanation grounded in the excerpts, citing the filename>\n```\n\nIf an article is `IRRELEVANT`, use `N/A` for all fields except `Relevance` and `Reasoning`.\n\n## Decision Rules\n\n- **Borderline relevance**: If the article covers AI/ML in cybersecurity broadly but does not focus on language models (LLMs, transformers, NLP-based approaches), mark as `IRRELEVANT` and note the distinction in the reasoning.\n- **Multiple domains**: Choose the domain with the most textual evidence. If genuinely balanced, use `GEN`.\n- **Methodology codes**: Be strict — only assign a code if the excerpt provides explicit evidence (e.g., mentioning PRISMA for `RPR`, naming databases for `SRC`).\n- **Metrics**: Assign `NON` only if the review explicitly lacks any quantitative aggregation; if unclear from the excerpt, note the uncertainty in the reasoning.",
+    "total_articles": 17,
+    "relevant": 8,
+    "not_relevant": 9,
+    "unknown": 0,
+    "llm": {
+      "provider": "openai",
+      "model": "google/gemini-3.1-flash-lite",
+      "prompt_tokens": 3463,
+      "completion_tokens": 852,
+      "total_tokens": 4315
+    }
+  },
+  "roadmap": {
+    "overview": "This reading guide is structured to transition the researcher from broad, foundational taxonomies of LLM applications in cybersecurity to specialized, domain-specific implementations and methodological frameworks. We recommend starting with the central surveys to establish a mental model of the landscape before exploring niche applications and rigorous evaluation methodologies.",
+    "stages": [
+      {
+        "stage_number": 1,
+        "stage_name": "Foundations and Landscape",
+        "description": "These articles provide a high-level overview of the intersection between Generative AI and cybersecurity, establishing the core taxonomy and breadth of the field.",
+        "articles": [
+          {
+            "filename": "1-s2.0-S2667345226000076-main",
+            "reading_note": "Focus on the proposed taxonomy of threats to understand the primary categorization of GenAI-related cybersecurity risks."
+          },
+          {
+            "filename": "1-s2.0-S2667345225000082-main",
+            "reading_note": "Use this as a comprehensive reference for the wide range of metrics (PER, EFF, HUM, SEC) used across the entire cybersecurity domain."
+          }
+        ]
+      },
+      {
+        "stage_number": 2,
+        "stage_name": "Methodological Rigor and Frameworks",
+        "description": "This stage focuses on how to conduct and evaluate research in this space, emphasizing systematic protocols and the development of analytical frameworks.",
+        "articles": [
+          {
+            "filename": "1-s2.0-S2590005625001365-main",
+            "reading_note": "Examine the 'Generative Artificial Intelligence Security' framework to understand how to structure research within the SDLC domain."
+          },
+          {
+            "filename": "1-s2.0-S1568494626002371-main",
+            "reading_note": "Focus on the application of the Kitchenham/Petersen protocols to learn how to perform a high-quality systematic mapping study."
+          },
+          {
+            "filename": "1-s2.0-S0950584925001417-main",
+            "reading_note": "Analyze the integration of ISO/IEC 25023 standards to understand how to apply general software quality metrics to LLM-based security systems."
+          }
+        ]
+      },
+      {
+        "stage_number": 3,
+        "stage_name": "Specialized Domains and Emerging Trends",
+        "description": "These articles cover specific cybersecurity sub-domains and peripheral research areas, providing depth for targeted investigation.",
+        "articles": [
+          {
+            "filename": "1-s2.0-S2667345223000585-main",
+            "reading_note": "Focus on Section 7 to see how traditional ML-centric reviews are evolving to incorporate LLM-based future visions."
+          },
+          {
+            "filename": "1-s2.0-S2666188826001644-main",
+            "reading_note": "Review this for a bibliometric perspective on how AI and cybersecurity research is trending within educational technology."
+          },
+          {
+            "filename": "1-s2.0-S2215016125004765-main",
+            "reading_note": "Focus on the technical implementation details and performance metrics related to deepfake detection as a case study for PHI domain research."
+          }
+        ]
+      }
+    ],
+    "article_distances": [
+      {
+        "filename": "1-s2.0-S2667345226000076-main",
+        "distance": 0.081959,
+        "rank": 1
+      },
+      {
+        "filename": "1-s2.0-S2667345225000082-main",
+        "distance": 0.121365,
+        "rank": 2
+      },
+      {
+        "filename": "1-s2.0-S2590005625001365-main",
+        "distance": 0.125412,
+        "rank": 3
+      },
+      {
+        "filename": "1-s2.0-S1568494626002371-main",
+        "distance": 0.182697,
+        "rank": 4
+      },
+      {
+        "filename": "1-s2.0-S0950584925001417-main",
+        "distance": 0.225799,
+        "rank": 5
+      },
+      {
+        "filename": "1-s2.0-S2667345223000585-main",
+        "distance": 0.255765,
+        "rank": 6
+      },
+      {
+        "filename": "1-s2.0-S2666188826001644-main",
+        "distance": 0.287445,
+        "rank": 7
+      },
+      {
+        "filename": "1-s2.0-S2215016125004765-main",
+        "distance": 0.32478,
+        "rank": 8
+      }
+    ]
+  },
+  "not_relevant_articles": [
+    {
+      "filename": "1-s2.0-S0720048X25000373-main",
+      "relevance": "not_relevant"
+    },
+    {
+      "filename": "1-s2.0-S2212420926000944-main",
+      "relevance": "not_relevant"
+    },
+    {
+      "filename": "1-s2.0-S2590005625002577-main",
+      "relevance": "not_relevant"
+    },
+    {
+      "filename": "1-s2.0-S2590005626001827-main",
+      "relevance": "not_relevant"
+    },
+    {
+      "filename": "1-s2.0-S2590174526003326-main",
+      "relevance": "not_relevant"
+    },
+    {
+      "filename": "1-s2.0-S2590198225003781-main",
+      "relevance": "not_relevant"
+    },
+    {
+      "filename": "1-s2.0-S2666386426001670-main",
+      "relevance": "not_relevant"
+    },
+    {
+      "filename": "1-s2.0-S2666389926000437-main",
+      "relevance": "not_relevant"
+    },
+    {
+      "filename": "1-s2.0-S2949791426000102-main",
+      "relevance": "not_relevant"
+    }
+  ]
+}
