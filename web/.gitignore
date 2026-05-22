@@ -47,10 +47,17 @@ htmlcov/
 *.swo
 *~
 
-# lutz — do NOT commit articles or the vector store
+# lutz — do NOT commit articles, reports, prompts or the vector store
 articles/*
 !articles/.gitkeep
+analysis/execution_reports/*
+!analysis/execution_reports/.gitkeep
+prompts/*
+!prompts/.gitkeep
 .lutz/
+
+# TypeScript build cache
+tsconfig.tsbuildinfo
 
 # OS
 .DS_Store
