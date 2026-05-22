@@ -82,6 +82,11 @@ lutz = "lutz.cli:cli"
 Repository = "https://github.com/jooguilhermesc/lutz"
 Issues = "https://github.com/jooguilhermesc/lutz/issues"
 
+[tool.hatch.build.targets.sdist]
+# Include the compiled React SPA in the sdist so it's available when hatchling
+# rebuilds the wheel from the sdist in an isolated temp directory.
+include = ["lutz/", "web/dist/", "pyproject.toml", "README.md"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["lutz"]
 
