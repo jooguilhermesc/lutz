@@ -305,6 +305,9 @@ def _build_job_args(job_type: str, body: dict, root: Path) -> tuple[list[str], s
             args.append("--section-parse")
         if body.get("quarantine"):
             args.append("--quarantine")
+        extraction = body.get("extraction_backend") or body.get("extraction")
+        if extraction and extraction in ("pymupdf", "marker", "auto"):
+            args += ["--extraction", extraction]
         return args, "Processar biblioteca"
 
     if job_type == "analysis":
@@ -593,11 +596,45 @@ _VS_COLUMNS = ["filename", "chunk_index", "page", "section", "text",
                "vectorized_at", "embedding_model", "embedding_provider"]
 
 
+def _json_val(v: object) -> object:
+    """Serialize a single DataFrame cell to a JSON-safe Python value.
+
+    Handles numpy scalar types and list columns produced by lutz UDFs
+    (e.g. ``pca_project``, ``embedding_normalize``) so they reach the
+    frontend as proper JSON arrays rather than string representations.
+    """
+    if v is None:
+        return None
+    if isinstance(v, bool):        # bool before int — it's a subclass
+        return v
+    if isinstance(v, (int, float, str)):
+        return v
+    if isinstance(v, list):
+        return v                   # UDF list outputs: pass through as JSON array
+    # numpy scalars — avoid top-level import
+    mod = type(v).__module__
+    if mod == "numpy" or mod.startswith("numpy."):
+        import numpy as _np
+        if isinstance(v, _np.integer):
+            return int(v)
+        if isinstance(v, _np.floating):
+            return float(v)
+        if isinstance(v, _np.bool_):
+            return bool(v)
+        if isinstance(v, _np.ndarray):
+            return v.tolist()
+    return str(v)
+
+
 @api.post("/vector-store/query")
 async def query_vector_store(body: dict) -> dict:
     """Execute a DuckDB SQL query against the main vector store table.
 
-    The table is named ``vectors`` and exposes all columns except ``embedding``.
+    The table is named ``vectors``.  By default the ``embedding`` column is
+    excluded for performance; pass ``"include_embeddings": true`` in the
+    request body to expose it and unlock the lutz analytical UDFs
+    (``cosine_distance``, ``kmeans_label``, ``pca_project``, …).
+
     Returns columns, rows, count and elapsed time in ms.
     """
     import asyncio
@@ -606,11 +643,13 @@ async def query_vector_store(body: dict) -> dict:
     if not sql:
         raise HTTPException(status_code=400, detail="sql required")
 
+    include_embeddings: bool = bool(body.get("include_embeddings", False))
     root = _get_root()
 
     def _run() -> dict:
         import time
-        import duckdb
+        import pyarrow as pa
+        from lutz.analytics import create_connection
         from lutz.core.vector_store import VectorStore
 
         vs = VectorStore(root / ".lutz" / "vector_store")
@@ -620,12 +659,28 @@ async def query_vector_store(body: dict) -> dict:
 
         tbl = vs._db.open_table("articles")
         arrow_tbl = tbl.to_arrow()
-        # Expose only non-embedding columns, silently skipping missing ones
         available = set(arrow_tbl.schema.names)
+
+        # Build the column list: metadata always included, embeddings optional.
         cols = [c for c in _VS_COLUMNS if c in available]
+        if include_embeddings and "embedding" in available:
+            # Cast from list<float32> → list<float64> so the lutz UDFs
+            # (which expect DOUBLE[]) can operate without implicit coercion.
+            emb_col = arrow_tbl.column("embedding")
+            emb_f64 = emb_col.cast(pa.list_(pa.float64()))
+            # Drop the original float32 column and append the cast version.
+            emb_idx = arrow_tbl.schema.get_field_index("embedding")
+            arrow_tbl = (
+                arrow_tbl
+                .remove_column(emb_idx)
+                .append_column(pa.field("embedding", pa.list_(pa.float64())), emb_f64)
+            )
+            cols = cols + ["embedding"]
+
         arrow_tbl = arrow_tbl.select(cols)
 
-        con = duckdb.connect()
+        # create_connection() returns a DuckDB connection with all lutz UDFs.
+        con = create_connection()
         con.register("vectors", arrow_tbl)
 
         t0 = time.perf_counter()
@@ -641,9 +696,7 @@ async def query_vector_store(body: dict) -> dict:
         rows: list[list] = []
         for row in df.itertuples(index=False):
             rows.append([
-                None if v is None else (
-                    str(v) if not isinstance(v, (str, int, float, bool)) else v
-                )
+                _json_val(v)
                 for v in row
             ])
 
@@ -651,6 +704,13 @@ async def query_vector_store(body: dict) -> dict:
 
     result = await asyncio.get_event_loop().run_in_executor(None, _run)
     return result
+
+
+@api.get("/vector-store/udfs")
+async def list_vector_store_udfs() -> dict:
+    """Return the list of lutz analytical UDFs available in SQL queries."""
+    from lutz.analytics.registry import list_udfs
+    return {"udfs": list_udfs()}
 
 
 # ── Prompts ───────────────────────────────────────────────────────────────────
@@ -1436,6 +1496,9 @@ async def vectorize_stream(body: dict) -> StreamingResponse:
         args.append("--section-parse")
     if body.get("quarantine"):
         args.append("--quarantine")
+    extraction = body.get("extraction_backend") or body.get("extraction")
+    if extraction and extraction in ("pymupdf", "marker", "auto"):
+        args += ["--extraction", extraction]
 
     return StreamingResponse(
         _sse_stream(args, root),

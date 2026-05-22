@@ -12,6 +12,7 @@ export default function Layout() {
     { to: '/chat',      label: t('nav.chat'),       icon: '💬' },
     { to: '/vectorize', label: t('nav.vectorize'),  icon: '' },
     ...(showVectorStore ? [{ to: '/store', label: t('nav.store'), icon: '' }] : []),
+    { to: '/analytics', label: t('nav.analytics'),  icon: '◈' },
     { to: '/analysis',  label: t('nav.analysis'),   icon: '' },
     { to: '/citations', label: t('nav.citations'),  icon: '' },
     { to: '/roadmap',   label: t('nav.roadmap'),    icon: '' },

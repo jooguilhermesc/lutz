@@ -26,9 +26,9 @@ const EXAMPLE_QUERIES = [
 
 // ── Interactive results table ─────────────────────────────────────────────────
 
-type Row = Record<string, string | number | boolean | null>
+type Row = Record<string, string | number | boolean | null | unknown[]>
 
-function ResultsTable({ columns, rows }: { columns: string[]; rows: (string | number | boolean | null)[][] }) {
+function ResultsTable({ columns, rows }: { columns: string[]; rows: (string | number | boolean | null | unknown[])[][] }) {
   const { t } = useLanguage()
   const [sorting, setSorting] = useState<SortingState>([])
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
