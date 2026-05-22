@@ -1,7 +1,6 @@
-name: Build Binaries
+name: Build Installers
 
-# Triggered on every release tag (same as the Release workflow).
-# Produces platform-native executables attached to the GitHub release.
+# Triggered on every release tag or manually.
 on:
   push:
     tags:
@@ -9,41 +8,37 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to attach binaries to (e.g. v0.3.0)"
+        description: "Release tag to attach assets to (e.g. v0.3.0)"
         required: true
         default: "v0.3.0"
 
 permissions:
-  contents: write   # needed to upload release assets
+  contents: write
+
+# ── Shared setup steps ────────────────────────────────────────────────────────
+# Both jobs follow the same pattern:
+#   1. Build React frontend (npm ci + npm run build)
+#   2. Stage web/dist → lutz/web/
+#   3. pip install pyinstaller + the package itself
+#   4. pyinstaller lutz.spec  →  dist/lutz[.exe]
+#   5. Wrap in platform installer
+#   6. Upload installer to the GitHub release
 
 jobs:
-  build:
-    name: ${{ matrix.os-label }}
-    runs-on: ${{ matrix.os }}
 
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-22.04        # build on 22.04 for glibc compatibility with older distros
-            os-label: Linux x86_64
-            asset-name: lutz-linux-x86_64
-
-          - os: windows-latest
-            os-label: Windows x64
-            asset-name: lutz-windows-x64.exe
+  # ── Windows: Inno Setup installer (.exe wizard) ─────────────────────────────
+  windows:
+    name: Windows installer
+    runs-on: windows-latest
 
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: "npm"
@@ -55,8 +50,7 @@ jobs:
           npm ci
           npm run build
 
-      # Copy web/dist → lutz/web so PyInstaller finds it at lutz/web/
-      - name: Stage web assets for PyInstaller
+      - name: Stage web assets
         shell: bash
         run: |
           rm -rf lutz/web
@@ -64,33 +58,127 @@ jobs:
 
       - name: Install Python dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install pyinstaller
+          python -m pip install --upgrade pip pyinstaller
           pip install .
 
-      - name: Build binary (Linux)
-        if: runner.os == 'Linux'
+      - name: Build main CLI binary
         run: pyinstaller lutz.spec
 
-      - name: Build binary (Windows)
-        if: runner.os == 'Windows'
-        run: pyinstaller lutz.spec
+      - name: Build silent GUI launcher
+        run: |
+          pyinstaller --onefile --windowed --name lutz-ui `
+            installer/windows/launcher.py
 
-      # ── Rename output to platform asset name ──────────────────────────────
-
-      - name: Rename output (Linux)
-        if: runner.os == 'Linux'
-        run: mv dist/lutz dist/${{ matrix.asset-name }}
-
-      - name: Rename output (Windows)
-        if: runner.os == 'Windows'
+      - name: Copy launcher next to CLI binary
         shell: pwsh
-        run: Move-Item dist\lutz.exe dist\${{ matrix.asset-name }}
+        run: Copy-Item dist\lutz-ui.exe installer\windows\lutz-ui.exe
 
-      # ── Upload to the GitHub release created by release.yml ───────────────
+      # Inno Setup is pre-installed on windows-latest runners
+      - name: Compile Inno Setup installer
+        shell: cmd
+        run: |
+          "%ProgramFiles(x86)%\Inno Setup 6\iscc.exe" /DAppVersion=${{ github.event.inputs.tag || github.ref_name }} installer\windows\lutz.iss
 
-      - name: Upload to GitHub release
+      - name: Upload Windows installer
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
-          files: dist/${{ matrix.asset-name }}
+          files: dist/installer/lutz-setup-windows-x64.exe
+
+  # ── Linux: .deb (Ubuntu/Debian) + AppImage ──────────────────────────────────
+  linux:
+    name: Linux packages
+    runs-on: ubuntu-22.04    # 22.04 for glibc 2.35 — compatible with Ubuntu 22/24 and Debian 12
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            binutils \
+            libgl1 \
+            libglib2.0-0 \
+            fuse \
+            libfuse2
+
+      - name: Build React frontend
+        run: |
+          cd web
+          npm ci
+          npm run build
+
+      - name: Stage web assets
+        run: |
+          rm -rf lutz/web
+          cp -r web/dist lutz/web
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip pyinstaller
+          pip install .
+
+      - name: Build binary
+        run: pyinstaller lutz.spec
+
+      # ── .deb package ──────────────────────────────────────────────────────
+      - name: Build .deb
+        run: |
+          VERSION="${{ github.event.inputs.tag || github.ref_name }}"
+          VERSION="${VERSION#v}"    # strip leading 'v'
+          bash installer/linux/build-deb.sh "${VERSION}"
+
+      # ── AppImage ──────────────────────────────────────────────────────────
+      - name: Build AppImage
+        run: |
+          VERSION="${{ github.event.inputs.tag || github.ref_name }}"
+          VERSION="${VERSION#v}"
+
+          # Download appimagetool
+          wget -qO appimagetool \
+            https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool
+
+          # Build AppDir structure
+          mkdir -p AppDir/usr/bin AppDir/usr/share/applications AppDir/usr/share/icons/hicolor/256x256/apps
+
+          cp dist/lutz AppDir/usr/bin/lutz
+          chmod 755 AppDir/usr/bin/lutz
+
+          cp installer/linux/lutz.desktop AppDir/lutz.desktop
+          cp installer/linux/lutz.desktop AppDir/usr/share/applications/lutz.desktop
+
+          if [ -f web/public/lutz.png ]; then
+            cp web/public/lutz.png AppDir/lutz.png
+            cp web/public/lutz.png AppDir/usr/share/icons/hicolor/256x256/apps/lutz.png
+          fi
+
+          # AppRun entry point
+          cat > AppDir/AppRun <<'APPRUN'
+          #!/bin/sh
+          APPDIR="$(dirname "$(readlink -f "$0")")"
+          exec "$APPDIR/usr/bin/lutz" "$@"
+          APPRUN
+          chmod +x AppDir/AppRun
+
+          # Build
+          ARCH=x86_64 ./appimagetool AppDir "dist/lutz-${VERSION}-x86_64.AppImage"
+
+      - name: Upload Linux packages
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: |
+            dist/lutz-research_*_amd64.deb
+            dist/lutz-*-x86_64.AppImage
