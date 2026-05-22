@@ -10,13 +10,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import click
+import numpy as np
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 from rich.table import Table
 
 from lutz.utils.project import require_project_root, load_env
-from lutz.utils.html_report import generate_html_citations_report
+from lutz.utils.html_report import generate_html_citations_report, generate_html_reading_roadmap_report
 from lutz.core.vector_store import VectorStore
 from lutz.core.llm_client import LLMClient
 
@@ -58,6 +59,12 @@ def _parse_relevance(text: str) -> str:
 # ---------------------------------------------------------------------------
 # LLM-based citation extraction
 # ---------------------------------------------------------------------------
+
+_LANGUAGE_INSTRUCTIONS: dict[str, str] = {
+    "pt": "All narrative text (reasoning, reading_note, overview, description, stage_name, etc.) must be written in Portuguese (pt-BR). JSON keys must remain in English as specified.",
+    "en": "All narrative text must be written in English. JSON keys must remain in English as specified.",
+    "es": "All narrative text (reasoning, reading_note, overview, description, stage_name, etc.) must be written in Spanish (es). JSON keys must remain in English as specified.",
+}
 
 _CITATIONS_SYSTEM = (
     "You are a systematic review assistant. "
@@ -126,6 +133,130 @@ def _build_context(chunks: list[dict]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Reading roadmap helpers
+# ---------------------------------------------------------------------------
+
+def _cosine_distance(a: np.ndarray, b: np.ndarray) -> float:
+    """Cosine distance between two vectors (1 − cosine_similarity)."""
+    norm_a = float(np.linalg.norm(a))
+    norm_b = float(np.linalg.norm(b))
+    if norm_a == 0.0 or norm_b == 0.0:
+        return 1.0
+    return 1.0 - float(np.dot(a, b) / (norm_a * norm_b))
+
+
+def _rank_articles_by_centrality(
+    relevant: list[dict],
+    embeddings_by_article: "dict[str, np.ndarray]",
+) -> list[dict]:
+    """Return relevant articles sorted by cosine distance from the corpus centroid.
+
+    Articles closer to the centroid (distance ≈ 0) are the most 'foundational'
+    (representative of the central research theme). Articles farther away are
+    more specialised or peripheral — recommended for reading later.
+
+    Returns a list of dicts with keys: filename, distance, rank, analysis.
+    Articles not found in the vector store are appended at the end with
+    distance=None.
+    """
+    # Compute per-article mean embeddings (already done in store, re-use here)
+    vecs: list[tuple[str, np.ndarray]] = []
+    missing: list[str] = []
+
+    for a in relevant:
+        fn = a["filename"]
+        if fn in embeddings_by_article:
+            vecs.append((fn, embeddings_by_article[fn]))
+        else:
+            missing.append(fn)
+
+    ranked: list[dict] = []
+
+    if vecs:
+        # Global centroid = mean of per-article centroids (unweighted by chunk count)
+        centroid = np.stack([v for _, v in vecs]).mean(axis=0)
+
+        distances = [(fn, _cosine_distance(vec, centroid)) for fn, vec in vecs]
+        distances.sort(key=lambda x: x[1])
+
+        article_analysis = {a["filename"]: a.get("analysis", "") for a in relevant}
+        for rank, (fn, dist) in enumerate(distances, 1):
+            ranked.append({
+                "filename": fn,
+                "distance": round(dist, 6),
+                "rank": rank,
+                "analysis": article_analysis.get(fn, ""),
+            })
+
+    for fn in missing:
+        ranked.append({
+            "filename": fn,
+            "distance": None,
+            "rank": len(ranked) + 1,
+            "analysis": next((a.get("analysis", "") for a in relevant if a["filename"] == fn), ""),
+        })
+
+    return ranked
+
+
+_ROADMAP_SYSTEM = (
+    "You are a systematic review specialist. "
+    "Your task is to create a structured reading guide for researchers based on "
+    "the semantic distance of articles from the center of the research corpus. "
+    "Respond with valid JSON only — no markdown, no extra text."
+)
+
+
+def _roadmap_user_message(
+    prompt_content: str,
+    ranked_articles: list[dict],
+    user_instructions: str = "",
+) -> str:
+    article_list = "\n".join(
+        f"{a['rank']}. **{a['filename']}**"
+        + (f" (semantic distance from centroid: {a['distance']:.4f})" if a["distance"] is not None else " (embedding not found)")
+        + (f"\n   Article assessment: {a['analysis'][:600].strip()}" if a.get("analysis") else "")
+        for a in ranked_articles
+    )
+    extra = (
+        f"\n\n## Additional Instructions from Researcher\n\n{user_instructions.strip()}"
+        if user_instructions and user_instructions.strip()
+        else ""
+    )
+    return (
+        f"## Research Screening Criteria\n\n{prompt_content}\n\n"
+        f"## Articles ordered from most foundational to most specialised\n\n"
+        f"These articles are sorted by their cosine distance from the centroid of the relevant "
+        f"articles' embedding space. A distance near 0 means the article sits at the centre of "
+        f"the research theme (foundational); a larger distance means it is more specialised or "
+        f"peripheral — recommended for reading after the core articles.\n\n"
+        f"{article_list}"
+        f"{extra}\n\n"
+        f"## Task\n\n"
+        f"Create a structured reading guide in JSON. Group the articles into 2-4 logical stages "
+        f"(e.g. Foundations, Core Methods, Advanced Topics). For each article provide a short "
+        f"reading note explaining what to focus on and why it fits that stage.\n\n"
+        f"Respond with JSON only, exactly in this format:\n"
+        f'{{\n'
+        f'  "overview": "2-3 sentence overview of the recommended reading strategy",\n'
+        f'  "stages": [\n'
+        f'    {{\n'
+        f'      "stage_number": 1,\n'
+        f'      "stage_name": "Foundations",\n'
+        f'      "description": "What this stage covers and why to read it first",\n'
+        f'      "articles": [\n'
+        f'        {{\n'
+        f'          "filename": "exact filename from the list above",\n'
+        f'          "reading_note": "What to focus on and how this article builds understanding"\n'
+        f'        }}\n'
+        f'      ]\n'
+        f'    }}\n'
+        f'  ]\n'
+        f'}}'
+    )
+
+
+# ---------------------------------------------------------------------------
 # CLI command
 # ---------------------------------------------------------------------------
 
@@ -171,11 +302,44 @@ def _build_context(chunks: list[dict]) -> str:
         "Default: <analysis_filename>_citations_<YYYYMMDD_HHMMSS>.json."
     ),
 )
+@click.option(
+    "--language",
+    default="pt",
+    show_default=True,
+    type=click.Choice(["pt", "en", "es"]),
+    help="Language for LLM responses (pt = Portuguese, en = English, es = Spanish).",
+)
+@click.option(
+    "--reading-roadmap",
+    "reading_roadmap",
+    is_flag=True,
+    default=False,
+    help=(
+        "Generate a reading roadmap instead of a citation report. "
+        "Articles are ranked by cosine distance from the corpus centroid — "
+        "those closest to the centre are foundational; those farthest are specialised. "
+        "An LLM then produces a structured reading guide with stages and per-article notes. "
+        "Requires the vector store to still be available."
+    ),
+)
+@click.option(
+    "--user-instructions",
+    "user_instructions",
+    default="",
+    help=(
+        "Additional free-text instructions for the reading roadmap generator. "
+        "Use this to specify the desired number of stages, focus areas, depth level, "
+        "target audience, or any other guidance for the LLM. Only used with --reading-roadmap."
+    ),
+)
 def citations(
     analysis_path: Path,
     workers: int,
     only_relevant: bool,
     output_name: str | None,
+    language: str,
+    reading_roadmap: bool,
+    user_instructions: str,
 ) -> None:
     """Extract structured citations from a per-article analysis report.
 
@@ -262,15 +426,16 @@ def citations(
     not_relevant = [a for a in articles if a["_relevance"] == "not_relevant"]
     unknown = [a for a in articles if a["_relevance"] == "unknown"]
 
+    mode_label = "Reading roadmap" if reading_roadmap else "Citations extraction"
     console.print(
         Panel.fit(
-            f"[bold cyan]Citations extraction[/]\n\n"
+            f"[bold cyan]{mode_label}[/]\n\n"
             f"Analysis file:  [dim]{analysis_path.name}[/]\n"
             f"Total articles: [cyan]{len(articles)}[/]\n"
             f"Relevant:       [green]{len(relevant)}[/]\n"
             f"Not relevant:   [dim]{len(not_relevant)}[/]\n"
             f"Unknown:        [yellow]{len(unknown)}[/]\n"
-            f"Workers:        {workers}",
+            + (f"Workers:        {workers}" if not reading_roadmap else ""),
             border_style="cyan",
         )
     )
@@ -294,6 +459,120 @@ def citations(
         )
         raise click.Abort()
 
+    llm_client = LLMClient.from_env(env)
+    reports_dir = project_root / "analysis" / "execution_reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+
+    # =========================================================================
+    # BRANCH A — Reading roadmap
+    # =========================================================================
+    if reading_roadmap:
+        console.print(
+            f"\nLoading embeddings from vector store ({store_info['total_records']:,} chunks)... ",
+            end="",
+        )
+        embeddings_by_article = store.get_embeddings_by_article()
+        console.print("[green]done.[/]\n")
+
+        console.print("[bold]Ranking articles by semantic centrality...[/]")
+        ranked = _rank_articles_by_centrality(relevant, embeddings_by_article)
+
+        table = Table(title="Article ranking (foundational → specialised)", show_lines=False, header_style="bold cyan")
+        table.add_column("Rank", justify="right", style="dim")
+        table.add_column("Article", no_wrap=False)
+        table.add_column("Distance", justify="right")
+        for r in ranked:
+            dist_str = f"{r['distance']:.4f}" if r["distance"] is not None else "—"
+            table.add_row(str(r["rank"]), r["filename"], dist_str)
+        console.print(table)
+        console.print()
+
+        console.print("[bold]Generating reading roadmap via LLM...[/]\n")
+        started_at = datetime.now(timezone.utc)
+        start_ts = time.time()
+
+        lang_instr = _LANGUAGE_INSTRUCTIONS.get(language, _LANGUAGE_INSTRUCTIONS["pt"])
+        roadmap_system = _ROADMAP_SYSTEM + f"\n\n## Language\n\n{lang_instr}"
+        user_msg = _roadmap_user_message(prompt_content, ranked, user_instructions=user_instructions)
+        llm_text, llm_usage = llm_client.complete(system=roadmap_system, user=user_msg)
+        parsed_roadmap = _parse_llm_json(llm_text)
+
+        finished_at = datetime.now(timezone.utc)
+        elapsed_seconds = round(time.time() - start_ts, 2)
+
+        if parsed_roadmap is None:
+            console.print("[bold red]Warning:[/] could not parse LLM response as JSON. Storing raw text.")
+            parsed_roadmap = {"overview": llm_text, "stages": []}
+
+        # ---- assemble roadmap report JSON -----------------------------------
+        not_relevant_entries = [
+            {"filename": a["filename"], "relevance": "not_relevant"}
+            for a in not_relevant
+        ]
+        unknown_entries = [
+            {"filename": a["filename"], "relevance": "unknown"}
+            for a in unknown
+        ]
+
+        output_report = {
+            "metadata": {
+                "report_type": "reading_roadmap",
+                "analysis_file": str(analysis_path),
+                "generated_at": finished_at.isoformat(),
+                "elapsed_seconds": elapsed_seconds,
+                "original_prompt_path": report["metadata"].get("prompt_path"),
+                "prompt_content": prompt_content,
+                "total_articles": len(articles),
+                "relevant": len(relevant),
+                "not_relevant": len(not_relevant),
+                "unknown": len(unknown),
+                "llm": {
+                    "provider": llm_client.provider,
+                    "model": llm_client.model_id,
+                    "prompt_tokens": llm_usage["prompt_tokens"],
+                    "completion_tokens": llm_usage["completion_tokens"],
+                    "total_tokens": llm_usage["total_tokens"],
+                },
+            },
+            "roadmap": {
+                **parsed_roadmap,
+                "article_distances": [
+                    {"filename": r["filename"], "distance": r["distance"], "rank": r["rank"]}
+                    for r in ranked
+                ],
+            },
+        }
+        if not only_relevant:
+            output_report["not_relevant_articles"] = not_relevant_entries
+            if unknown_entries:
+                output_report["unknown_articles"] = unknown_entries
+
+        # ---- save -----------------------------------------------------------
+        timestamp = finished_at.strftime("%Y%m%d_%H%M%S")
+        base_name = output_name or f"{analysis_path.stem}_roadmap_{timestamp}"
+        out_path = reports_dir / f"{base_name}.json"
+        out_path.write_text(json.dumps(output_report, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        html_path = out_path.with_suffix(".html")
+        html_path.write_text(generate_html_reading_roadmap_report(output_report), encoding="utf-8")
+
+        n_stages = len((parsed_roadmap or {}).get("stages", []))
+        console.print(
+            Panel.fit(
+                f"[bold green]Reading roadmap saved![/]\n\n"
+                f"{out_path.relative_to(project_root)}\n\n"
+                f"Relevant articles: [cyan]{len(relevant)}[/]\n"
+                f"Stages generated:  [cyan]{n_stages}[/]\n"
+                f"LLM tokens:        [cyan]{llm_usage['total_tokens']:,}[/]\n"
+                f"Duration:          [cyan]{elapsed_seconds:.1f}s[/]",
+                border_style="green",
+            )
+        )
+        return
+
+    # =========================================================================
+    # BRANCH B — Citations (original behaviour)
+    # =========================================================================
     console.print(
         f"\nLoading vector store ({store_info['total_records']:,} chunks)... ",
         end="",
@@ -301,9 +580,6 @@ def citations(
     all_chunks = store.get_all_grouped()
     console.print("[green]done.[/]\n")
 
-    llm_client = LLMClient.from_env(env)
-
-    # ---- extract citations for relevant articles ----------------------------
     console.print(
         f"[bold]Extracting citations — {len(relevant)} relevant article(s)[/]\n"
     )
@@ -332,7 +608,9 @@ def citations(
 
         context = _build_context(chunks)
         user_msg = _citations_user_message(prompt_content, filename, analysis_text, context)
-        llm_text, llm_usage = llm_client.complete(system=_CITATIONS_SYSTEM, user=user_msg)
+        lang_instr = _LANGUAGE_INSTRUCTIONS.get(language, _LANGUAGE_INSTRUCTIONS["pt"])
+        citations_system = _CITATIONS_SYSTEM + f"\n\n## Language\n\n{lang_instr}"
+        llm_text, llm_usage = llm_client.complete(system=citations_system, user=user_msg)
         parsed = _parse_llm_json(llm_text)
 
         if parsed is None:
@@ -455,6 +733,7 @@ def citations(
 
     output_report = {
         "metadata": {
+            "report_type": "citations",
             "analysis_file": str(analysis_path),
             "generated_at": finished_at.isoformat(),
             "elapsed_seconds": elapsed_seconds,
@@ -477,9 +756,6 @@ def citations(
     }
 
     # ---- save ---------------------------------------------------------------
-    reports_dir = project_root / "analysis" / "execution_reports"
-    reports_dir.mkdir(parents=True, exist_ok=True)
-
     timestamp = finished_at.strftime("%Y%m%d_%H%M%S")
     base_name = output_name or f"{analysis_path.stem}_citations_{timestamp}"
     out_path = reports_dir / f"{base_name}.json"

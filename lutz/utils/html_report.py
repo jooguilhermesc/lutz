@@ -65,24 +65,21 @@ def generate_html_report(report: dict) -> str:
         f'<button class="fbtn active" data-filter="all" '
         f'onclick="applyFilter(this)">All ({total})</button>'
     )
-    label_btns = ""
-    for lbl in all_labels:
-        bg, txt, brd = _badge(lbl)
-        cnt = label_counts[lbl]
-        label_btns += (
-            f'<button class="fbtn" data-filter="{_html.escape(lbl)}" '
-            f'onclick="applyFilter(this)" '
-            f'style="background:{bg};color:{txt};border-color:{brd}">'
-            f'{_html.escape(lbl)} ({cnt})</button>\n'
-        )
+    label_btns = "".join(
+        f'<button class="fbtn" data-filter="{_html.escape(lbl)}" '
+        f'onclick="applyFilter(this)" '
+        f'style="background:{bg};color:{txt};border-color:{brd}">'
+        f'{_html.escape(lbl)} ({label_counts[lbl]})</button>\n'
+        for lbl in all_labels
+        for bg, txt, brd in (_badge(lbl),)
+    )
 
     # --- summary stats -------------------------------------------------------
-    stats_html = ""
-    for lbl in all_labels:
+    def _stat_card(lbl: str) -> str:
         bg, txt, brd = _badge(lbl)
         cnt = label_counts[lbl]
         pct = round(cnt / total * 100) if total else 0
-        stats_html += (
+        return (
             f'<div class="stat-card" '
             f'style="background:{bg};border-left:4px solid {brd}">\n'
             f'  <div class="stat-label" style="color:{txt}">{_html.escape(lbl)}</div>\n'
@@ -91,9 +88,10 @@ def generate_html_report(report: dict) -> str:
             f'</div>\n'
         )
 
+    stats_html = "".join(_stat_card(lbl) for lbl in all_labels)
+
     # --- article cards -------------------------------------------------------
-    cards_html = ""
-    for art in articles:
+    def _article_card(art: dict) -> str:
         fn = _html.escape(art.get("filename", "unknown"))
         relevance = (art.get("relevance") or "UNKNOWN").upper()
         analysis_raw = art.get("analysis") or ""
@@ -109,9 +107,7 @@ def generate_html_report(report: dict) -> str:
         )
 
         if error:
-            body_html = (
-                f'<p class="err-msg">&#9888; Error: {_html.escape(error)}</p>'
-            )
+            body_html = f'<p class="err-msg">&#9888; Error: {_html.escape(error)}</p>'
         else:
             analysis_escaped = _html.escape(analysis_raw).replace("\n", "<br>")
             body_html = (
@@ -123,7 +119,7 @@ def generate_html_report(report: dict) -> str:
 
         meta_line = f'<span class="art-meta">{chunks} chunks &middot; {art_tokens:,} tokens</span>'
 
-        cards_html += (
+        return (
             f'<article class="card" data-relevance="{_html.escape(relevance)}">\n'
             f'  <div class="card-hd">\n'
             f'    <span class="card-fn">{fn}</span>\n'
@@ -132,6 +128,8 @@ def generate_html_report(report: dict) -> str:
             f'  {body_html}\n'
             f'</article>\n'
         )
+
+    cards_html = "".join(_article_card(art) for art in articles)
 
     # --- assemble full page --------------------------------------------------
     return f"""<!DOCTYPE html>
@@ -377,13 +375,10 @@ def generate_html_citations_report(report: dict) -> str:
         ("EXCLUDE", n_not_relevant),
         ("UNKNOWN", n_unknown),
     ]
-    stats_html = ""
-    for lbl, cnt in stats_data:
-        if cnt == 0:
-            continue
+    def _cit_stat_card(lbl: str, cnt: int) -> str:
         bg, txt, brd = _badge(lbl)
         pct = round(cnt / total * 100) if total else 0
-        stats_html += (
+        return (
             f'<div class="stat-card" style="background:{bg};border-left:4px solid {brd}">\n'
             f'  <div class="stat-label" style="color:{txt}">{_html.escape(lbl)}</div>\n'
             f'  <div class="stat-count" style="color:{txt}">{cnt}</div>\n'
@@ -391,21 +386,27 @@ def generate_html_citations_report(report: dict) -> str:
             f'</div>\n'
         )
 
+    stats_html = "".join(
+        _cit_stat_card(lbl, cnt) for lbl, cnt in stats_data if cnt > 0
+    )
+
     # --- filter buttons ------------------------------------------------------
-    filter_btns = f'<button class="fbtn active" data-filter="all" onclick="applyFilter(this)">All ({total})</button>\n'
+    _cit_filter_parts = [
+        f'<button class="fbtn active" data-filter="all" onclick="applyFilter(this)">All ({total})</button>\n'
+    ]
     for lbl, cnt in stats_data:
         if cnt == 0:
             continue
         bg, txt, brd = _badge(lbl)
-        filter_btns += (
+        _cit_filter_parts.append(
             f'<button class="fbtn" data-filter="{_html.escape(lbl)}" onclick="applyFilter(this)" '
             f'style="background:{bg};color:{txt};border-color:{brd}">'
             f'{_html.escape(lbl)} ({cnt})</button>\n'
         )
+    filter_btns = "".join(_cit_filter_parts)
 
-    # --- relevant article cards ----------------------------------------------
-    cards_html = ""
-    for art in relevant_articles:
+    # --- article cards -------------------------------------------------------
+    def _cit_include_card(art: dict) -> str:
         fn = _html.escape(art.get("filename", "unknown"))
         label = _html.escape(str(art.get("label") or "—"))
         confidence = art.get("confidence", "—")
@@ -422,14 +423,11 @@ def generate_html_citations_report(report: dict) -> str:
         if error:
             body_html = f'<p class="err-msg">&#9888; Error: {_html.escape(error)}</p>'
         else:
-            cit_rows = ""
-            for c in citations:
-                page = _html.escape(str(c.get("page", "—")))
-                text = _html.escape(c.get("text", ""))
-                cit_rows += (
-                    f'<tr><td class="pg-cell">{page}</td>'
-                    f'<td class="cit-cell">{text}</td></tr>\n'
-                )
+            cit_rows = "".join(
+                f'<tr><td class="pg-cell">{_html.escape(str(c.get("page", "—")))}</td>'
+                f'<td class="cit-cell">{_html.escape(c.get("text", ""))}</td></tr>\n'
+                for c in citations
+            )
             cit_table = (
                 f'<table class="cit-table"><thead><tr>'
                 f'<th>Page</th><th>Citation</th></tr></thead>'
@@ -453,7 +451,7 @@ def generate_html_citations_report(report: dict) -> str:
                 f'</details>\n'
             )
 
-        cards_html += (
+        return (
             f'<article class="card" data-relevance="INCLUDE">\n'
             f'  <div class="card-hd">\n'
             f'    <span class="card-fn">{fn}</span>\n'
@@ -465,13 +463,13 @@ def generate_html_citations_report(report: dict) -> str:
             f'</article>\n'
         )
 
-    for art in not_relevant_articles:
+    def _cit_exclude_card(art: dict) -> str:
         fn = _html.escape(art.get("filename", "unknown"))
         bg, txt, brd = _badge("EXCLUDE")
         badge_html = (
             f'<span class="badge" style="background:{bg};color:{txt};border:1px solid {brd}">EXCLUDE</span>'
         )
-        cards_html += (
+        return (
             f'<article class="card" data-relevance="EXCLUDE">\n'
             f'  <div class="card-hd">\n'
             f'    <span class="card-fn">{fn}</span>\n'
@@ -480,7 +478,7 @@ def generate_html_citations_report(report: dict) -> str:
             f'</article>\n'
         )
 
-    for art in unknown_articles:
+    def _cit_unknown_card(art: dict) -> str:
         fn = _html.escape(art.get("filename", "unknown"))
         raw = _html.escape(art.get("raw_analysis") or "").replace("\n", "<br>")
         bg, txt, brd = _badge("UNKNOWN")
@@ -491,7 +489,7 @@ def generate_html_citations_report(report: dict) -> str:
             f'<details><summary>Show raw analysis</summary>'
             f'<div class="analysis-text">{raw}</div></details>'
         ) if raw else ""
-        cards_html += (
+        return (
             f'<article class="card" data-relevance="UNKNOWN">\n'
             f'  <div class="card-hd">\n'
             f'    <span class="card-fn">{fn}</span>\n'
@@ -500,6 +498,12 @@ def generate_html_citations_report(report: dict) -> str:
             f'  {body_html}\n'
             f'</article>\n'
         )
+
+    cards_html = "".join([
+        *(_cit_include_card(art) for art in relevant_articles),
+        *(_cit_exclude_card(art) for art in not_relevant_articles),
+        *(_cit_unknown_card(art) for art in unknown_articles),
+    ])
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -683,6 +687,280 @@ def generate_html_citations_report(report: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Reading roadmap report
+# ---------------------------------------------------------------------------
+
+def generate_html_reading_roadmap_report(report: dict) -> str:
+    """Return a self-contained HTML string for a reading roadmap report."""
+    meta = report.get("metadata", {})
+    roadmap = report.get("roadmap", {})
+
+    raw_ts = meta.get("generated_at", "")
+    try:
+        dt = datetime.fromisoformat(raw_ts)
+        ts_display = dt.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    except Exception:
+        ts_display = raw_ts or "—"
+
+    llm_meta = meta.get("llm", {})
+    model = _html.escape(llm_meta.get("model", "—"))
+    analysis_file = _html.escape(meta.get("analysis_file", "—"))
+    total_tokens = llm_meta.get("total_tokens", 0)
+    elapsed = meta.get("elapsed_seconds", 0)
+    n_relevant = meta.get("relevant", 0)
+
+    overview = _html.escape(roadmap.get("overview") or "")
+    stages: list[dict] = roadmap.get("stages") or []
+    article_distances: list[dict] = roadmap.get("article_distances") or []
+
+    # ---- distance table rows ------------------------------------------------
+    def _dist_row(entry: dict) -> str:
+        fn = _html.escape(entry.get("filename", ""))
+        rank = entry.get("rank", "—")
+        dist = entry.get("distance")
+        dist_str = f"{dist:.4f}" if dist is not None else "—"
+        if dist is None:
+            bar_color, bar_pct = "#94a3b8", 0
+        else:
+            bar_color = "#22c55e" if dist < 0.15 else ("#f59e0b" if dist < 0.35 else "#f87171")
+            bar_pct = min(100, int(dist * 300))
+        return (
+            f'<tr>'
+            f'<td class="rank-cell">{rank}</td>'
+            f'<td class="fn-cell">{fn}</td>'
+            f'<td class="dist-cell">'
+            f'  <div class="dist-bar-wrap">'
+            f'    <div class="dist-bar" style="width:{bar_pct}%;background:{bar_color}"></div>'
+            f'  </div>'
+            f'  <span class="dist-val">{dist_str}</span>'
+            f'</td>'
+            f'</tr>\n'
+        )
+
+    dist_rows = "".join(_dist_row(entry) for entry in article_distances)
+
+    # ---- stage cards --------------------------------------------------------
+    stage_colors = ["#dbeafe", "#dcfce7", "#fef3c7", "#fce7f3", "#ede9fe"]
+    stage_border = ["#93c5fd", "#86efac", "#fcd34d", "#f9a8d4", "#c4b5fd"]
+
+    def _stage_card(i: int, stage: dict) -> str:
+        num = stage.get("stage_number", i + 1)
+        name = _html.escape(stage.get("stage_name") or f"Stage {num}")
+        desc = _html.escape(stage.get("description") or "")
+        articles_in_stage: list[dict] = stage.get("articles") or []
+        bg = stage_colors[i % len(stage_colors)]
+        brd = stage_border[i % len(stage_border)]
+
+        def _stage_art(art: dict) -> str:
+            art_fn = _html.escape(art.get("filename", ""))
+            note = _html.escape(art.get("reading_note") or "")
+            dist_entry = next(
+                (d for d in article_distances if d["filename"] == art.get("filename")), None
+            )
+            rank_badge = f'<span class="rank-badge">#{dist_entry["rank"]}</span>' if dist_entry else ""
+            note_html = f'  <p class="stage-art-note">{note}</p>' if note else ""
+            return (
+                f'<div class="stage-article">'
+                f'  <div class="stage-article-hd">'
+                f'    {rank_badge}<span class="stage-art-fn">{art_fn}</span>'
+                f'  </div>'
+                f'{note_html}'
+                f'</div>\n'
+            )
+
+        articles_html = "".join(_stage_art(art) for art in articles_in_stage)
+        desc_html = f'  <p class="stage-desc">{desc}</p>\n' if desc else ""
+        return (
+            f'<div class="stage-card" style="border-left:4px solid {brd};background:{bg};">\n'
+            f'  <div class="stage-hd">'
+            f'    <span class="stage-num">Stage {num}</span>'
+            f'    <span class="stage-name">{name}</span>'
+            f'  </div>\n'
+            f'{desc_html}'
+            f'{articles_html}'
+            f'</div>\n'
+        )
+
+    stages_html = "".join(_stage_card(i, stage) for i, stage in enumerate(stages))
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>lutz &mdash; Reading Roadmap</title>
+  <style>
+    *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f8fafc; color: #1e293b; line-height: 1.6;
+    }}
+    .container {{ max-width: 900px; margin: 0 auto; padding: 2rem 1rem 4rem; }}
+    .report-header {{
+      background: #1e293b; color: #f1f5f9;
+      border-radius: 12px; padding: 2rem; margin-bottom: 2rem;
+    }}
+    .report-header h1 {{
+      font-size: 1.5rem; font-weight: 700;
+      display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem;
+    }}
+    .report-header h1 .logo {{ color: #38bdf8; }}
+    .meta-grid {{
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 0.75rem; font-size: 0.85rem;
+    }}
+    .meta-item {{ display: flex; flex-direction: column; gap: 0.15rem; }}
+    .meta-key {{ color: #94a3b8; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }}
+    .meta-val {{ color: #e2e8f0; word-break: break-all; }}
+
+    /* overview */
+    .overview-box {{
+      background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
+      padding: 1.25rem; margin-bottom: 2rem;
+    }}
+    .overview-label {{
+      font-size: 0.75rem; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.05em; color: #64748b; margin-bottom: 0.5rem;
+    }}
+    .overview-text {{ font-size: 0.95rem; color: #334155; }}
+
+    /* section titles */
+    .section-title {{
+      font-size: 1rem; font-weight: 700; color: #1e293b;
+      margin: 2rem 0 1rem;
+      display: flex; align-items: center; gap: 0.5rem;
+    }}
+    .section-title::after {{
+      content: ""; flex: 1; height: 1px; background: #e2e8f0;
+    }}
+
+    /* stages */
+    .stage-card {{
+      border-radius: 10px; padding: 1.25rem; margin-bottom: 1.25rem;
+    }}
+    .stage-hd {{
+      display: flex; align-items: baseline; gap: 0.6rem; margin-bottom: 0.4rem;
+    }}
+    .stage-num {{
+      font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.08em; color: #64748b;
+    }}
+    .stage-name {{ font-size: 1.05rem; font-weight: 700; color: #1e293b; }}
+    .stage-desc {{
+      font-size: 0.875rem; color: #475569; margin-bottom: 0.75rem;
+      font-style: italic;
+    }}
+    .stage-article {{
+      background: rgba(255,255,255,0.7); border-radius: 8px;
+      padding: 0.75rem 1rem; margin-top: 0.5rem;
+      border: 1px solid rgba(0,0,0,0.06);
+    }}
+    .stage-article-hd {{
+      display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;
+    }}
+    .rank-badge {{
+      font-size: 0.7rem; font-weight: 700; color: #64748b;
+      background: rgba(0,0,0,0.07); border-radius: 4px;
+      padding: 0.1rem 0.4rem; white-space: nowrap;
+    }}
+    .stage-art-fn {{ font-weight: 600; font-size: 0.9rem; word-break: break-all; }}
+    .stage-art-note {{ font-size: 0.85rem; color: #475569; }}
+
+    /* distance table */
+    .dist-table {{
+      width: 100%; border-collapse: collapse;
+      background: #fff; border-radius: 10px;
+      overflow: hidden; border: 1px solid #e2e8f0;
+      margin-bottom: 2rem;
+    }}
+    .dist-table thead th {{
+      text-align: left; padding: 0.65rem 1rem;
+      background: #f1f5f9; color: #475569;
+      font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em;
+      border-bottom: 1px solid #e2e8f0;
+    }}
+    .dist-table tbody tr:hover {{ background: #f8fafc; }}
+    .dist-table td {{ padding: 0.55rem 1rem; border-bottom: 1px solid #f1f5f9; font-size: 0.875rem; }}
+    .dist-table tbody tr:last-child td {{ border-bottom: none; }}
+    .rank-cell {{ color: #94a3b8; width: 48px; text-align: right; }}
+    .fn-cell {{ font-weight: 500; word-break: break-all; }}
+    .dist-cell {{ width: 200px; }}
+    .dist-bar-wrap {{
+      height: 6px; background: #e2e8f0; border-radius: 99px;
+      overflow: hidden; margin-bottom: 2px;
+    }}
+    .dist-bar {{ height: 100%; border-radius: 99px; transition: width 0.3s; }}
+    .dist-val {{ font-size: 0.75rem; color: #64748b; font-family: monospace; }}
+
+    .footer {{
+      text-align: center; margin-top: 3rem;
+      font-size: 0.8rem; color: #94a3b8;
+    }}
+    .footer a {{ color: #64748b; text-decoration: none; }}
+    .footer a:hover {{ text-decoration: underline; }}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header class="report-header">
+      <h1><span class="logo">lutz</span> &mdash; Reading Roadmap</h1>
+      <div class="meta-grid">
+        <div class="meta-item">
+          <span class="meta-key">Generated at</span>
+          <span class="meta-val">{ts_display}</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-key">Model</span>
+          <span class="meta-val">{model}</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-key">Analysis file</span>
+          <span class="meta-val">{analysis_file}</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-key">Relevant articles</span>
+          <span class="meta-val">{n_relevant}</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-key">Stages</span>
+          <span class="meta-val">{len(stages)}</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-key">LLM tokens</span>
+          <span class="meta-val">{total_tokens:,}</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-key">Duration</span>
+          <span class="meta-val">{elapsed:.1f}s</span>
+        </div>
+      </div>
+    </header>
+
+    {"<div class='overview-box'><div class='overview-label'>Overview</div><p class='overview-text'>" + overview + "</p></div>" if overview else ""}
+
+    <div class="section-title">Reading stages</div>
+    {stages_html if stages_html else "<p style='color:#94a3b8;font-size:0.9rem;'>No stages generated.</p>"}
+
+    <div class="section-title">Semantic distance ranking</div>
+    <p style="font-size:0.85rem;color:#64748b;margin-bottom:1rem;">
+      Articles sorted from most foundational (distance ≈ 0, at the centre of the research corpus)
+      to most specialised (larger distance). Computed via cosine distance from the corpus centroid.
+    </p>
+    <table class="dist-table">
+      <thead><tr><th style="text-align:right">#</th><th>Article</th><th>Distance from centroid</th></tr></thead>
+      <tbody>{dist_rows}</tbody>
+    </table>
+
+    <footer class="footer">
+      Generated by <a href="https://github.com/jooguilhermesc/lutz">lutz</a>
+    </footer>
+  </div>
+</body>
+</html>
+"""
+
+
+# ---------------------------------------------------------------------------
 # Vector store report
 # ---------------------------------------------------------------------------
 
@@ -696,20 +974,15 @@ def generate_html_vector_store_report(report: dict) -> str:
     embedding_provider = _html.escape(report.get("embedding_provider") or "—")
     last_updated = _html.escape(report.get("last_updated") or "—")
 
-    rows_html = ""
-    for art in articles:
-        fn = _html.escape(art.get("filename", "unknown"))
-        chunks = art.get("chunk_count", 0)
-        vectorized_at = _html.escape(art.get("vectorized_at") or "—")
-        model = _html.escape(art.get("embedding_model") or "—")
-        rows_html += (
-            f'<tr>'
-            f'<td class="fn-cell">{fn}</td>'
-            f'<td class="num-cell">{chunks}</td>'
-            f'<td class="date-cell">{vectorized_at}</td>'
-            f'<td class="model-cell">{model}</td>'
-            f'</tr>\n'
-        )
+    rows_html = "".join(
+        f'<tr>'
+        f'<td class="fn-cell">{_html.escape(art.get("filename", "unknown"))}</td>'
+        f'<td class="num-cell">{art.get("chunk_count", 0)}</td>'
+        f'<td class="date-cell">{_html.escape(art.get("vectorized_at") or "—")}</td>'
+        f'<td class="model-cell">{_html.escape(art.get("embedding_model") or "—")}</td>'
+        f'</tr>\n'
+        for art in articles
+    )
 
     return f"""<!DOCTYPE html>
 <html lang="en">
