@@ -17,6 +17,7 @@ from rich.table import Table
 
 from lutz.utils.project import require_project_root, load_env
 from lutz.core.vector_store import VectorStore
+from lutz.core.context_store import ContextStore
 from lutz.core.llm_client import LLMClient
 from lutz.core.embedding_client import EmbeddingClient
 from lutz.utils.html_report import generate_html_report
@@ -30,6 +31,17 @@ _SYSTEM_PROMPT = (
     "Always cite the source article filename when referencing specific content. "
     "Be objective, concise, and academically rigorous."
 )
+
+_LANGUAGE_INSTRUCTIONS: dict[str, str] = {
+    "pt": "Respond in Portuguese (pt-BR). All text in your response must be in Portuguese.",
+    "en": "Respond in English. All text in your response must be in English.",
+    "es": "Respond in Spanish (es). All text in your response must be in Spanish.",
+}
+
+
+def _build_system_prompt(language: str = "pt") -> str:
+    lang_instr = _LANGUAGE_INSTRUCTIONS.get(language, _LANGUAGE_INSTRUCTIONS["pt"])
+    return _SYSTEM_PROMPT + f"\n\n## Language\n\n{lang_instr}"
 
 # ---------------------------------------------------------------------------
 # Relevance verdict — labels, injection, and extraction
@@ -126,10 +138,34 @@ def _build_context(chunks: list[dict]) -> str:
     return "\n\n".join(parts)
 
 
-def _user_message(prompt_content: str, context: str, *, include_verdict: bool = False) -> str:
+def _build_reference_context(chunks: list[dict]) -> str:
+    """Build the reference context block from context file chunks."""
+    parts = []
+    for i, chunk in enumerate(chunks, 1):
+        parts.append(
+            f"--- Reference {i} (from: {chunk['filename']}, page {chunk.get('page', '?')}) ---\n"
+            f"{chunk['text']}"
+        )
+    return "\n\n".join(parts)
+
+
+def _user_message(
+    prompt_content: str,
+    context: str,
+    *,
+    reference_context: str = "",
+    include_verdict: bool = False,
+) -> str:
     verdict_section = _RELEVANCE_INSTRUCTION if include_verdict else ""
+    ref_block = (
+        f"## Reference Context\n\n"
+        f"The following documents provide additional context for your analysis:\n\n"
+        f"{reference_context}\n\n"
+        if reference_context else ""
+    )
     return (
         f"## Researcher Instructions\n\n{prompt_content}\n\n"
+        f"{ref_block}"
         f"## Article Excerpts\n\n{context}\n\n"
         f"## Your Analysis\n\n"
         f"Based on the excerpts above, provide a detailed response following the instructions."
@@ -222,6 +258,13 @@ def _user_message(prompt_content: str, context: str, *, include_verdict: bool = 
     ),
 )
 @click.option(
+    "--language",
+    default="pt",
+    show_default=True,
+    type=click.Choice(["pt", "en", "es"]),
+    help="Language for LLM responses (pt = Portuguese, en = English, es = Spanish).",
+)
+@click.option(
     "--multiple", "experiments_path",
     default=None,
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
@@ -241,6 +284,7 @@ def analysis(
     max_chunks_per_article: int | None,
     filter_sections: str | None,
     output_name: str | None,
+    language: str,
     experiments_path: Path | None,
 ) -> None:
     """Analyse vectorised articles using a Markdown prompt.
@@ -382,6 +426,9 @@ def analysis(
         f"[cyan]{store_info['unique_documents']}[/] article(s).\n"
     )
 
+    # Load context store (reference files) — optional, silently absent
+    ctx_store = ContextStore(project_root / ".lutz" / "context_store")
+
     embedding_client = EmbeddingClient.from_env(env)
     llm_client = LLMClient.from_env(env)
 
@@ -393,12 +440,15 @@ def analysis(
             store, llm_client, prompt_content, store_info,
             embedding_client, workers, max_chunks_per_article,
             section_filter=section_filter,
+            ctx_store=ctx_store,
+            language=language,
         )
     else:
         output = _run_rag(
             store, llm_client, embedding_client, prompt_content,
             top_k, store_info,
             section_filter=section_filter,
+            language=language,
         )
 
     finished_at = datetime.now(timezone.utc)
@@ -499,6 +549,7 @@ def _run_rag(
     top_k: int | None,
     store_info: dict,
     section_filter: list[str] | None = None,
+    language: str = "pt",
 ) -> dict:
     console.print("[bold]Step 1/2 — Retrieving relevant context[/]")
     with Progress(SpinnerColumn(), TextColumn("Embedding prompt..."), console=console, transient=True) as p:
@@ -521,7 +572,7 @@ def _run_rag(
     console.print("[bold]Step 2/2 — Running LLM analysis[/]")
     with Progress(SpinnerColumn(), TextColumn("Analysing with LLM..."), console=console, transient=True) as p:
         p.add_task("", total=None)
-        llm_text, llm_usage = llm_client.complete(system=_SYSTEM_PROMPT, user=user_msg)
+        llm_text, llm_usage = llm_client.complete(system=_build_system_prompt(language), user=user_msg)
 
     return {
         "metadata": {
@@ -558,6 +609,8 @@ def _run_per_article(
     workers: int,
     max_chunks: int | None,
     section_filter: list[str] | None = None,
+    ctx_store: ContextStore | None = None,
+    language: str = "pt",
 ) -> dict:
     # Single bulk read — avoids N full table scans
     console.print("[dim]Loading vector store into memory...[/]")
@@ -567,6 +620,25 @@ def _run_per_article(
     if not filenames:
         console.print("[bold red]No articles found in vector store.[/]")
         raise click.Abort()
+
+    # Load reference context once — shared across all articles
+    reference_context = ""
+    if ctx_store and not ctx_store.is_empty():
+        ref_chunks = ctx_store.get_all_chunks()
+        # If large (>20 chunks), retrieve top-K by similarity to the prompt
+        if len(ref_chunks) > 20:
+            with Progress(
+                SpinnerColumn(), TextColumn("Embedding prompt for context retrieval..."),
+                console=console, transient=True,
+            ) as p:
+                p.add_task("", total=None)
+                prompt_embeddings, _ = embedding_client.embed([prompt_content])
+            ref_chunks = ctx_store.search(prompt_embeddings[0], top_k=20)
+        reference_context = _build_reference_context(ref_chunks)
+        console.print(
+            f"[dim]Reference context: {len(ref_chunks)} chunk(s) from "
+            f"{len({c['filename'] for c in ref_chunks})} file(s) will be included in each call.[/]"
+        )
 
     console.print(
         f"[bold]Per-article analysis — {len(filenames)} article(s)"
@@ -591,8 +663,12 @@ def _run_per_article(
             }
 
         context = _build_context(chunks)
-        user_msg = _user_message(prompt_content, context, include_verdict=True)
-        llm_text, llm_usage = llm_client.complete(system=_SYSTEM_PROMPT, user=user_msg)
+        user_msg = _user_message(
+            prompt_content, context,
+            reference_context=reference_context,
+            include_verdict=True,
+        )
+        llm_text, llm_usage = llm_client.complete(system=_build_system_prompt(language), user=user_msg)
 
         return {
             "filename": filename,

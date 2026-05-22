@@ -19,10 +19,16 @@ Defence-in-depth approach used here:
 
 from __future__ import annotations
 
-import re
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
+
+# Use google-re2 when available (linear time, immune to catastrophic backtracking).
+# Falls back transparently to the stdlib re module.
+try:
+    import re2 as re  # type: ignore[import]
+except ImportError:
+    import re  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +83,9 @@ class SecurityReport:
     path: Path
     is_safe: bool
     reasons: list[str] = field(default_factory=list)
+    # Cached per-page text extracted during the security check.
+    # Reused by the extraction pipeline to avoid re-opening the PDF.
+    cached_pages: list[tuple[int, str]] | None = field(default=None, repr=False)
 
     def __repr__(self) -> str:
         status = "SAFE" if self.is_safe else "FLAGGED"
@@ -91,27 +100,61 @@ class SecurityChecker:
 
     def check(self, path: Path) -> SecurityReport:
         reasons: list[str] = []
+        cached_pages: list[tuple[int, str]] | None = None
 
+        # --- Primary extractor: pymupdf (fast C library, MuPDF) ---------------
+        try:
+            import fitz  # pymupdf
+
+            doc = fitz.open(str(path))
+            cached_pages = [(i + 1, page.get_text("text") or "") for i, page in enumerate(doc)]
+            doc.close()
+            full_text = "\n".join(text for _, text in cached_pages)
+
+            # Structural check still requires pypdf (PDF object tree traversal)
+            try:
+                import pypdf
+                reader = pypdf.PdfReader(str(path))
+                self._check_structure(reader, reasons)
+            except Exception as exc:
+                logger.debug("pypdf structural check failed for %s: %s", path.name, exc)
+
+            self._check_injection_patterns(full_text, reasons)
+            if self.strict_academic:
+                self._check_academic_structure(full_text, reasons)
+
+            return SecurityReport(
+                path=path,
+                is_safe=len(reasons) == 0,
+                reasons=reasons,
+                cached_pages=cached_pages,
+            )
+
+        except Exception as exc:
+            logger.debug("pymupdf failed for %s: %s — falling back to pypdf", path.name, exc)
+
+        # --- Fallback: pypdf only ---------------------------------------------
         try:
             import pypdf
 
             reader = pypdf.PdfReader(str(path))
-
-            # 1. Structural checks
             self._check_structure(reader, reasons)
-
-            # 2. Text content checks
             text = self._extract_text(reader)
+            # Build cached_pages as a single-entry list (no per-page offsets)
+            cached_pages = [(1, text)]
             self._check_injection_patterns(text, reasons)
-
-            # 3. Academic structure check
             if self.strict_academic:
                 self._check_academic_structure(text, reasons)
 
         except Exception as exc:
             reasons.append(f"Could not parse PDF: {exc}")
 
-        return SecurityReport(path=path, is_safe=len(reasons) == 0, reasons=reasons)
+        return SecurityReport(
+            path=path,
+            is_safe=len(reasons) == 0,
+            reasons=reasons,
+            cached_pages=cached_pages,
+        )
 
     # ------------------------------------------------------------------
     # Internal checkers
@@ -196,21 +239,24 @@ def detect_corpus_anomalies(reports: list[SecurityReport]) -> list[SecurityRepor
         return reports
 
     try:
-        import pypdf
         from sklearn.feature_extraction.text import TfidfVectorizer
         from sklearn.ensemble import IsolationForest
         import numpy as np
 
         texts: list[str] = []
         for rep in reports:
-            try:
-                reader = pypdf.PdfReader(str(rep.path))
-                text = "\n".join(
-                    p.extract_text() or "" for p in reader.pages
-                )
-                texts.append(text if text.strip() else " ")
-            except Exception:
-                texts.append(" ")
+            if rep.cached_pages is not None:
+                # Reuse the text cached during the security check — no re-read needed
+                text = "\n".join(t for _, t in rep.cached_pages)
+            else:
+                # Fallback: re-open the PDF (should only happen for legacy reports)
+                try:
+                    import pypdf
+                    reader = pypdf.PdfReader(str(rep.path))
+                    text = "\n".join(p.extract_text() or "" for p in reader.pages)
+                except Exception:
+                    text = ""
+            texts.append(text if text.strip() else " ")
 
         vectorizer = TfidfVectorizer(max_features=500, stop_words="english")
         X = vectorizer.fit_transform(texts).toarray()
@@ -229,6 +275,7 @@ def detect_corpus_anomalies(reports: list[SecurityReport]) -> list[SecurityRepor
                         "Corpus-level anomaly: document is statistically dissimilar "
                         "from the rest of the corpus (IsolationForest)"
                     ],
+                    cached_pages=rep.cached_pages,
                 )
                 updated.append(new_rep)
             else:
