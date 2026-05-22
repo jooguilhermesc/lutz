@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import logging
 import re
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -124,6 +125,15 @@ class SectionParser:
         if use_layout_parser:
             self._lp_available = _probe_layout_parser()
             if self._lp_available:
+                warnings.warn(
+                    "The [layout] extra (layoutparser + pdf2image + Poppler) is deprecated "
+                    "and will be removed in lutz v0.5.0. "
+                    "Use '--extraction marker' instead — it handles multi-column layouts and "
+                    "scanned PDFs without any system dependencies: "
+                    "pip install \"lutz-research[marker]\"",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
                 logger.info("layout-parser detected — using visual layout detection.")
             else:
                 logger.warning(

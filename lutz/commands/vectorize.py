@@ -16,6 +16,13 @@ from rich.panel import Panel
 from lutz.utils.project import require_project_root, load_env
 from lutz.utils.pdf import is_valid_pdf
 from lutz.core.security_checker import SecurityChecker, SecurityReport, detect_corpus_anomalies
+from lutz.core.extraction import (
+    ExtractionStrategy,
+    PyMuPDFStrategy,
+    MarkerStrategy,
+    get_strategy,
+    is_sparse,
+)
 from lutz.core.pdf_processor import PDFProcessor
 from lutz.core.vector_store import VectorStore
 from lutz.core.embedding_client import EmbeddingClient
@@ -67,7 +74,8 @@ console = Console()
         "Split each article into sections (abstract, introduction, methodology, …) "
         "before chunking.  Each chunk is annotated with its section name so the LLM "
         "receives richer context.  Chunks never cross section boundaries. "
-        "Uses layout-parser if installed, otherwise falls back to text heuristics."
+        "When --extraction marker is active, sections are parsed directly from the "
+        "Markdown headings output by marker, bypassing layoutparser entirely."
     ),
 )
 @click.option(
@@ -78,7 +86,23 @@ console = Console()
         "When --section-parse is active, attempt to use layout-parser for visual "
         "layout detection of section headers (requires 'lutz-research[layout]'). "
         "If layout-parser is not installed the flag is ignored and text heuristics "
-        "are used instead.  Has no effect without --section-parse."
+        "are used instead.  Has no effect without --section-parse. "
+        "Ignored when --extraction marker is active."
+    ),
+)
+@click.option(
+    "--extraction",
+    type=click.Choice(["pymupdf", "marker", "auto"], case_sensitive=False),
+    default=None,
+    show_default=False,
+    metavar="BACKEND",
+    help=(
+        "PDF text extraction backend.  "
+        "pymupdf (default): fast, no extra deps, works only on PDFs with text layers.  "
+        "marker: OCR + multi-column layout detection via marker-pdf "
+        "(requires pip install 'lutz-research[marker]').  "
+        "auto: tries pymupdf first; switches to marker automatically for scanned PDFs "
+        "(emits a warning if marker is not installed)."
     ),
 )
 def vectorize(
@@ -88,6 +112,7 @@ def vectorize(
     quarantine: bool,
     section_parse: bool,
     layout_parse: bool,
+    extraction: str | None,
 ) -> None:
     """Index PDF articles into the local vector database (.lutz/vector_store/).
 
@@ -97,11 +122,12 @@ def vectorize(
                           academic-structure validation, and corpus-level anomaly
                           detection (IsolationForest, applied when >= 5 PDFs).
          Suspicious files are moved to articles/_quarantine/ and excluded.
-      2. Text extraction — pdfplumber (primary), pypdf (fallback).
+      2. Text extraction — configurable backend (see --extraction).
       3. Section parsing — (optional, --section-parse) splits each article into
                           sections (abstract, introduction, methodology, results,
                           discussion, conclusion, references …) before chunking.
-                          Uses layout-parser if installed, otherwise text heuristics.
+                          When --extraction marker is active, sections come from
+                          Markdown headings; otherwise layout-parser or heuristics.
                           Each chunk is tagged with its section name.
       4. Chunking        — sliding window over words (not LLM tokens).
                           chunk-size=512 words ≈ 680 LLM tokens.
@@ -118,23 +144,20 @@ def vectorize(
       Run 'lutz vector-store --summarize' afterwards to confirm indexing.
 
     \b
-    Chunk size and overlap:
-      Both --chunk-size and --chunk-overlap are measured in words (whitespace-
-      split tokens), not in LLM tokens. A chunk of 512 words is approximately
-      680 LLM tokens for English text (ratio ≈ 1.33).
-      Reducing chunk-size increases retrieval granularity but raises the total
-      number of chunks and embedding cost.
+    Extraction backends (--extraction):
+      pymupdf  Fast, zero extra deps. Fails silently on scanned PDFs.
+      marker   OCR + multi-column layout via marker-pdf. Requires:
+                 pip install "lutz-research[marker]"
+               Model weights (~500 MB) are downloaded once to ~/.cache/.
+      auto     Tries pymupdf; detects scanned PDFs and warns (or switches to
+               marker if installed).
 
     \b
     Section parsing (--section-parse):
-      Splits the document into semantic sections before chunking, so each chunk
-      is tagged with its section name (abstract, introduction, methodology, …).
-      Two backends are tried in order:
-        1. layout-parser  — visual block detection using PubLayNet Detectron2
-                            model. Requires: pip install "lutz-research[layout]"
-        2. Text heuristics — regex patterns on extracted text (no extra deps).
-      The section label appears in the vector store and is shown in the analysis
-      context sent to the LLM ("section: methodology").
+      Splits the document into semantic sections before chunking. With
+      --extraction marker the Markdown headings are used directly (fast, no
+      layoutparser needed). Otherwise layout-parser or regex heuristics are
+      tried in order.
 
     \b
     Re-running vectorize appends new chunks; it does not deduplicate.
@@ -147,11 +170,18 @@ def vectorize(
       lutz vectorize --chunk-size 256 --chunk-overlap 32
       lutz vectorize --quarantine
       lutz vectorize --section-parse
-      lutz vectorize --section-parse --no-layout-parse
+      lutz vectorize --extraction marker
+      lutz vectorize --extraction marker --section-parse
+      lutz vectorize --extraction auto
     """
     env = load_env()
     project_root = require_project_root()
     articles_dir = project_root / "articles"
+
+    # Resolve extraction backend: CLI flag > env var > default "pymupdf"
+    backend = (extraction or env.get("EXTRACTION_BACKEND") or "pymupdf").lower()
+    marker_languages = env.get("MARKER_LANGUAGES")
+    marker_device = env.get("MARKER_DEVICE")
 
     if quarantine:
         source_dir = articles_dir / "_quarantine"
@@ -198,7 +228,6 @@ def vectorize(
         checker = SecurityChecker()
         quarantine_dir = articles_dir / "_quarantine"
 
-        # Determine parallelism: PDF parsing is I/O-bound so threads scale well
         scan_workers = min(len(pdf_files), os.cpu_count() or 4)
 
         reports_map: dict[Path, SecurityReport] = {}
@@ -216,11 +245,7 @@ def vectorize(
                     reports_map[pdf] = future.result()
                     progress.advance(task)
 
-        # Restore original ordering
         reports: list[SecurityReport] = [reports_map[pdf] for pdf in pdf_files]
-
-        # Corpus-level anomaly detection (applied when >= 5 docs)
-        # Uses cached_pages from each SecurityReport — no re-read needed
         reports = detect_corpus_anomalies(reports)
 
         safe = [r for r in reports if r.is_safe]
@@ -250,33 +275,111 @@ def vectorize(
         return
 
     # ------------------------------------------------------------------
+    # Strategy selection
+    # ------------------------------------------------------------------
+    strategy: ExtractionStrategy = get_strategy(
+        backend, languages=marker_languages, device=marker_device
+    )
+    effective_backend = backend  # may be updated per-file in auto mode
+
+    if backend == "marker":
+        console.print(
+            f"[bold]Extraction backend:[/] [cyan]marker[/] "
+            f"(OCR + multi-column layout)\n"
+        )
+    elif backend == "auto":
+        console.print(
+            "[bold]Extraction backend:[/] [cyan]auto[/] "
+            "(pymupdf first, switches to marker for scanned PDFs)\n"
+        )
+
+    # ------------------------------------------------------------------
     # Extraction phase — parallel extraction using ThreadPoolExecutor
     # ------------------------------------------------------------------
     phase_label = "Phase 2/3" if not section_parse else "Phase 2–3/4"
     console.print(f"[bold]{phase_label} — Text extraction[/]")
 
-    processor = PDFProcessor(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    processor = PDFProcessor(
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        strategy=strategy,
+    )
     section_parser: SectionParser | None = None
 
     if section_parse:
-        section_parser = SectionParser(use_layout_parser=layout_parse)
+        # When using marker, layoutparser is not needed — sections come from
+        # the Markdown headings via MarkerStrategy.extract_sections().
+        use_lp = layout_parse and backend != "marker"
+        section_parser = SectionParser(use_layout_parser=use_lp)
 
+    # Per-file extraction results: stem → (chunks, actual_backend)
     chunks_by_file: dict[str, list[dict]] = {}
+    backend_by_file: dict[str, str] = {}
 
     # layout-parser (Detectron2) is not thread-safe — limit to 1 worker when active
     lp_active = section_parse and getattr(section_parser, "_lp_available", False)
-    extract_workers = 1 if lp_active else min(len(approved), os.cpu_count() or 4)
+    # marker is also not thread-safe (GPU model) — 1 worker when active
+    marker_active = backend == "marker"
+    extract_workers = 1 if (lp_active or marker_active) else min(len(approved), os.cpu_count() or 4)
 
-    def _extract_one(pdf: Path) -> tuple[str, list[dict]]:
-        """Extract chunks from a single PDF, reusing cached pages when available."""
+    # Track sparse PDFs detected in auto mode
+    sparse_pdfs: list[str] = []
+    marker_available_for_auto = False
+    if backend == "auto":
+        try:
+            MarkerStrategy._check_installed()  # type: ignore[attr-defined]
+            marker_available_for_auto = True
+        except ImportError:
+            pass
+
+    def _extract_one(pdf: Path) -> tuple[str, list[dict], str]:
+        """Extract chunks from a single PDF; returns (stem, chunks, used_backend)."""
         cached = security_reports.get(pdf)
         pre_pages = cached.cached_pages if cached is not None else None
 
+        used_backend = backend
+
+        if backend == "auto":
+            # First pass with pymupdf
+            pymupdf_pages = pre_pages if pre_pages is not None else PyMuPDFStrategy().extract_pages(pdf)
+            if is_sparse(pymupdf_pages):
+                sparse_pdfs.append(pdf.name)
+                if marker_available_for_auto:
+                    # Switch to marker for this file
+                    marker_strategy = MarkerStrategy(languages=marker_languages, device=marker_device)
+                    auto_processor = PDFProcessor(
+                        chunk_size=chunk_size,
+                        chunk_overlap=chunk_overlap,
+                        strategy=marker_strategy,
+                    )
+                    used_backend = "marker"
+                    if section_parser is not None:
+                        return pdf.stem, auto_processor.extract_chunks_with_sections(
+                            pdf, section_parser
+                        ), used_backend
+                    return pdf.stem, auto_processor.extract_chunks(pdf), used_backend
+                else:
+                    # Warn later; proceed with sparse pymupdf output
+                    used_backend = "pymupdf"
+                    if section_parser is not None:
+                        return pdf.stem, processor.extract_chunks_with_sections(
+                            pdf, section_parser, pre_extracted_pages=pymupdf_pages
+                        ), used_backend
+                    return pdf.stem, processor.extract_chunks(pdf, pre_extracted_pages=pymupdf_pages), used_backend
+            else:
+                # Not sparse — use the cached pymupdf pages
+                if section_parser is not None:
+                    return pdf.stem, processor.extract_chunks_with_sections(
+                        pdf, section_parser, pre_extracted_pages=pymupdf_pages
+                    ), used_backend
+                return pdf.stem, processor.extract_chunks(pdf, pre_extracted_pages=pymupdf_pages), used_backend
+
+        # pymupdf or marker (no auto)
         if section_parser is not None:
             return pdf.stem, processor.extract_chunks_with_sections(
                 pdf, section_parser, pre_extracted_pages=pre_pages
-            )
-        return pdf.stem, processor.extract_chunks(pdf, pre_extracted_pages=pre_pages)
+            ), used_backend
+        return pdf.stem, processor.extract_chunks(pdf, pre_extracted_pages=pre_pages), used_backend
 
     with Progress(
         SpinnerColumn(), TextColumn("{task.description}"),
@@ -290,8 +393,9 @@ def vectorize(
         with ThreadPoolExecutor(max_workers=extract_workers) as pool:
             futures = {pool.submit(_extract_one, pdf): pdf for pdf in approved}
             for future in as_completed(futures):
-                stem, chunks = future.result()
+                stem, chunks, used_backend = future.result()
                 chunks_by_file[stem] = chunks
+                backend_by_file[stem] = used_backend
                 progress.advance(task)
 
     total_chunks = sum(len(c) for c in chunks_by_file.values())
@@ -301,8 +405,26 @@ def vectorize(
         f"from {len(approved)} file(s).\n"
     )
 
+    # Warn about sparse PDFs detected in auto mode
+    if sparse_pdfs and backend == "auto":
+        if not marker_available_for_auto:
+            console.print(
+                f"[bold yellow]Warning:[/] {len(sparse_pdfs)} PDF(s) appear to be scanned "
+                f"(very little text extracted):\n"
+            )
+            for name in sparse_pdfs:
+                console.print(f"  [dim]{name}[/]")
+            console.print(
+                "\n  Install marker for automatic OCR: "
+                "[cyan]pip install \"lutz-research[marker]\"[/]\n"
+                "  Or re-run with: [cyan]lutz vectorize --extraction marker[/]\n"
+            )
+        else:
+            console.print(
+                f"[dim]{len(sparse_pdfs)} PDF(s) detected as scanned → processed with marker.[/]\n"
+            )
+
     if section_parse:
-        # Show a quick breakdown of sections found across all files
         from collections import Counter
         section_counts: Counter[str] = Counter()
         for chunks in chunks_by_file.values():
@@ -333,6 +455,7 @@ def vectorize(
             embeddings, embed_tokens = embedding_client.embed(texts)
 
         total_embedding_tokens += embed_tokens
+        file_backend = backend_by_file.get(filename, backend)
 
         for chunk, embedding in zip(chunks, embeddings):
             all_records.append({
@@ -342,18 +465,28 @@ def vectorize(
                 "vectorized_at": vectorized_at,
                 "embedding_model": embedding_client.model_id,
                 "embedding_provider": embedding_client.provider,
+                "extraction_backend": file_backend,
             })
 
     vector_store.upsert(all_records)
 
+    # Build backend summary line for the completion panel
+    backend_counts: dict[str, int] = {}
+    for b in backend_by_file.values():
+        backend_counts[b] = backend_counts.get(b, 0) + 1
+    backend_summary = ", ".join(
+        f"{b} ({n})" for b, n in sorted(backend_counts.items())
+    )
+
     console.print(
         Panel.fit(
             f"[bold green]Vectorization complete![/]\n\n"
-            f"Articles indexed:  [cyan]{len(approved)}[/]\n"
-            f"Total chunks:      [cyan]{total_chunks}[/]\n"
-            f"Embedding model:   [cyan]{embedding_client.model_id}[/]\n"
-            f"Embedding tokens:  [cyan]{total_embedding_tokens:,}[/]\n"
-            f"Timestamp:         [dim]{vectorized_at}[/]",
+            f"Articles indexed:     [cyan]{len(approved)}[/]\n"
+            f"Total chunks:         [cyan]{total_chunks}[/]\n"
+            f"Extraction backend:   [cyan]{backend_summary}[/]\n"
+            f"Embedding model:      [cyan]{embedding_client.model_id}[/]\n"
+            f"Embedding tokens:     [cyan]{total_embedding_tokens:,}[/]\n"
+            f"Timestamp:            [dim]{vectorized_at}[/]",
             border_style="green",
         )
     )

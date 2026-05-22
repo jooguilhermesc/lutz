@@ -1,0 +1,90 @@
+# RAG poisoning patterns for Lutz security scanner
+#
+# ATLAS technique: AML.T0070 — RAG Poisoning
+# OWASP LLM01: Prompt Injection (indirect, via retrieval)
+#
+# These patterns detect text inside documents that is designed to manipulate
+# the LLM's behaviour WHEN the document is retrieved as context — not direct
+# injection into the user prompt, but injection through the RAG pipeline.
+#
+# Each entry:
+#   pattern:     Python regex (re / google-re2 compatible, IGNORECASE applied)
+#   severity:    HIGH | MEDIUM
+#   description: Human-readable label for audit logs
+#   atlas:       MITRE ATLAS technique ID
+
+# ── Direct instructions targeting the AI processor ────────────────────────────
+- pattern: "when\\s+(you|the\\s+(ai|assistant|llm|model))\\s+(summarize|analyze|read|process|review)"
+  severity: HIGH
+  description: "RAG instruction: directing AI behaviour during document processing"
+  atlas: AML.T0070
+
+- pattern: "when\\s+(summarizing|analyzing|reading|processing|reviewing)\\s+this\\s+(document|paper|article|text)"
+  severity: HIGH
+  description: "RAG instruction: document-specific AI behaviour override"
+  atlas: AML.T0070
+
+- pattern: "include\\s+(the\\s+following|this)\\s+in\\s+(your|the)\\s+(summary|analysis|response|output|report)"
+  severity: HIGH
+  description: "RAG output manipulation: injecting content into AI response"
+  atlas: AML.T0070
+
+- pattern: "always\\s+(mention|include|add|append|output)\\s+.{0,60}\\s+in\\s+(your|the)\\s+(response|answer|output|report|analysis)"
+  severity: HIGH
+  description: "RAG persistent injection: forcing content into every response"
+  atlas: AML.T0070
+
+- pattern: "do\\s+not\\s+(mention|include|cite|reference|reveal)\\s+.{0,60}\\s+in\\s+(your|the)\\s+(response|answer|output|report)"
+  severity: HIGH
+  description: "RAG suppression: hiding information from AI response"
+  atlas: AML.T0070
+
+# ── Citation manipulation ─────────────────────────────────────────────────────
+- pattern: "cite\\s+this\\s+(paper|article|document|work)\\s+as"
+  severity: HIGH
+  description: "Citation injection: forcing specific citation format"
+  atlas: AML.T0070
+
+- pattern: "this\\s+(paper|article|study)\\s+(proves?|demonstrates?|shows?|establishes?)\\s+conclusively"
+  severity: MEDIUM
+  description: "False authority claim: manipulating confidence of AI conclusions"
+  atlas: AML.T0070
+
+- pattern: "(all|every)\\s+(other\\s+)?(papers?|studies|research|articles?)\\s+(on this topic\\s+)?(are\\s+)?(wrong|incorrect|flawed|invalid|outdated|unreliable)"
+  severity: MEDIUM
+  description: "Corpus poisoning: discrediting other documents to dominate retrieval"
+  atlas: AML.T0070
+
+# ── Embedding space manipulation ──────────────────────────────────────────────
+# Text designed to dominate semantic search results by keyword stuffing
+- pattern: "(\\b\\w+\\b\\s+){20,}\\1{3,}"
+  severity: MEDIUM
+  description: "Repetitive keyword stuffing (potential embedding space manipulation)"
+  atlas: AML.T0070
+
+# ── Confidentiality / exfiltration priming ────────────────────────────────────
+- pattern: "repeat\\s+(back|verbatim|exactly|word\\s+for\\s+word)\\s+(the|your|all)\\s+(prompt|instructions?|system|context)"
+  severity: HIGH
+  description: "Context exfiltration: attempting to extract system prompt via retrieval"
+  atlas: AML.T0057
+
+- pattern: "print\\s+(the|your)\\s+(full\\s+)?(system\\s+prompt|instructions?|context|configuration)"
+  severity: HIGH
+  description: "System prompt extraction via document content"
+  atlas: AML.T0057
+
+- pattern: "output\\s+(all|your|the)\\s+(previous|full|complete|entire)\\s+(context|prompt|instructions?|conversation)"
+  severity: HIGH
+  description: "Full context dump request via document injection"
+  atlas: AML.T0057
+
+# ── Research integrity attacks ────────────────────────────────────────────────
+- pattern: "ignore\\s+(all\\s+)?(other|previous|prior)\\s+(papers?|studies|articles?|documents?|sources?)"
+  severity: HIGH
+  description: "Corpus exclusion: instructing AI to ignore other retrieved documents"
+  atlas: AML.T0070
+
+- pattern: "this\\s+(is|should\\s+be\\s+considered)\\s+the\\s+(only|authoritative|definitive|primary)\\s+(source|reference|paper)"
+  severity: MEDIUM
+  description: "Authority hijacking: claiming exclusive authoritative status"
+  atlas: AML.T0070

@@ -6,6 +6,8 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from lutz.core.extraction import ExtractionStrategy, PyMuPDFStrategy
+
 if TYPE_CHECKING:
     from lutz.core.section_parser import SectionParser
 
@@ -15,11 +17,17 @@ logger = logging.getLogger(__name__)
 class PDFProcessor:
     """Extract text from PDFs and split into overlapping chunks."""
 
-    def __init__(self, chunk_size: int = 512, chunk_overlap: int = 64) -> None:
+    def __init__(
+        self,
+        chunk_size: int = 512,
+        chunk_overlap: int = 64,
+        strategy: ExtractionStrategy | None = None,
+    ) -> None:
         if chunk_overlap >= chunk_size:
             raise ValueError("chunk_overlap must be smaller than chunk_size")
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
+        self._strategy: ExtractionStrategy = strategy if strategy is not None else PyMuPDFStrategy()
 
     def extract_chunks(
         self,
@@ -109,7 +117,12 @@ class PDFProcessor:
         """
         pages = pre_extracted_pages if pre_extracted_pages is not None \
             else self._extract_pages(pdf_path)
-        sections = section_parser.parse(pdf_path, pages)
+
+        # Allow the extraction strategy to provide sections directly (e.g. marker)
+        # bypassing the regex-based SectionParser entirely.
+        sections = self._strategy.extract_sections(pdf_path)
+        if sections is None:
+            sections = section_parser.parse(pdf_path, pages)
 
         chunks: list[dict] = []
         chunk_index = 0
@@ -141,39 +154,5 @@ class PDFProcessor:
         return chunks
 
     def _extract_pages(self, pdf_path: Path) -> list[tuple[int, str]]:
-        """Extract (page_number, text) pairs from a PDF.
-
-        Extractor priority:
-            1. pymupdf  — binding C para MuPDF (10-50x mais rápido)
-            2. pdfplumber — fallback Python puro
-            3. pypdf    — último recurso
-        """
-        # 1. pymupdf (MuPDF C binding — fastest, best layout handling)
-        try:
-            import fitz  # pymupdf
-
-            doc = fitz.open(str(pdf_path))
-            pages = [(i + 1, page.get_text("text") or "") for i, page in enumerate(doc)]
-            doc.close()
-            return pages
-        except Exception as exc:
-            logger.debug("pymupdf failed for %s: %s — trying pdfplumber", pdf_path.name, exc)
-
-        # 2. pdfplumber (better text quality than pypdf, pure Python)
-        try:
-            import pdfplumber
-
-            with pdfplumber.open(str(pdf_path)) as pdf:
-                return [(i, page.extract_text() or "") for i, page in enumerate(pdf.pages, 1)]
-        except Exception as exc:
-            logger.debug("pdfplumber failed for %s: %s — trying pypdf", pdf_path.name, exc)
-
-        # 3. pypdf (last resort)
-        try:
-            import pypdf
-
-            reader = pypdf.PdfReader(str(pdf_path))
-            return [(i, page.extract_text() or "") for i, page in enumerate(reader.pages, 1)]
-        except Exception as exc:
-            logger.error("Could not extract text from %s: %s", pdf_path.name, exc)
-            return []
+        """Extract ``(page_number, text)`` pairs using the configured strategy."""
+        return self._strategy.extract_pages(pdf_path)

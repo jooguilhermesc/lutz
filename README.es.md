@@ -411,8 +411,9 @@ Procesa los PDFs de `articles/` y crea la base vectorial local en `.lutz/vector_
 | `--chunk-size` | Tamaño de los fragmentos de texto en palabras. | `512` |
 | `--chunk-overlap` | Superposición entre fragmentos. | `64` |
 | `--quarantine` | Procesa archivos en `articles/_quarantine/`. | desactivado |
+| `--extraction` | Backend de extracción: `pymupdf`, `marker` o `auto` (ver abajo). | `pymupdf` |
 | `--section-parse` | Divide cada artículo en secciones etiquetadas (resumen, introducción, metodología, resultados, discusión, conclusión, referencias…) antes de fragmentar. Cada fragmento queda marcado con el nombre de su sección. Los fragmentos nunca cruzan límites de sección. | desactivado |
-| `--layout-parse` / `--no-layout-parse` | Cuando `--section-parse` está activo, usa layout-parser para detectar secciones visualmente. Requiere `pip install "lutz-research[layout]"`. Si no está instalado, usa heurísticas de texto. Sin efecto sin `--section-parse`. | activado |
+| `--layout-parse` / `--no-layout-parse` | Cuando `--section-parse` está activo, usa layout-parser para detectar secciones visualmente. Requiere `pip install "lutz-research[layout]"` (obsoleto — usar `--extraction marker`). | activado |
 
 Ejemplos:
 
@@ -420,30 +421,37 @@ Ejemplos:
 lutz vectorize
 lutz vectorize --chunk-size 256 --chunk-overlap 32
 
-# Vectorización por sección (heurísticas de texto, sin dependencias extra)
-lutz vectorize --section-parse --no-layout-parse
-
-# Vectorización por sección con detección visual de layout
-pip install "lutz-research[layout]"
+# Vectorización por sección
 lutz vectorize --section-parse
+
+# OCR y layout multi-columna con marker
+pip install "lutz-research[marker]"
+lutz vectorize --extraction marker
+lutz vectorize --extraction marker --section-parse
+
+# Detección automática de PDFs escaneados
+lutz vectorize --extraction auto
 ```
 
-**Instalación del backend de detección de layout**
+**Backends de extracción de texto**
 
-La detección visual de layout usa [layout-parser](https://layout-parser.readthedocs.io/) con un modelo Detectron2 entrenado en PubLayNet. Los pesos del modelo (~250 MB) se descargan automáticamente en el primer uso.
+| Tipo de documento | Backend recomendado | Motivo |
+|---|---|---|
+| Artículo digital, 1 columna | `pymupdf` (predeterminado) | Rápido, sin dependencias extra |
+| Artículo digital, 2+ columnas (IEEE, Elsevier, ACM) | `marker` | Detección de layout |
+| Libro o artículo escaneado | `marker` | OCR con surya |
+| Corpus mixto | `auto` | Detecta y adapta por archivo |
+
+El backend `marker` gestiona layouts multi-columna y PDFs escaneados sin Poppler ni Tesseract. Cuando `--section-parse` se combina con `--extraction marker`, las secciones se extraen directamente de los encabezados Markdown que genera marker — sin layoutparser.
 
 ```bash
-# Instalar dependencias opcionales
-pip install "lutz-research[layout]"
-
-# Dependencia de sistema (requerida por pdf2image)
-# Debian/Ubuntu:
-apt install poppler-utils
-# macOS:
-brew install poppler
+# Pesos de los modelos (~500 MB), descargados automáticamente una sola vez
+pip install "lutz-research[marker]"
 ```
 
-Si layout-parser no está instalado, `--section-parse` usa heurísticas de texto con expresiones regulares, sin dependencias adicionales.
+**Backend `[layout]` (obsoleto)**
+
+El `layoutparser` (extra `[layout]`) está obsoleto y será eliminado en la v0.5.0. Usa `--extraction marker` como reemplazo — sin dependencias de sistema (Poppler) y con soporte OCR.
 
 ### `lutz unvectorize`
 
@@ -767,10 +775,6 @@ lutz/
 │   ├── vector_store.py       # wrapper de LanceDB
 │   ├── embedding_client.py   # proveedores de embeddings
 │   └── llm_client.py         # proveedores de LLM
-├── ui/                       # interfaz visual Streamlit (lutz web)
-│   ├── Home.py               # punto de entrada del panel
-│   ├── _utils.py             # utilidades compartidas
-│   └── pages/                # un archivo por página (navegación en barra lateral)
 └── utils/
     ├── html_report.py        # generación de informe HTML para modo por artículo
     ├── pdf.py                # validación básica de PDF

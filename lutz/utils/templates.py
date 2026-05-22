@@ -133,6 +133,23 @@ ANTHROPIC_API_KEY=
 # Get one at https://huggingface.co/settings/tokens
 # -----------------------------------------------------------------------------
 HUGGINGFACE_TOKEN=
+
+# -----------------------------------------------------------------------------
+# PDF extraction backend  (lutz vectorize --extraction)
+# Options: pymupdf (default) | marker | auto
+#   pymupdf  — fast, no extra deps; fails silently on scanned PDFs.
+#   marker   — OCR + multi-column layout (requires pip install "lutz-research[marker]").
+#   auto     — pymupdf first; switches to marker for scanned PDFs when available.
+# This value is overridden by the --extraction CLI flag.
+# -----------------------------------------------------------------------------
+EXTRACTION_BACKEND=pymupdf
+
+# Languages for marker OCR (comma-separated BCP-47 codes, e.g. "pt,en").
+# Leave blank to use marker's default (English).
+MARKER_LANGUAGES=
+
+# Device for marker model inference: cpu | cuda  (leave blank for auto-detect).
+MARKER_DEVICE=
 """
 
 

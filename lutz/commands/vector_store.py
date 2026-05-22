@@ -132,16 +132,24 @@ def vector_store(summarize: bool, sections: bool, export_path: str | None) -> No
 
     # --summarize: print to terminal
     if summarize:
+        # Collect extraction backend(s) used across all articles
+        backends = sorted({
+            a.get("extraction_backend") or "pymupdf"
+            for a in info["articles"]
+        })
+        backend_str = ", ".join(backends) if backends else "pymupdf"
+
         console.print(
             Panel.fit(
                 f"[bold cyan]Vector Store Summary[/]\n\n"
-                f"Total chunks:      [cyan]{info['total_records']:,}[/]\n"
-                f"Total articles:    [cyan]{info['unique_documents']}[/]\n"
-                f"Last updated:      [dim]{info['last_updated']}[/]\n"
-                f"Embedding model:   [cyan]{info['embedding_model']}[/] "
+                f"Total chunks:         [cyan]{info['total_records']:,}[/]\n"
+                f"Total articles:       [cyan]{info['unique_documents']}[/]\n"
+                f"Last updated:         [dim]{info['last_updated']}[/]\n"
+                f"Embedding model:      [cyan]{info['embedding_model']}[/] "
                 f"[dim]({info['embedding_provider']})[/]\n"
-                f"DB path:           [dim]{db_path.relative_to(project_root)}[/]\n"
-                f"DB size on disk:   [cyan]{db_size_mb:.1f} MB[/]",
+                f"Extraction backend:   [cyan]{backend_str}[/]\n"
+                f"DB path:              [dim]{db_path.relative_to(project_root)}[/]\n"
+                f"DB size on disk:      [cyan]{db_size_mb:.1f} MB[/]",
                 border_style="cyan",
             )
         )

@@ -410,8 +410,9 @@ Processa os PDFs de `articles/` e cria o banco vetorial local em `.lutz/vector_s
 | `--chunk-size` | Tamanho dos trechos de texto em palavras. | `512` |
 | `--chunk-overlap` | Sobreposicao entre trechos. | `64` |
 | `--quarantine` | Processa arquivos em `articles/_quarantine/`. | desativado |
+| `--extraction` | Backend de extração: `pymupdf`, `marker` ou `auto` (veja abaixo). | `pymupdf` |
 | `--section-parse` | Divide cada artigo em secoes rotuladas (resumo, introducao, metodologia, resultados, discussao, conclusao, referencias…) antes de fatiar em trechos. Cada trecho recebe o nome da sua secao. Os trechos nunca cruzam fronteiras de secao. | desativado |
-| `--layout-parse` / `--no-layout-parse` | Quando `--section-parse` esta ativo, usa layout-parser para detectar secoes visualmente. Requer `pip install "lutz-research[layout]"`. Se nao instalado, usa heuristicas de texto. Sem efeito sem `--section-parse`. | ativado |
+| `--layout-parse` / `--no-layout-parse` | Quando `--section-parse` esta ativo, usa layout-parser para detectar secoes visualmente. Requer `pip install "lutz-research[layout]"` (depreciado — prefira `--extraction marker`). | ativado |
 
 Exemplos:
 
@@ -419,30 +420,37 @@ Exemplos:
 lutz vectorize
 lutz vectorize --chunk-size 256 --chunk-overlap 32
 
-# Vetorizacao por secao (heuristica de texto, sem deps extras)
-lutz vectorize --section-parse --no-layout-parse
-
-# Vetorizacao por secao com deteccao visual de layout
-pip install "lutz-research[layout]"
+# Vetorizacao por secao
 lutz vectorize --section-parse
+
+# OCR e layout multi-coluna via marker
+pip install "lutz-research[marker]"
+lutz vectorize --extraction marker
+lutz vectorize --extraction marker --section-parse
+
+# Deteccao automatica de PDFs escaneados
+lutz vectorize --extraction auto
 ```
 
-**Instalando o backend de deteccao de layout**
+**Backends de extração de texto**
 
-A deteccao visual de layout usa [layout-parser](https://layout-parser.readthedocs.io/) com um modelo Detectron2 treinado no PubLayNet. Os pesos do modelo (~250 MB) sao baixados na primeira execucao.
+| Tipo de documento | Backend recomendado | Motivo |
+|---|---|---|
+| Artigo digital, 1 coluna | `pymupdf` (padrão) | Rápido, sem deps extras |
+| Artigo digital, 2+ colunas (IEEE, Elsevier, ACM) | `marker` | Detecção de layout |
+| Livro ou artigo escaneado | `marker` | OCR via surya |
+| Corpus misto | `auto` | Detecta e adapta por arquivo |
+
+O backend `marker` lida com layouts multi-coluna e PDFs escaneados sem Poppler nem Tesseract. Quando `--section-parse` é usado com `--extraction marker`, as seções são extraídas diretamente dos headings Markdown gerados pelo marker — sem necessidade de layoutparser.
 
 ```bash
-# Instalar deps opcionais
-pip install "lutz-research[layout]"
-
-# Dependencia de sistema (necessaria para pdf2image)
-# Debian/Ubuntu:
-apt install poppler-utils
-# macOS:
-brew install poppler
+# Pesos dos modelos (~500 MB), baixados uma vez automaticamente
+pip install "lutz-research[marker]"
 ```
 
-Se o layout-parser nao estiver instalado, `--section-parse` usa heuristicas de texto por expressoes regulares, sem dependencias extras.
+**Backend `[layout]` (depreciado)**
+
+O `layoutparser` (extra `[layout]`) está depreciado e será removido na v0.5.0. Use `--extraction marker` como substituto — sem dependências de sistema (Poppler) e com suporte a OCR.
 
 ### `lutz unvectorize`
 
@@ -767,10 +775,6 @@ lutz/
 │   ├── vector_store.py       # wrapper do LanceDB
 │   ├── embedding_client.py   # provedores de embeddings
 │   └── llm_client.py         # provedores de LLM
-├── ui/                       # interface visual Streamlit (lutz web)
-│   ├── Home.py               # ponto de entrada do dashboard
-│   ├── _utils.py             # utilitários compartilhados
-│   └── pages/                # um arquivo por página (navegação na barra lateral)
 └── utils/
     ├── html_report.py        # geração de relatório HTML para o modo por artigo
     ├── pdf.py                # validação básica de PDF

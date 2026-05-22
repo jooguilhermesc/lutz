@@ -62,8 +62,17 @@ layout = [
     # Visual layout detection for section-aware chunking (--section-parse flag).
     # Also requires: poppler system library (apt install poppler-utils / brew install poppler)
     # Model weights (~250 MB) are downloaded automatically on first use.
+    # DEPRECATED: use --extraction marker instead (no Poppler required).
     "layoutparser[layoutmodels]>=0.3.4",
     "pdf2image>=1.16",
+]
+marker = [
+    # OCR + multi-column layout detection via marker-pdf (surya-ocr backbone).
+    # Handles scanned PDFs and IEEE/Elsevier/ACM two-column layouts without
+    # requiring Poppler or Tesseract.  Model weights (~500 MB) are downloaded
+    # lazily to ~/.cache/ on first use.
+    # Activate with: lutz vectorize --extraction marker
+    "marker-pdf>=0.2,<2.0",
 ]
 security = [
     # google-re2: linear-time regex engine (C++ RE2 binding).
