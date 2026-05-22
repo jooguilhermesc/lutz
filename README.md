@@ -6,38 +6,45 @@
 
 **Languages:** **English** | [Português](README.pt-BR.md) | [Español](README.es.md)
 
-> Python library and command-line tool for organizing, vectorizing, and analyzing academic PDF articles with AI.
+> AI-powered tool for organizing, screening, and analyzing academic PDF articles — with a full browser interface and command-line access.
 
 [![DOI](https://zenodo.org/badge/1227342715.svg)](https://doi.org/10.5281/zenodo.19982571)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
-![Version](https://img.shields.io/badge/Version-0.1.2-blueviolet)
+![Version](https://img.shields.io/badge/Version-0.3.0-blueviolet)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Status](https://img.shields.io/badge/Status-Public%20Preview-blue)
-![CLI](https://img.shields.io/badge/Interface-CLI-informational)
+![Interface](https://img.shields.io/badge/Interface-Web%20%7C%20CLI-informational)
 
 **Tags:** systematic review, academic screening, scientific articles, generative AI, LLM, RAG, embeddings, PDF, LanceDB, Python, open science, academic research.
 
-Lutz helps researchers, students, and literature review teams work with large sets of PDF articles. It creates a reproducible project structure, copies PDFs into the right place, performs basic security checks, extracts text, generates embeddings, stores everything in a local vector database, and uses a language model to answer analysis prompts.
-
-Current package version: `0.1.2`.
+Lutz helps researchers, students, and literature review teams work with large sets of PDF articles. It creates a reproducible project structure, processes and embeds PDFs into a local vector database, and uses language models to screen, analyze, and chat about your articles — all through a browser interface or the command line.
 
 The package is named after **Bertha Maria Julia Lutz**, an important Brazilian scientist, biologist, and researcher who contributed to biology and to the recognition of science in Brazil.
 
 ---
 
+## What's new in v0.3.0
+
+- **React web interface** — full browser UI replacing the previous Streamlit prototype. Faster, more responsive, works on any device on the local network.
+- **Background jobs** — vectorize, analyze, and extract citations while freely navigating the interface. A notification bell tracks every job.
+- **Chat with sessions** — conversation history persisted on disk, automatic memory extraction, and support for context files alongside articles.
+- **Reading roadmap** — LLM-generated staged reading plan that groups and orders relevant articles by dependency.
+- **Inline PDF viewer** — open any article directly in the browser without leaving the interface.
+- **Smart rename** — suggest a clean filename from the article's own content with one click, no vectorization required.
+- **Multi-provider LLM/embedding** — OpenAI, Anthropic, Docker Model Runner, Ollama, llama.cpp — configurable from the Settings page.
+- **Windows installer** — one-click setup wizard with license, shortcuts, and uninstaller; no Python or Node required.
+
+---
+
 ## Table of contents
 
-- [What Lutz is for](#what-lutz-is-for)
-- [How Lutz works](#how-lutz-works)
-- [Before you start](#before-you-start)
 - [Installation](#installation)
-- [First use, step by step](#first-use-step-by-step)
+- [Quick start](#quick-start)
+- [Web interface](#web-interface)
 - [Model configuration](#model-configuration)
-- [Main commands](#main-commands)
-- [Visual interface](#visual-interface)
+- [CLI reference](#cli-reference)
 - [Complete systematic review workflow](#complete-systematic-review-workflow)
 - [How to write prompts](#how-to-write-prompts)
-- [Where results are stored](#where-results-are-stored)
 - [Security model](#security-model)
 - [Architecture](#architecture)
 - [Contributing](#contributing)
@@ -46,219 +53,163 @@ The package is named after **Bertha Maria Julia Lutz**, an important Brazilian s
 
 ---
 
-## What Lutz is for
-
-Use Lutz when you need to:
-
-- Organize a folder of scientific articles in PDF format.
-- Prepare a systematic review, narrative review, literature map, or initial study screening.
-- Ask questions about a set of articles using a language model.
-- Generate structured analysis from Markdown prompts.
-- Keep files, prompts, vector data, and reports inside a reproducible project.
-
-Lutz does not replace critical reading or methodological decisions by researchers. It is a support tool for accelerating organization, semantic search, and first-pass synthesis of texts.
-
----
-
-## How Lutz works
-
-```text
-PDFs -> security check -> text extraction -> [section parsing] -> embeddings -> vector database -> LLM analysis -> JSON report
-```
-
-Basic flow:
-
-1. `lutz init` creates a project folder with subfolders, prompt templates, and `.env.example`.
-2. `lutz load` copies your PDFs into `articles/`.
-3. `lutz vectorize` checks PDFs, extracts text, optionally splits articles into labeled sections (abstract, introduction, methodology…), chunks, and creates embeddings.
-4. `lutz analysis` uses a Markdown prompt to analyze the vectorized articles.
-5. Results are stored in `analysis/execution_reports/`.
-
----
-
-## Before you start
-
-You will need:
-
-- A computer running Windows, macOS, or Linux.
-- Terminal access. On Windows, use PowerShell; on macOS and Linux, use Terminal.
-- Python 3.10 or higher.
-- A folder with your PDF articles.
-- An AI model for analysis: self-hosted via Docker Model Runner, Ollama, or llama.cpp; OpenAI/OpenRouter; or Anthropic.
-
-The recommended installation path uses the package published on PyPI.
-
----
-
 ## Installation
 
-### From PyPI
+### Windows — installer (recommended for non-technical users)
 
-1. Install Python 3.10 or higher.
+Download `lutz-setup-windows-x64.exe` from the [latest release](https://github.com/jooguilhermesc/lutz/releases/latest) and run it. The wizard will:
 
-Check your version:
+- Show the MIT license agreement
+- Let you choose the install directory
+- Create a Start Menu entry and optional Desktop shortcut
+- Register an uninstaller in Windows Settings → Apps
 
-```bash
-python --version
-```
+After installation, open **Lutz Research** from the Start Menu. The browser interface opens automatically.
 
-On some systems, the command may be `python3 --version`.
+> **No Python or Node.js required.** Everything is bundled in the installer.
 
-2. Create and activate a virtual environment.
+---
 
-Linux or macOS:
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-```
-
-Windows PowerShell:
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-```
-
-3. Install Lutz.
+### pip (Python users)
 
 ```bash
-python -m pip install --upgrade pip
 pip install lutz-research
+lutz web
 ```
 
-4. Test the installation.
+Requires Python 3.10+. A virtual environment is recommended:
 
 ```bash
-lutz --help
-lutz --version
+python -m venv .venv
+source .venv/bin/activate      # Linux / macOS
+.\.venv\Scripts\Activate.ps1   # Windows PowerShell
+
+pip install lutz-research
+lutz web
 ```
+
+---
+
+### uv (fast, isolated — recommended for Linux / macOS)
+
+[uv](https://docs.astral.sh/uv/) installs and runs the tool in a fully isolated environment with a single command:
+
+```bash
+uv tool install lutz-research
+lutz web
+```
+
+To update later:
+
+```bash
+uv tool upgrade lutz-research
+```
+
+---
+
+### Docker
+
+Ideal for servers, shared environments, or Linux users who prefer containers:
+
+```bash
+# Start the server, mounting your project directory
+docker run -v $(pwd):/project -p 8765:8765 ghcr.io/jooguilhermesc/lutz
+
+# Then open http://localhost:8765 in your browser
+```
+
+The container bundles the full stack (Python, dependencies, React UI). Your article files and reports live in the mounted `/project` directory and are never copied into the image.
+
+---
 
 ### From source
-
-Use this option if you want to contribute or run the latest code from the repository.
 
 ```bash
 git clone https://github.com/jooguilhermesc/lutz.git
 cd lutz
-python -m pip install --upgrade pip
-pip install -e .
+pip install -e ".[dev]"
+```
+
+Build the React frontend to use the web interface from source:
+
+```bash
+cd web && npm ci && npm run build
+cd ..
+lutz web
 ```
 
 ---
 
-## First use, step by step
-
-The commands below assume that `lutz` already works in your terminal.
-
-### 1. Create a folder for your review
+## Quick start
 
 ```bash
-mkdir my-review
-cd my-review
+# 1. Create a new project
+mkdir my-review && cd my-review
 lutz init
+
+# 2. Copy your PDFs into articles/  (or upload via the web interface)
+lutz load --f ~/Downloads/pdfs --so linux
+
+# 3. Open the web interface
+lutz web
 ```
 
-Lutz creates a structure similar to this:
+The browser opens at `http://localhost:8765`. From there you can vectorize articles, run analyses, chat with your corpus, and generate reports — no more command line needed.
 
-```text
-articles/                   research PDFs
-prompts/                    prompt templates
-analysis/execution_reports/ generated reports
-.env.example                configuration example
-README.md                   project notes
-```
+---
 
-### 2. Configure AI models
+## Web interface
 
-Copy the example file:
-
-Linux or macOS:
+`lutz web` starts a local FastAPI server and opens the browser automatically.
 
 ```bash
-cp .env.example .env
+lutz web                              # default: localhost:8765
+lutz web --port 8080                  # custom port
+lutz web --host 0.0.0.0               # expose on local network
+lutz web --no-browser                 # server only, no auto-open
+lutz web --project /path/to/project   # explicit project directory
 ```
 
-Windows PowerShell:
+### Pages
 
-```powershell
-Copy-Item .env.example .env
-```
+#### Home
+Project dashboard showing article count, vectorized chunks, analyses run, and quick-action buttons. Entry point for first-time setup.
 
-Open `.env` in a text editor and choose one of the configurations from [Model configuration](#model-configuration).
+#### Library (Vetorização)
+Upload PDFs via drag-and-drop or file picker. View all articles with size, vectorization status, and a one-click rename suggestion. Start vectorization as a background job and navigate freely while it runs.
 
-### 3. Add PDFs to the project
+#### Vector Store
+Inspect the LanceDB index: total chunks, unique documents, embedding model, last update. Query the index directly with DuckDB SQL. Reset the store when you need to rebuild from scratch.
 
-You can manually copy files into `articles/` or use the `load` command.
+#### Analysis
+Write or upload a Markdown prompt, choose RAG or per-article mode, set workers and chunk limits, and dispatch the analysis as a background job. A live log panel appears on the page if you return while the job is still running.
 
-Linux example:
+#### Citations
+Select a per-article analysis report and extract the 3–5 passages that best justify each article's classification. Runs as a background job with real-time progress.
 
-```bash
-lutz load --f ~/Downloads/my-articles --so linux
-```
+#### Roadmap
+Generate a staged reading plan from your relevant articles. The LLM groups articles by conceptual dependency and suggests an order for reading.
 
-macOS example:
+#### Reports
+Table of all past analyses. Click any row to expand the full results, including per-article verdicts, analysis text, token usage, and model metadata. Download JSON reports.
 
-```bash
-lutz load --f ~/Desktop/articles --so mac
-```
+#### Chat
+Conversational interface over your corpus. Each conversation is a persistent session saved to disk. The assistant can search the article vector store, attached context files, or use only its own knowledge — configurable per message. Memories pinned manually or extracted automatically from conversations are shown in a sidebar panel.
 
-Windows example:
+#### Settings
+Configure LLM and embedding providers, API keys (write-only — never displayed after saving), base URLs, response language, and model parameters. Changes are saved to `.env` immediately.
 
-```powershell
-lutz load --f "C:\Users\Ana\Downloads\articles" --so windows
-```
+### Background jobs and notifications
 
-If the PDFs are already in `articles/`, you can skip this step.
-
-### 4. Create the article vector index
-
-```bash
-lutz vectorize
-```
-
-This command may take time on the first run, especially if there are many PDFs or if a local model still needs to be downloaded.
-
-### 5. Run an analysis
-
-```bash
-lutz analysis --p prompts/systematic_review.md
-```
-
-To analyze each article separately, use:
-
-```bash
-lutz analysis --p prompts/systematic_review.md --per-article
-```
-
-### 6. Open the result
-
-Files are stored in:
-
-```text
-analysis/execution_reports/
-```
-
-Each run generates a `.json` file with metadata, articles used, token usage, and the model response.
+Long-running operations (vectorize, analysis, citations, roadmap) run as server-side background tasks. A bell icon in the top bar shows a badge when jobs are running or completed. Clicking it opens a panel with status, elapsed time, and the option to cancel in-progress jobs. If you navigate away from a page while a job is running, an **Active Job** panel appears when you return, allowing you to reconnect to the live log stream.
 
 ---
 
 ## Model configuration
 
-Configuration lives in `.env`, created from `.env.example`.
+Configuration lives in `.env` at the project root, created from `.env.example` by `lutz init`. It can also be edited from the Settings page in the web interface.
 
-### Local/self-hosted option: Docker Model Runner
-
-This option uses local models through Docker Model Runner and does not require an external API key.
-
-1. Pull the models.
-
-```bash
-docker model pull nomic-embed-text
-docker model pull ai/llama3.2
-```
-
-2. Configure `.env`.
+### Docker Model Runner (local, no API key)
 
 ```dotenv
 EMBEDDING_PROVIDER=docker_model_runner
@@ -270,13 +221,14 @@ LLM_MODEL=ai/llama3.2
 DOCKER_MODEL_HOST=http://localhost:12434/engines/v1
 ```
 
-### Self-hosted option with Ollama or llama.cpp
+Pull models first:
 
-Lutz can also use local servers compatible with the OpenAI API, including Ollama and llama.cpp server.
+```bash
+docker model pull nomic-embed-text
+docker model pull ai/llama3.2
+```
 
-For local endpoints, `OPENAI_API_KEY` can be a dummy value when the server does not require authentication.
-
-Example with Ollama:
+### Ollama (local, no API key)
 
 ```dotenv
 EMBEDDING_PROVIDER=sentence_transformers
@@ -288,27 +240,18 @@ OPENAI_API_KEY=ollama
 LLM_MODEL=llama3.2
 ```
 
-Example with llama.cpp server:
+### OpenAI
 
 ```dotenv
-EMBEDDING_PROVIDER=sentence_transformers
-EMBEDDING_MODEL=all-MiniLM-L6-v2
+EMBEDDING_PROVIDER=openai
+EMBEDDING_MODEL=text-embedding-3-small
 
 LLM_PROVIDER=openai
-OPENAI_BASE_URL=http://localhost:8080/v1
-OPENAI_API_KEY=llama-cpp
-LLM_MODEL=model-loaded-in-server
+OPENAI_API_KEY=your-key-here
+LLM_MODEL=gpt-4o-mini
 ```
 
-If the self-hosted server also provides embeddings through an OpenAI-compatible API, you can set `EMBEDDING_PROVIDER=openai` and use the corresponding embedding model.
-
-### OpenRouter or OpenAI-compatible API
-
-Use this option if you have an API key or want to use OpenRouter models.
-
-1. Create an account at [https://openrouter.ai](https://openrouter.ai).
-2. Generate a key at [https://openrouter.ai/keys](https://openrouter.ai/keys).
-3. Configure `.env`.
+### OpenRouter (free models available)
 
 ```dotenv
 EMBEDDING_PROVIDER=sentence_transformers
@@ -318,17 +261,6 @@ LLM_PROVIDER=openai
 OPENAI_BASE_URL=https://openrouter.ai/api/v1
 OPENAI_API_KEY=your-key-here
 LLM_MODEL=google/gemma-3-12b-it:free
-```
-
-Standard OpenAI also works:
-
-```dotenv
-EMBEDDING_PROVIDER=openai
-EMBEDDING_MODEL=text-embedding-3-small
-
-LLM_PROVIDER=openai
-OPENAI_API_KEY=your-key-here
-LLM_MODEL=gpt-4o-mini
 ```
 
 ### Anthropic
@@ -342,490 +274,105 @@ ANTHROPIC_API_KEY=your-key-here
 LLM_MODEL=claude-haiku-4-5-20251001
 ```
 
-### Useful variables
+### Configuration reference
 
-| Variable | Purpose |
-|----------|---------|
-| `EMBEDDING_PROVIDER` | Embedding provider: `docker_model_runner`, `openai`, or `sentence_transformers`. |
-| `EMBEDDING_MODEL` | Embedding model name. |
-| `LLM_PROVIDER` | Language model provider: `docker_model_runner`, `openai`, or `anthropic`. |
-| `LLM_MODEL` | Model used for analysis. |
-| `OPENAI_API_KEY` | Key for OpenAI or a compatible service. For unauthenticated local endpoints, it can be a dummy value. |
-| `OPENAI_BASE_URL` | Alternative URL for OpenAI-compatible APIs. |
-| `ANTHROPIC_API_KEY` | Anthropic API key. |
-| `DOCKER_MODEL_HOST` | Docker Model Runner address when using a local Python installation. |
-| `DOCKER_MODEL_API_KEY` | Key used by the OpenAI-compatible Docker Model Runner client. Usually does not need to be changed. |
-| `LLM_MAX_TOKENS` | Maximum response size. Default: `4096`. |
-| `LLM_TEMPERATURE` | Response variation. Default: `0.2`. |
-| `HUGGINGFACE_TOKEN` | Optional token for gated models used through `sentence_transformers`. |
+| Variable | Purpose | Default |
+|---|---|---|
+| `LLM_PROVIDER` | `openai`, `anthropic`, or `docker_model_runner` | — |
+| `LLM_MODEL` | Model name for analysis and chat | — |
+| `LLM_MAX_TOKENS` | Maximum response size | `4096` |
+| `LLM_TEMPERATURE` | Response variation | `0.2` |
+| `EMBEDDING_PROVIDER` | `openai`, `sentence_transformers`, or `docker_model_runner` | — |
+| `EMBEDDING_MODEL` | Embedding model name | — |
+| `OPENAI_API_KEY` | Key for OpenAI or compatible services | — |
+| `OPENAI_BASE_URL` | Alternative base URL for OpenAI-compatible APIs | — |
+| `ANTHROPIC_API_KEY` | Anthropic API key | — |
+| `DOCKER_MODEL_HOST` | Docker Model Runner address | — |
+| `REPORT_LANGUAGE` | Language for generated reports | `português` |
 
 ---
 
-## Main commands
+## CLI reference
+
+The full workflow is also available from the command line. The CLI and the web interface share the same project structure and `.env`.
 
 ### `lutz init [PROJECT_NAME]`
 
-Creates a new Lutz project.
+Creates a new project with `articles/`, `prompts/`, `analysis/execution_reports/`, `.env.example`, `.gitignore`, and a local Git repository.
 
 ```bash
 lutz init
 lutz init my-review
 ```
 
-The command creates:
-
-- `articles/`
-- `prompts/`
-- `analysis/execution_reports/`
-- `.env.example`
-- `.gitignore`
-- project `README.md`
-- local Git repository
-
 ### `lutz load --f FOLDER [--so OS] [--overwrite]`
 
 Copies PDFs from a source folder into `articles/`.
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--f` | Path to the folder containing PDFs. | required |
-| `--so` | Path operating system: `linux`, `windows`, or `mac`. | choose your system |
-| `--overwrite` | Overwrite files that already exist in `articles/`. | disabled |
-
-Examples:
-
 ```bash
 lutz load --f ~/Downloads/articles --so linux
-lutz load --f ~/Desktop/articles --so mac
-```
-
-Windows PowerShell:
-
-```powershell
 lutz load --f "C:\Users\Ana\Downloads\articles" --so windows
 ```
 
 ### `lutz vectorize [options]`
 
-Processes PDFs from `articles/` and creates the local vector database in `.lutz/vector_store/`.
+Processes PDFs and creates the vector index in `.lutz/vector_store/`.
 
 | Option | Description | Default |
-|--------|-------------|---------|
-| `--skip-security` | Skip security checks. Not recommended. | disabled |
-| `--chunk-size` | Text chunk size in words. | `512` |
-| `--chunk-overlap` | Overlap between chunks. | `64` |
-| `--quarantine` | Process files in `articles/_quarantine/`. | disabled |
-| `--section-parse` | Split each article into labeled sections (abstract, introduction, methodology, results, discussion, conclusion, references…) before chunking. Each chunk is tagged with its section name. Chunks never cross section boundaries. | disabled |
-| `--layout-parse` / `--no-layout-parse` | When `--section-parse` is active, use layout-parser for visual section detection. Requires `pip install "lutz-research[layout]"`. Falls back to text heuristics if not installed. Has no effect without `--section-parse`. | enabled |
-
-Examples:
+|---|---|---|
+| `--chunk-size` | Chunk size in words | `512` |
+| `--chunk-overlap` | Overlap between chunks | `64` |
+| `--section-parse` | Split articles into labeled sections before chunking | disabled |
+| `--skip-security` | Skip PDF security checks | disabled |
+| `--quarantine` | Process files in `articles/_quarantine/` | disabled |
 
 ```bash
 lutz vectorize
+lutz vectorize --section-parse          # section-aware (recommended)
 lutz vectorize --chunk-size 256 --chunk-overlap 32
-
-# Section-aware vectorization (text heuristics, no extra deps)
-lutz vectorize --section-parse --no-layout-parse
-
-# Section-aware vectorization with visual layout detection
-pip install "lutz-research[layout]"
-lutz vectorize --section-parse
 ```
-
-**Installing the layout detection backend**
-
-Visual layout detection uses [layout-parser](https://layout-parser.readthedocs.io/) with a Detectron2 model trained on PubLayNet. Model weights (~250 MB) are downloaded on first use.
-
-```bash
-# Install optional deps
-pip install "lutz-research[layout]"
-
-# System dependency (required by pdf2image)
-# Debian/Ubuntu:
-apt install poppler-utils
-# macOS:
-brew install poppler
-```
-
-If layout-parser is not installed, `--section-parse` falls back to regex-based text heuristics with no extra dependencies.
-
-### `lutz unvectorize`
-
-Deletes the vector database, but does not delete your PDFs.
-
-```bash
-lutz unvectorize
-```
-
-Use it when you want to rebuild the index from scratch.
 
 ### `lutz analysis --p PROMPT [options]`
 
-Analyzes vectorized articles using a Markdown prompt. Two modes are available.
-
-**RAG mode (default)**
-
-Embeds the prompt, retrieves the most relevant chunks from the full corpus, and makes one model call. Useful for general synthesis and semantic search.
-
-**Per-article mode (`--per-article`)**
-
-Makes a separate model call for each article in the vector database. Useful for systematic screening where you need an inclusion or exclusion decision per article.
+Analyzes vectorized articles using a Markdown prompt.
 
 | Option | Description | Default |
-|--------|-------------|---------|
-| `--p` | Path to the `.md` prompt. | required |
-| `--top-k` | Chunks to retrieve in RAG mode. Use `'*'` for all. | `10` |
-| `--per-article` | Analyze each article in a separate model call. | disabled |
-| `--workers` | Parallel model calls in `--per-article` mode. | `1` |
-| `--max-chunks-per-article` | Chunk limit per article in `--per-article` mode. | no limit |
-| `--filter-sections` | Comma-separated list of sections to include (e.g. `abstract,methodology,results`). Only chunks with a matching section label are retrieved. Requires articles vectorized with `--section-parse`. Use `lutz vector-store --sections` to check what is available. | no filter |
-| `--output-name` | Base output filename. | generated automatically |
-| `--multiple` | Path to a YAML file defining multiple experiments to run sequentially. When used, all other flags are ignored — each experiment defines its own parameters inside the YAML. | not used |
-
-Examples:
+|---|---|---|
+| `--p` | Path to the `.md` prompt | required |
+| `--per-article` | One model call per article | disabled (RAG mode) |
+| `--workers` | Parallel calls in per-article mode | `1` |
+| `--top-k` | Chunks to retrieve in RAG mode | `10` |
+| `--max-chunks-per-article` | Chunk limit per article | no limit |
+| `--filter-sections` | Restrict to specific sections | no filter |
+| `--multiple` | Path to a YAML multi-experiment file | — |
 
 ```bash
-# Default RAG mode
-lutz analysis --p prompts/systematic_review.md
-
-# RAG retrieving more chunks
-lutz analysis --p prompts/methodology_analysis.md --top-k 20
-
-# RAG using all chunks in the corpus
-lutz analysis --p prompts/systematic_review.md --top-k '*'
-
-# Sequential per-article screening
-lutz analysis --p prompts/screening.md --per-article
-
-# Per-article screening with 4 parallel calls
 lutz analysis --p prompts/screening.md --per-article --workers 4
-
-# Per-article screening with a 10-chunk context limit per article
-lutz analysis --p prompts/screening.md --per-article --workers 4 --max-chunks-per-article 10
-
-# Analyze only methodology and results sections (RAG mode)
-lutz analysis --p prompts/methodology_analysis.md \
-  --filter-sections methodology,results
-
-# Screen articles using only the abstract (per-article, parallel)
-lutz analysis --p prompts/screening.md --per-article --workers 4 \
-  --filter-sections abstract
-
-# Custom output name
-lutz analysis --p prompts/systematic_review.md --output-name my-analysis-v1
-
-# Run multiple experiments from a YAML file
-lutz analysis --multiple experiments/pilot.yaml
+lutz analysis --p prompts/methodology.md --filter-sections methodology,results
 ```
-
-**Multiple experiments (`--multiple`)**
-
-Run several experiments in sequence using a single YAML file. Each experiment defines its own prompt, mode, and parameters. A consolidated summary JSON is produced alongside individual reports.
-
-```yaml
-# experiments/pilot.yaml
-screening_abstract:
-  prompt: prompts/screening.md
-  mode: per_article
-  workers: 4
-  filter_sections:
-    - abstract
-
-deep_methodology:
-  prompt: prompts/methodology_analysis.md
-  mode: top_k
-  top_k: 20
-  main_model: claude-haiku-4-5      # optional: override LLM_MODEL from .env
-```
-
-**Relevance verdict in per-article mode**
-
-When running `--per-article`, Lutz instructs the model to append a structured verdict block at the end of each analysis:
-
-```
----VERDICT---
-RELEVANCE: INCLUDE
-```
-
-The verdict is automatically extracted and stored as the `relevance` field in the JSON report. Valid labels are:
-
-| Label | Meaning |
-|-------|---------|
-| `INCLUDE` | Article meets the relevance criterion stated in the prompt. |
-| `EXCLUDE` | Article does not meet the criterion. |
-| `UNCERTAIN` | Available excerpts are not sufficient to decide. |
-| `UNKNOWN` | No verdict block found in the model response. |
-
-For the verdict to be reliable, the prompt should define a clear inclusion or exclusion criterion. Lutz warns at runtime if no criterion keywords are detected.
-
-**Section filter (`--filter-sections`)**
-
-When articles have been vectorized with `--section-parse`, each chunk carries a section label (`abstract`, `introduction`, `background`, `methodology`, `results`, `discussion`, `conclusion`, `references`, `acknowledgements`, `appendix`). The `--filter-sections` flag restricts the analysis to only those sections, reducing context size and focusing the model's attention.
-
-- In **RAG mode** the similarity search is run only over the specified sections, then ranked by relevance as usual.
-- In **per-article mode** each article receives only the chunks from the specified sections. Articles with no chunks in those sections show `chunks_used: 0` in the report.
-- Articles vectorized without `--section-parse` have no section label and are **excluded** when the filter is active.
-- Run `lutz vector-store --sections` first to confirm which sections are present in the store.
-
-**Performance in `--per-article` mode**
-
-With many articles, `--per-article` can take a long time because each article requires a model call. Use `--workers` to parallelize:
-
-| Articles | `--workers 1` | `--workers 4` | `--workers 8` |
-|----------|---------------|---------------|---------------|
-| 52 articles at ~50s each | ~43 min | ~11 min | ~6 min |
-
-The practical limit depends on the provider. Remote APIs such as OpenRouter have rate limits; self-hosted models may bottleneck on CPU, GPU, memory, or request queues. Tune `--workers` according to your service capacity.
-
-Use `--max-chunks-per-article` to reduce context size per call, which lowers latency and cost. Chunks are sent in document order.
-
-> **Context size note:** `--chunk-size` in `lutz vectorize` is measured in words, not model tokens. A 512-word chunk is roughly 680 tokens. With 23 chunks per article, a typical article can produce around 15,000 to 16,000 input tokens. Check that your configured model supports the required context window.
 
 ### `lutz citations --analysis FILE [options]`
 
-Extracts structured citations from a report generated by `lutz analysis --per-article`.
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--analysis` | Path to the per-article analysis JSON. | required |
-| `--workers` | Parallel model calls. | `1` |
-| `--only-relevant` | Include only relevant articles in the report. | disabled |
-| `--output-name` | Base output filename. | generated automatically |
-
-**Internal flow:**
-
-1. Reads the JSON produced by `lutz analysis --per-article`.
-2. Classifies each article as relevant, not relevant, or unknown using the analysis text, without an LLM call.
-3. For each relevant article, retrieves original chunks from the vector database and asks the LLM to extract the 3 to 5 passages that best justify the classification.
-4. Saves a JSON report in `analysis/execution_reports/`.
-
-The output filename follows `<analysis_name>_citations_<timestamp>.json`.
+Extracts the key passages that justify each article's classification.
 
 ```bash
-# Basic extraction
-lutz citations --analysis analysis/execution_reports/screening_20260501.json
-
-# Parallel calls and relevant articles only
-lutz citations --analysis analysis/execution_reports/screening_20260501.json \
+lutz citations --analysis analysis/execution_reports/screening_<ts>.json \
   --workers 4 --only-relevant
-
-# Custom output name
-lutz citations --analysis analysis/execution_reports/screening_20260501.json \
-  --output-name review_citations_v1
 ```
 
-> **Prerequisite:** the input report must have been generated with `lutz analysis --per-article`. The vector database must be available at `.lutz/vector_store/` because citations are extracted from original article chunks.
+### `lutz vector-store [options]`
 
-### `lutz vector-store [--summarize] [--sections] [--export [FILE]]`
-
-Inspects the local vector database.
-
-| Option | Description |
-|--------|-------------|
-| `--summarize` | Display a summary in the terminal. |
-| `--sections` | Show a per-article section breakdown (abstract, introduction, methodology…). Articles vectorized without `--section-parse` appear under `(no section)`. |
-| `--export` | Export the summary as JSON, with an automatic path in `.lutz/`. |
-| `--export FILE` | Export to a specific path. Use `-` to print to stdout. |
-
-The options can be combined.
+Inspects the vector index.
 
 ```bash
-# Display summary
 lutz vector-store --summarize
-
-# Check which sections were detected per article
-lutz vector-store --sections
-
-# Summary + section breakdown together
-lutz vector-store --summarize --sections
-
-# Export JSON with automatic path
-lutz vector-store --export
-
-# Export to a specific file
-lutz vector-store --export summary.json
-
-# Print JSON to stdout
-lutz vector-store --export -
+lutz vector-store --sections      # section breakdown per article
+lutz vector-store --export        # JSON export
 ```
 
----
+### `lutz unvectorize`
 
-## How to write prompts
-
-Prompts are Markdown files inside `prompts/`. They tell the model what you want to analyze.
-
-A good prompt usually includes:
-
-```markdown
-# Analysis title
-
-## Objective
-Explain in a few lines what you want to discover.
-
-## Questions
-1. What is the main question?
-2. What information should be extracted from the articles?
-3. Which inclusion or exclusion criteria should be considered?
-
-## Response format
-Ask for a table, a list, or sections with clear headings.
-
-## Research topic
-Describe the topic or research question.
-```
-
-`lutz init` creates ready-to-edit prompt templates:
-
-| File | Suggested use |
-|------|---------------|
-| `prompts/systematic_review.md` | Systematic review with evidence table. |
-| `prompts/methodology_analysis.md` | Comparison of research methods. |
-| `prompts/evidence_quality.md` | Quality and bias assessment. |
-| `prompts/thematic_synthesis.md` | Thematic synthesis across articles. |
-
-Before running `lutz analysis`, open the chosen prompt and replace example fields with your research question.
-
----
-
-## Where results are stored
-
-After `lutz analysis`, results are stored in:
-
-```text
-analysis/execution_reports/
-```
-
-The generated file is a `.json`. It includes:
-
-- prompt used in the analysis;
-- execution date and duration;
-- analysis mode, such as `rag` or `per_article`;
-- embedding model and language model used;
-- token counts;
-- covered articles;
-- model response.
-
-In **per-article mode**, an `.html` report is also generated alongside the JSON, with a formatted table of results, relevance verdicts, and expandable analysis text per article.
-
-Example filenames:
-
-```text
-screening_20260501_153000.json
-screening_20260501_153000.html
-```
-
----
-
-## Security model
-
-Before vectorizing, Lutz can check PDFs to reduce common risks in malicious or unsuitable files.
-
-| Check | What it looks for |
-|-------|-------------------|
-| Structural analysis | Embedded JavaScript, automatic actions, and XFA forms. |
-| Prompt injection | Phrases that try to override model instructions. |
-| Academic structure | Basic signs of academic articles, such as abstract, methodology, and references. |
-| Corpus anomaly | When there are 5 or more documents, identifies possible statistical outliers. |
-
-Suspicious files can be moved to:
-
-```text
-articles/_quarantine/
-```
-
-To process quarantined files after manual review:
-
-```bash
-lutz vectorize --quarantine
-```
-
-To skip security checks:
-
-```bash
-lutz vectorize --skip-security
-```
-
-Use `--skip-security` only if you trust the PDF source.
-
----
-
-## Architecture
-
-```text
-lutz/
-├── cli.py                    # main Click CLI entry point
-├── commands/
-│   ├── init.py               # lutz init
-│   ├── load.py               # lutz load
-│   ├── vectorize.py          # lutz vectorize / lutz unvectorize
-│   ├── analysis.py           # lutz analysis (RAG and per-article modes)
-│   ├── experiments.py        # lutz analysis --multiple (YAML experiment runner)
-│   ├── citations.py          # lutz citations
-│   ├── vector_store.py       # lutz vector-store
-│   └── web.py                # lutz web (Streamlit launcher)
-├── core/
-│   ├── security_checker.py   # PDF security checks
-│   ├── pdf_processor.py      # text extraction and chunking
-│   ├── section_parser.py     # section detection (layout-parser or text heuristics)
-│   ├── vector_store.py       # LanceDB wrapper
-│   ├── embedding_client.py   # embedding providers
-│   └── llm_client.py         # LLM providers
-├── ui/                       # Streamlit visual interface (lutz web)
-│   ├── Home.py               # dashboard entry point
-│   ├── _utils.py             # shared helpers
-│   └── pages/                # one file per page (sidebar navigation)
-└── utils/
-    ├── html_report.py        # HTML report generation for per-article mode
-    ├── pdf.py                # basic PDF validation
-    ├── project.py            # project detection and .env loading
-    └── templates.py          # files created by lutz init
-```
-
-The vector database uses [LanceDB](https://lancedb.github.io/lancedb/) and is stored in `.lutz/vector_store/` inside the project. This directory should not be committed to Git.
-
-### `lutz web [options]`
-
-Starts the visual research interface in the browser.
-
-```bash
-lutz web
-lutz web --port 8080
-lutz web --host 0.0.0.0 --port 8888   # expose on local network
-lutz web --no-browser                  # start server without opening the browser
-```
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--port` | Port for the Streamlit server. | `8501` |
-| `--host` | Network address to bind to. | `localhost` |
-| `--browser` / `--no-browser` | Open the browser automatically on start. | enabled |
-
----
-
-## Visual interface
-
-Lutz includes a Streamlit-based visual interface designed for researchers who prefer not to use the command line. It covers the full workflow through a browser window.
-
-**Starting the interface:**
-
-```bash
-lutz web
-```
-
-**Pages:**
-
-| Page | What it does |
-|------|-------------|
-| Home | Project dashboard: PDF count, vectorized chunks, and analyses run. |
-| Vetorização | Upload PDFs, view articles in `articles/`, and run vectorization with configurable options. |
-| Vector Store | Inspect indexed articles, chunk counts, embedding model, and section breakdown. Includes a safe unvectorize action. |
-| Análise | Write or upload a Markdown prompt, choose RAG or per-article mode, set parameters, and run a single analysis or a multi-experiment YAML batch. |
-| Relatórios | View all past analyses in a table, expand per-article results, and download JSON or HTML reports. |
-| Citações | Select a per-article report, run citation extraction, and view extracted passages with confidence and reasoning. |
-| Configurações | Set LLM and embedding providers, API keys (masked), and base URLs — saved directly to `.env`. |
-
-The interface reads the same `.env` and project structure as the CLI. All operations run against the project root detected from the working directory.
+Deletes the vector index. PDFs are not affected.
 
 ---
 
@@ -835,43 +382,143 @@ The interface reads the same `.env` and project structure as the CLI. All operat
 # 1. Create project
 lutz init my-review && cd my-review
 
-# 2. Add PDFs
+# 2. Configure AI model (.env or Settings page in the web UI)
+cp .env.example .env
+
+# 3. Add PDFs
 lutz load --f ~/Downloads/articles --so linux
 
-# 3. Vectorize with section-aware parsing (optional but recommended)
+# 4. Vectorize with section-aware parsing
 lutz vectorize --section-parse
 
-# 4. Inspect the section breakdown to confirm detection worked
-lutz vector-store --sections
-
-# 5. Per-article screening (abstract only — faster and cheaper)
+# 5. Screen articles by abstract (fast and cheap)
 lutz analysis --p prompts/screening.md --per-article --workers 4 \
   --filter-sections abstract
 
-# 6. Deep analysis on methodology and results sections
+# 6. Deep analysis on methodology and results
 lutz analysis --p prompts/methodology_analysis.md \
   --filter-sections methodology,results
 
 # 7. Extract citations from relevant articles
-lutz citations --analysis analysis/execution_reports/screening_<timestamp>.json \
+lutz citations \
+  --analysis analysis/execution_reports/screening_<timestamp>.json \
   --workers 4 --only-relevant
 
-# 8. Inspect the vector database
-lutz vector-store --summarize
-lutz vector-store --export
+# 8. Inspect the index
+lutz vector-store --summarize --sections
 ```
+
+Or open `lutz web` and do all of the above from the browser.
+
+---
+
+## How to write prompts
+
+Prompts are Markdown files inside `prompts/`. They tell the model what to analyze.
+
+```markdown
+# Screening prompt
+
+## Objective
+Determine whether each article describes a study that applies machine learning
+to predict clinical outcomes in ICU patients.
+
+## Inclusion criterion
+Include articles that: use supervised or unsupervised ML; analyze ICU patient data;
+report a clinical outcome (mortality, length of stay, readmission).
+
+## Exclusion criterion
+Exclude: review articles without original data; studies outside the ICU context;
+studies using only statistical methods without ML.
+
+## Response format
+1. Summary of the article's approach (2–3 sentences).
+2. Evidence for or against inclusion.
+3. Verdict: INCLUDE, EXCLUDE, or UNCERTAIN.
+```
+
+`lutz init` creates ready-to-edit templates: `systematic_review.md`, `methodology_analysis.md`, `evidence_quality.md`, `thematic_synthesis.md`.
+
+---
+
+## Security model
+
+Before vectorizing, Lutz checks PDFs to reduce common risks.
+
+| Check | What it detects |
+|---|---|
+| Structural analysis | Embedded JavaScript, automatic actions, XFA forms |
+| Prompt injection | Phrases attempting to override model instructions |
+| Academic structure | Basic signs of academic articles (abstract, methodology, references) |
+| Corpus anomaly | Statistical outliers when 5 or more documents are present |
+
+Suspicious files are moved to `articles/_quarantine/`. To process them after manual review:
+
+```bash
+lutz vectorize --quarantine
+```
+
+---
+
+## Architecture
+
+```text
+lutz/
+├── cli.py                        # Click CLI entry point
+├── commands/
+│   ├── init.py                   # lutz init
+│   ├── load.py                   # lutz load
+│   ├── vectorize.py              # lutz vectorize / unvectorize
+│   ├── analysis.py               # lutz analysis
+│   ├── experiments.py            # --multiple YAML runner
+│   ├── citations.py              # lutz citations
+│   ├── vector_store.py           # lutz vector-store
+│   └── web.py                    # lutz web (FastAPI launcher)
+├── core/
+│   ├── security_checker.py       # PDF security checks
+│   ├── pdf_processor.py          # text extraction and chunking
+│   ├── section_parser.py         # section detection
+│   ├── vector_store.py           # LanceDB wrapper
+│   ├── context_store.py          # chat context file store
+│   ├── embedding_client.py       # embedding providers
+│   └── llm_client.py             # LLM providers
+├── server/
+│   └── app.py                    # FastAPI server (REST + SSE + WebSocket)
+├── web/                          # pre-built React SPA (bundled in wheel)
+└── utils/
+    ├── html_report.py            # HTML report generation
+    ├── document_reader.py        # multi-format extraction (PDF, DOCX, XLSX…)
+    ├── project.py                # project detection and .env loading
+    └── templates.py              # files created by lutz init
+
+web/src/                          # React 18 + Vite + Tailwind (source)
+├── pages/                        # one component per page
+├── components/                   # shared UI components
+│   ├── ActiveJobPanel.tsx        # reconnects to running job log on page return
+│   ├── NotificationsPanel.tsx    # bell icon + job status dropdown
+│   └── ConfirmDialog.tsx         # delete confirmation dialogs
+└── contexts/
+    ├── NotificationsContext.tsx  # WebSocket job state (global)
+    └── LanguageContext.tsx       # i18n (pt / en / es)
+```
+
+The vector index lives in `.lutz/vector_store/` inside the project (LanceDB format). Chat sessions and memory are stored in `.lutz/chat/`. Neither should be committed to Git.
 
 ---
 
 ## Contributing
 
-Contributions are welcome. To prepare a development environment:
+Contributions are welcome. To set up a development environment:
 
 ```bash
 git clone https://github.com/jooguilhermesc/lutz.git
 cd lutz
 pip install -e ".[dev]"
-pytest
+
+# Build the React frontend
+cd web && npm ci && npm run build && cd ..
+
+lutz web
 ```
 
 Before proposing large changes, open an issue to discuss the idea.
@@ -884,7 +531,7 @@ If you use Lutz in your research, please cite it using the information below or 
 
 **APA**
 
-> Cabral, J. G. S., & Azevedo Farias, A. K. (2026). *Lutz: AI-powered academic article screening and analysis tool* (Version 0.1.2) [Software]. Zenodo. https://doi.org/10.5281/zenodo.19982571
+> Cabral, J. G. S., & Azevedo Farias, A. K. (2026). *Lutz: AI-powered academic article screening and analysis tool* (Version 0.3.0) [Software]. Zenodo. https://doi.org/10.5281/zenodo.19982571
 
 **BibTeX**
 
@@ -893,7 +540,7 @@ If you use Lutz in your research, please cite it using the information below or 
   author  = {Cabral, João Guilherme Silva and Azevedo Farias, Anna Karoline},
   title   = {{Lutz: AI-powered academic article screening and analysis tool}},
   year    = {2026},
-  version = {0.1.2},
+  version = {0.3.0},
   doi     = {10.5281/zenodo.19982571},
   url     = {https://github.com/jooguilhermesc/lutz},
   license = {MIT}
