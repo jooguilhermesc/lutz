@@ -14,6 +14,18 @@ logger = logging.getLogger(__name__)
 
 _TABLE_NAME = "articles"
 
+# Columns needed for text retrieval (excludes the embedding float arrays).
+# Projecting only these columns avoids deserialising potentially hundreds of
+# megabytes of float32 vectors when only text is required.
+_TEXT_COLUMNS = ["filename", "chunk_index", "page", "char_start", "section", "text"]
+_META_COLUMNS = ["filename", "vectorized_at", "embedding_model", "embedding_provider"]
+
+
+def _project(arrow_table: pa.Table, columns: list[str]) -> pa.Table:
+    """Select only the requested columns that are present in the table."""
+    available = arrow_table.schema.names
+    return arrow_table.select([c for c in columns if c in available])
+
 
 class VectorStore:
     """Thin wrapper around LanceDB for storing and querying article chunks."""
@@ -131,17 +143,21 @@ class VectorStore:
         if _TABLE_NAME not in self._db.table_names():
             return []
         tbl = self._db.open_table(_TABLE_NAME)
-        df = tbl.to_pandas()
-        filtered = df[df["filename"] == filename].sort_values("chunk_index")
+        # Project only text columns — skip embedding vectors
+        arrow_tbl = _project(tbl.to_arrow(), _TEXT_COLUMNS)
+        arrow_tbl = arrow_tbl.filter(
+            pa.compute.equal(arrow_tbl.column("filename"), filename)
+        ).sort_by([("chunk_index", "ascending")])
+
         return [
             {
-                "filename": row["filename"],
-                "page": int(row["page"]),
-                "chunk_index": int(row["chunk_index"]),
-                "section": row.get("section", "") if hasattr(row, "get") else "",
-                "text": row["text"],
+                "filename": row["filename"].as_py(),
+                "page": int(row["page"].as_py()),
+                "chunk_index": int(row["chunk_index"].as_py()),
+                "section": row["section"].as_py() if "section" in arrow_tbl.schema.names else "",
+                "text": row["text"].as_py(),
             }
-            for _, row in filtered.iterrows()
+            for row in arrow_tbl.to_pylist()
         ]
 
     def get_all_grouped(
@@ -151,6 +167,10 @@ class VectorStore:
 
         Each group is sorted by chunk_index. Use this instead of calling
         get_by_filename() N times — it reads the table once.
+
+        Embedding vectors are deliberately excluded from the read to avoid
+        materialising potentially hundreds of megabytes of float32 data that
+        is not needed for text-only operations.
 
         Parameters
         ----------
@@ -162,32 +182,81 @@ class VectorStore:
         if _TABLE_NAME not in self._db.table_names():
             return {}
         tbl = self._db.open_table(_TABLE_NAME)
-        df = tbl.to_pandas().sort_values(["filename", "chunk_index"])
 
-        if sections and "section" in df.columns:
-            df = df[df["section"].isin(sections)]
+        # Read only text columns — avoids deserialising embedding arrays
+        arrow_tbl = _project(tbl.to_arrow(), _TEXT_COLUMNS)
+        arrow_tbl = arrow_tbl.sort_by(
+            [("filename", "ascending"), ("chunk_index", "ascending")]
+        )
 
+        if sections and "section" in arrow_tbl.schema.names:
+            mask = pa.compute.is_in(
+                arrow_tbl.column("section"),
+                value_set=pa.array(sections, type=pa.string()),
+            )
+            arrow_tbl = arrow_tbl.filter(mask)
+
+        has_section = "section" in arrow_tbl.schema.names
         grouped: dict[str, list[dict]] = {}
-        for filename, group in df.groupby("filename", sort=False):
-            grouped[filename] = [
+        for row in arrow_tbl.to_pylist():
+            fn = row["filename"]
+            grouped.setdefault(fn, []).append(
                 {
-                    "filename": row["filename"],
+                    "filename": fn,
                     "page": int(row["page"]),
                     "chunk_index": int(row["chunk_index"]),
-                    "section": row["section"] if "section" in group.columns else "",
+                    "section": row.get("section", "") if has_section else "",
                     "text": row["text"],
                 }
-                for _, row in group.iterrows()
-            ]
+            )
         return grouped
+
+    def get_embeddings_by_article(self) -> "dict[str, np.ndarray]":
+        """Return mean embedding per article (average of all chunk embeddings).
+
+        Used by the reading roadmap feature to compute semantic distances
+        between articles and the corpus centroid.
+        """
+        if _TABLE_NAME not in self._db.table_names():
+            return {}
+        tbl = self._db.open_table(_TABLE_NAME)
+        # Must include embeddings here — this is the one method that needs them
+        arrow_tbl = _project(tbl.to_arrow(), ["filename", "embedding"])
+        if "embedding" not in arrow_tbl.schema.names:
+            return {}
+
+        result: dict[str, np.ndarray] = {}
+        rows = arrow_tbl.to_pylist()
+        grouped: dict[str, list] = {}
+        for row in rows:
+            grouped.setdefault(row["filename"], []).append(row["embedding"])
+        for filename, vecs in grouped.items():
+            result[str(filename)] = np.array(vecs, dtype=np.float32).mean(axis=0)
+        return result
 
     def list_filenames(self) -> list[str]:
         """Return sorted list of unique article filenames in the store."""
         if _TABLE_NAME not in self._db.table_names():
             return []
         tbl = self._db.open_table(_TABLE_NAME)
-        df = tbl.to_pandas()[["filename"]]
-        return sorted(df["filename"].unique().tolist())
+        # Project only the filename column
+        arrow_tbl = _project(tbl.to_arrow(), ["filename"])
+        return sorted(set(arrow_tbl.column("filename").to_pylist()))
+
+    def rename_filename(self, old_name: str, new_name: str) -> int:
+        """Rename all chunks that reference *old_name* to *new_name*.
+
+        Uses LanceDB's update() API (available since 0.4.x).  Returns the
+        number of rows that were updated (0 if the article wasn't in the store).
+        """
+        if _TABLE_NAME not in self._db.table_names():
+            return 0
+        tbl = self._db.open_table(_TABLE_NAME)
+        # Escape single quotes in filenames to prevent SQL injection
+        safe_old = old_name.replace("'", "''")
+        safe_new = new_name.replace("'", "''")
+        tbl.update(where=f"filename = '{safe_old}'", values={"filename": safe_new})
+        return tbl.count_rows()
 
     def drop_all(self) -> int:
         """Delete all records and return the count of deleted rows."""
@@ -205,9 +274,12 @@ class VectorStore:
 
         tbl = self._db.open_table(_TABLE_NAME)
         total = tbl.count_rows()
-        df = tbl.to_pandas()[["filename", "vectorized_at"]]
-        unique_docs = df["filename"].nunique()
-        last_updated = df["vectorized_at"].max() if total > 0 else None
+        # Project only the columns we need — skip text and embeddings
+        arrow_tbl = _project(tbl.to_arrow(), ["filename", "vectorized_at"])
+        filenames = arrow_tbl.column("filename").to_pylist()
+        timestamps = arrow_tbl.column("vectorized_at").to_pylist() if "vectorized_at" in arrow_tbl.schema.names else []
+        unique_docs = len(set(filenames))
+        last_updated = max(timestamps) if timestamps else None
 
         return {
             "total_records": total,
@@ -225,16 +297,21 @@ class VectorStore:
         if _TABLE_NAME not in self._db.table_names():
             return {}
         tbl = self._db.open_table(_TABLE_NAME)
-        df = tbl.to_pandas()
+        arrow_tbl = _project(tbl.to_arrow(), ["filename", "section"])
 
-        if "section" not in df.columns:
+        if "section" not in arrow_tbl.schema.names:
             # Store predates section support — treat everything as unlabeled
-            df["section"] = ""
+            filenames = set(arrow_tbl.column("filename").to_pylist())
+            total = arrow_tbl.num_rows
+            per_file = total // max(len(filenames), 1)
+            return {fn: {"": per_file} for fn in filenames}
 
         result: dict[str, dict[str, int]] = {}
-        for filename, group in df.groupby("filename"):
-            counts = group["section"].fillna("").value_counts().to_dict()
-            result[str(filename)] = {str(k): int(v) for k, v in counts.items()}
+        for row in arrow_tbl.to_pylist():
+            fn = row["filename"]
+            sec = row.get("section") or ""
+            counts = result.setdefault(fn, {})
+            counts[sec] = counts.get(sec, 0) + 1
         return result
 
     def summarize(self) -> dict[str, Any]:
@@ -250,27 +327,34 @@ class VectorStore:
             }
 
         tbl = self._db.open_table(_TABLE_NAME)
-        df = tbl.to_pandas()[
-            ["filename", "vectorized_at", "embedding_model", "embedding_provider"]
-        ]
+        # Project only the metadata columns — skip text and embeddings
+        arrow_tbl = _project(tbl.to_arrow(), _META_COLUMNS)
+        rows = arrow_tbl.to_pylist()
+
+        grouped: dict[str, list[dict]] = {}
+        for row in rows:
+            grouped.setdefault(row["filename"], []).append(row)
 
         articles = []
-        for filename, group in df.groupby("filename"):
+        for filename, group in sorted(grouped.items()):
             articles.append({
                 "filename": filename,
                 "chunk_count": len(group),
-                "vectorized_at": group["vectorized_at"].iloc[0],
-                "embedding_model": group["embedding_model"].iloc[0],
-                "embedding_provider": group["embedding_provider"].iloc[0],
+                "vectorized_at": group[0].get("vectorized_at", ""),
+                "embedding_model": group[0].get("embedding_model", ""),
+                "embedding_provider": group[0].get("embedding_provider", ""),
             })
 
-        articles.sort(key=lambda a: a["filename"])
+        total = len(rows)
+        all_timestamps = [r.get("vectorized_at", "") for r in rows if r.get("vectorized_at")]
+        all_models = [r.get("embedding_model", "") for r in rows if r.get("embedding_model")]
+        all_providers = [r.get("embedding_provider", "") for r in rows if r.get("embedding_provider")]
 
         return {
-            "total_records": len(df),
-            "unique_documents": int(df["filename"].nunique()),
-            "last_updated": df["vectorized_at"].max() if len(df) > 0 else None,
-            "embedding_model": df["embedding_model"].mode().iloc[0] if len(df) > 0 else None,
-            "embedding_provider": df["embedding_provider"].mode().iloc[0] if len(df) > 0 else None,
+            "total_records": total,
+            "unique_documents": len(grouped),
+            "last_updated": max(all_timestamps) if all_timestamps else None,
+            "embedding_model": max(set(all_models), key=all_models.count) if all_models else None,
+            "embedding_provider": max(set(all_providers), key=all_providers.count) if all_providers else None,
             "articles": articles,
         }

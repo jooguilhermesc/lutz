@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>lutz &mdash; Reading Roadmap</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f8fafc; color: #1e293b; line-height: 1.6;
+    }
+    .container { max-width: 900px; margin: 0 auto; padding: 2rem 1rem 4rem; }
+    .report-header {
+      background: #1e293b; color: #f1f5f9;
+      border-radius: 12px; padding: 2rem; margin-bottom: 2rem;
+    }
+    .report-header h1 {
+      font-size: 1.5rem; font-weight: 700;
+      display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem;
+    }
+    .report-header h1 .logo { color: #38bdf8; }
+    .meta-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 0.75rem; font-size: 0.85rem;
+    }
+    .meta-item { display: flex; flex-direction: column; gap: 0.15rem; }
+    .meta-key { color: #94a3b8; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    .meta-val { color: #e2e8f0; word-break: break-all; }
+
+    /* overview */
+    .overview-box {
+      background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
+      padding: 1.25rem; margin-bottom: 2rem;
+    }
+    .overview-label {
+      font-size: 0.75rem; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.05em; color: #64748b; margin-bottom: 0.5rem;
+    }
+    .overview-text { font-size: 0.95rem; color: #334155; }
+
+    /* section titles */
+    .section-title {
+      font-size: 1rem; font-weight: 700; color: #1e293b;
+      margin: 2rem 0 1rem;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .section-title::after {
+      content: ""; flex: 1; height: 1px; background: #e2e8f0;
+    }
+
+    /* stages */
+    .stage-card {
+      border-radius: 10px; padding: 1.25rem; margin-bottom: 1.25rem;
+    }
+    .stage-hd {
+      display: flex; align-items: baseline; gap: 0.6rem; margin-bottom: 0.4rem;
+    }
+    .stage-num {
+      font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.08em; color: #64748b;
+    }
+    .stage-name { font-size: 1.05rem; font-weight: 700; color: #1e293b; }
+    .stage-desc {
+      font-size: 0.875rem; color: #475569; margin-bottom: 0.75rem;
+      font-style: italic;
+    }
+    .stage-article {
+      background: rgba(255,255,255,0.7); border-radius: 8px;
+      padding: 0.75rem 1rem; margin-top: 0.5rem;
+      border: 1px solid rgba(0,0,0,0.06);
+    }
+    .stage-article-hd {
+      display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;
+    }
+    .rank-badge {
+      font-size: 0.7rem; font-weight: 700; color: #64748b;
+      background: rgba(0,0,0,0.07); border-radius: 4px;
+      padding: 0.1rem 0.4rem; white-space: nowrap;
+    }
+    .stage-art-fn { font-weight: 600; font-size: 0.9rem; word-break: break-all; }
+    .stage-art-note { font-size: 0.85rem; color: #475569; }
+
+    /* distance table */
+    .dist-table {
+      width: 100%; border-collapse: collapse;
+      background: #fff; border-radius: 10px;
+      overflow: hidden; border: 1px solid #e2e8f0;
+      margin-bottom: 2rem;
+    }
+    .dist-table thead th {
+      text-align: left; padding: 0.65rem 1rem;
+      background: #f1f5f9; color: #475569;
+      font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .dist-table tbody tr:hover { background: #f8fafc; }
+    .dist-table td { padding: 0.55rem 1rem; border-bottom: 1px solid #f1f5f9; font-size: 0.875rem; }
+    .dist-table tbody tr:last-child td { border-bottom: none; }
+    .rank-cell { color: #94a3b8; width: 48px; text-align: right; }
+    .fn-cell { font-weight: 500; word-break: break-all; }
+    .dist-cell { width: 200px; }
+    .dist-bar-wrap {
+      height: 6px; background: #e2e8f0; border-radius: 99px;
+      overflow: hidden; margin-bottom: 2px;
+    }
+    .dist-bar { height: 100%; border-radius: 99px; transition: width 0.3s; }
+    .dist-val { font-size: 0.75rem; color: #64748b; font-family: monospace; }
+
+    .footer {
+      text-align: center; margin-top: 3rem;
+      font-size: 0.8rem; color: #94a3b8;
+    }
+    .footer a { color: #64748b; text-decoration: none; }
+    .footer a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header class="report-header">
+      <h1><span class="logo">lutz</span> &mdash; Reading Roadmap</h1>
+      <div class="meta-grid">
+        <div class="meta-item">
+          <span class="meta-key">Generated at</span>
+          <span class="meta-val">2026-05-21 15:46 UTC</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-key">Model</span>
+          <span class="meta-val">google/gemini-3.1-flash-lite</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-key">Analysis file</span>
+          <span class="meta-val">/home/jooguilhermesc/Documentos/lutz/web/analysis/execution_reports/tmpos7ngyir_20260521_154541.json</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-key">Relevant articles</span>
+          <span class="meta-val">8</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-key">Stages</span>
+          <span class="meta-val">3</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-key">LLM tokens</span>
+          <span class="meta-val">4,315</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-key">Duration</span>
+          <span class="meta-val">5.3s</span>
+        </div>
+      </div>
+    </header>
+
+    <div class='overview-box'><div class='overview-label'>Overview</div><p class='overview-text'>This reading guide is structured to transition the researcher from broad, foundational taxonomies of LLM applications in cybersecurity to specialized, domain-specific implementations and methodological frameworks. We recommend starting with the central surveys to establish a mental model of the landscape before exploring niche applications and rigorous evaluation methodologies.</p></div>
+
+    <div class="section-title">Reading stages</div>
+    <div class="stage-card" style="border-left:4px solid #93c5fd;background:#dbeafe;">
+  <div class="stage-hd">    <span class="stage-num">Stage 1</span>    <span class="stage-name">Foundations and Landscape</span>  </div>
+  <p class="stage-desc">These articles provide a high-level overview of the intersection between Generative AI and cybersecurity, establishing the core taxonomy and breadth of the field.</p>
+<div class="stage-article">  <div class="stage-article-hd">    <span class="rank-badge">#1</span><span class="stage-art-fn">1-s2.0-S2667345226000076-main</span>  </div>  <p class="stage-art-note">Focus on the proposed taxonomy of threats to understand the primary categorization of GenAI-related cybersecurity risks.</p></div>
+<div class="stage-article">  <div class="stage-article-hd">    <span class="rank-badge">#2</span><span class="stage-art-fn">1-s2.0-S2667345225000082-main</span>  </div>  <p class="stage-art-note">Use this as a comprehensive reference for the wide range of metrics (PER, EFF, HUM, SEC) used across the entire cybersecurity domain.</p></div>
+</div>
+<div class="stage-card" style="border-left:4px solid #86efac;background:#dcfce7;">
+  <div class="stage-hd">    <span class="stage-num">Stage 2</span>    <span class="stage-name">Methodological Rigor and Frameworks</span>  </div>
+  <p class="stage-desc">This stage focuses on how to conduct and evaluate research in this space, emphasizing systematic protocols and the development of analytical frameworks.</p>
+<div class="stage-article">  <div class="stage-article-hd">    <span class="rank-badge">#3</span><span class="stage-art-fn">1-s2.0-S2590005625001365-main</span>  </div>  <p class="stage-art-note">Examine the &#x27;Generative Artificial Intelligence Security&#x27; framework to understand how to structure research within the SDLC domain.</p></div>
+<div class="stage-article">  <div class="stage-article-hd">    <span class="rank-badge">#4</span><span class="stage-art-fn">1-s2.0-S1568494626002371-main</span>  </div>  <p class="stage-art-note">Focus on the application of the Kitchenham/Petersen protocols to learn how to perform a high-quality systematic mapping study.</p></div>
+<div class="stage-article">  <div class="stage-article-hd">    <span class="rank-badge">#5</span><span class="stage-art-fn">1-s2.0-S0950584925001417-main</span>  </div>  <p class="stage-art-note">Analyze the integration of ISO/IEC 25023 standards to understand how to apply general software quality metrics to LLM-based security systems.</p></div>
+</div>
+<div class="stage-card" style="border-left:4px solid #fcd34d;background:#fef3c7;">
+  <div class="stage-hd">    <span class="stage-num">Stage 3</span>    <span class="stage-name">Specialized Domains and Emerging Trends</span>  </div>
+  <p class="stage-desc">These articles cover specific cybersecurity sub-domains and peripheral research areas, providing depth for targeted investigation.</p>
+<div class="stage-article">  <div class="stage-article-hd">    <span class="rank-badge">#6</span><span class="stage-art-fn">1-s2.0-S2667345223000585-main</span>  </div>  <p class="stage-art-note">Focus on Section 7 to see how traditional ML-centric reviews are evolving to incorporate LLM-based future visions.</p></div>
+<div class="stage-article">  <div class="stage-article-hd">    <span class="rank-badge">#7</span><span class="stage-art-fn">1-s2.0-S2666188826001644-main</span>  </div>  <p class="stage-art-note">Review this for a bibliometric perspective on how AI and cybersecurity research is trending within educational technology.</p></div>
+<div class="stage-article">  <div class="stage-article-hd">    <span class="rank-badge">#8</span><span class="stage-art-fn">1-s2.0-S2215016125004765-main</span>  </div>  <p class="stage-art-note">Focus on the technical implementation details and performance metrics related to deepfake detection as a case study for PHI domain research.</p></div>
+</div>
+
+
+    <div class="section-title">Semantic distance ranking</div>
+    <p style="font-size:0.85rem;color:#64748b;margin-bottom:1rem;">
+      Articles sorted from most foundational (distance ≈ 0, at the centre of the research corpus)
+      to most specialised (larger distance). Computed via cosine distance from the corpus centroid.
+    </p>
+    <table class="dist-table">
+      <thead><tr><th style="text-align:right">#</th><th>Article</th><th>Distance from centroid</th></tr></thead>
+      <tbody><tr><td class="rank-cell">1</td><td class="fn-cell">1-s2.0-S2667345226000076-main</td><td class="dist-cell">  <div class="dist-bar-wrap">    <div class="dist-bar" style="width:24%;background:#22c55e"></div>  </div>  <span class="dist-val">0.0820</span></td></tr>
+<tr><td class="rank-cell">2</td><td class="fn-cell">1-s2.0-S2667345225000082-main</td><td class="dist-cell">  <div class="dist-bar-wrap">    <div class="dist-bar" style="width:36%;background:#22c55e"></div>  </div>  <span class="dist-val">0.1214</span></td></tr>
+<tr><td class="rank-cell">3</td><td class="fn-cell">1-s2.0-S2590005625001365-main</td><td class="dist-cell">  <div class="dist-bar-wrap">    <div class="dist-bar" style="width:37%;background:#22c55e"></div>  </div>  <span class="dist-val">0.1254</span></td></tr>
+<tr><td class="rank-cell">4</td><td class="fn-cell">1-s2.0-S1568494626002371-main</td><td class="dist-cell">  <div class="dist-bar-wrap">    <div class="dist-bar" style="width:54%;background:#f59e0b"></div>  </div>  <span class="dist-val">0.1827</span></td></tr>
+<tr><td class="rank-cell">5</td><td class="fn-cell">1-s2.0-S0950584925001417-main</td><td class="dist-cell">  <div class="dist-bar-wrap">    <div class="dist-bar" style="width:67%;background:#f59e0b"></div>  </div>  <span class="dist-val">0.2258</span></td></tr>
+<tr><td class="rank-cell">6</td><td class="fn-cell">1-s2.0-S2667345223000585-main</td><td class="dist-cell">  <div class="dist-bar-wrap">    <div class="dist-bar" style="width:76%;background:#f59e0b"></div>  </div>  <span class="dist-val">0.2558</span></td></tr>
+<tr><td class="rank-cell">7</td><td class="fn-cell">1-s2.0-S2666188826001644-main</td><td class="dist-cell">  <div class="dist-bar-wrap">    <div class="dist-bar" style="width:86%;background:#f59e0b"></div>  </div>  <span class="dist-val">0.2874</span></td></tr>
+<tr><td class="rank-cell">8</td><td class="fn-cell">1-s2.0-S2215016125004765-main</td><td class="dist-cell">  <div class="dist-bar-wrap">    <div class="dist-bar" style="width:97%;background:#f59e0b"></div>  </div>  <span class="dist-val">0.3248</span></td></tr>
+</tbody>
+    </table>
+
+    <footer class="footer">
+      Generated by <a href="https://github.com/jooguilhermesc/lutz">lutz</a>
+    </footer>
+  </div>
+</body>
+</html>

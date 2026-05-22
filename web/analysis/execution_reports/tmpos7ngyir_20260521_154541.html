@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>lutz &mdash; Analysis Report</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f8fafc; color: #1e293b; line-height: 1.6;
+    }
+    a { color: inherit; }
+
+    /* ---- layout ---- */
+    .container { max-width: 900px; margin: 0 auto; padding: 2rem 1rem 4rem; }
+
+    /* ---- header ---- */
+    .report-header {
+      background: #1e293b; color: #f1f5f9;
+      border-radius: 12px; padding: 2rem;
+      margin-bottom: 2rem;
+    }
+    .report-header h1 {
+      font-size: 1.5rem; font-weight: 700;
+      display: flex; align-items: center; gap: 0.5rem;
+      margin-bottom: 1rem;
+    }
+    .report-header h1 .logo { color: #38bdf8; }
+    .meta-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 0.75rem; font-size: 0.85rem;
+    }
+    .meta-item { display: flex; flex-direction: column; gap: 0.15rem; }
+    .meta-key { color: #94a3b8; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    .meta-val { color: #e2e8f0; word-break: break-all; }
+
+    /* ---- stat cards ---- */
+    .stats { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; }
+    .stat-card {
+      flex: 1 1 120px; border-radius: 8px; padding: 1rem;
+      display: flex; flex-direction: column; gap: 0.25rem;
+    }
+    .stat-label { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+    .stat-count { font-size: 2rem; font-weight: 700; line-height: 1; }
+    .stat-pct { font-size: 0.85rem; }
+
+    /* ---- filter bar ---- */
+    .filter-bar {
+      display: flex; flex-wrap: wrap; gap: 0.5rem;
+      margin-bottom: 1.5rem; align-items: center;
+    }
+    .filter-bar-label {
+      font-size: 0.8rem; font-weight: 600;
+      color: #64748b; text-transform: uppercase;
+      letter-spacing: 0.05em; margin-right: 0.25rem;
+    }
+    .fbtn {
+      padding: 0.35rem 0.9rem; border-radius: 99px;
+      border: 1px solid #cbd5e1; background: #fff; color: #475569;
+      cursor: pointer; font-size: 0.85rem; font-weight: 500;
+      transition: all 0.15s;
+    }
+    .fbtn:hover { border-color: #94a3b8; }
+    .fbtn.active {
+      background: #1e293b; color: #f1f5f9; border-color: #1e293b;
+    }
+
+    /* ---- cards ---- */
+    .card {
+      background: #fff; border: 1px solid #e2e8f0;
+      border-radius: 10px; padding: 1.25rem;
+      margin-bottom: 1rem;
+      transition: box-shadow 0.15s;
+    }
+    .card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+    .card.hidden { display: none; }
+    .card-hd {
+      display: flex; align-items: flex-start;
+      justify-content: space-between; gap: 1rem;
+      margin-bottom: 0.75rem;
+    }
+    .card-fn {
+      font-weight: 600; font-size: 0.95rem;
+      color: #1e293b; word-break: break-all;
+    }
+    .card-right {
+      display: flex; align-items: center; gap: 0.6rem;
+      flex-shrink: 0;
+    }
+    .art-meta {
+      font-size: 0.75rem; color: #94a3b8; white-space: nowrap;
+    }
+    .badge {
+      padding: 0.25rem 0.65rem; border-radius: 99px;
+      font-size: 0.75rem; font-weight: 700;
+      letter-spacing: 0.04em; white-space: nowrap;
+    }
+    .err-msg {
+      color: #dc2626; font-size: 0.9rem;
+      background: #fef2f2; border-radius: 6px; padding: 0.75rem;
+    }
+    details summary {
+      cursor: pointer; font-size: 0.85rem; color: #64748b;
+      font-weight: 500; user-select: none;
+    }
+    details summary:hover { color: #1e293b; }
+    .analysis-text {
+      margin-top: 0.75rem;
+      font-size: 0.875rem; color: #334155;
+      background: #f8fafc; border-radius: 6px;
+      padding: 1rem; white-space: pre-wrap;
+      border: 1px solid #e2e8f0;
+      max-height: 400px; overflow-y: auto;
+    }
+
+    /* ---- no results ---- */
+    #no-results {
+      text-align: center; padding: 3rem;
+      color: #94a3b8; font-size: 0.95rem;
+      display: none;
+    }
+
+    /* ---- footer ---- */
+    .footer {
+      text-align: center; margin-top: 3rem;
+      font-size: 0.8rem; color: #94a3b8;
+    }
+    .footer a { color: #64748b; text-decoration: none; }
+    .footer a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <!-- Header -->
+    <header class="report-header">
+      <h1><span class="logo">lutz</span> &mdash; Analysis Report</h1>
+      <div class="meta-grid">
+        <div class="meta-item">
+          <span class="meta-key">Timestamp</span>
+          <span class="meta-val">2026-05-21 15:45 UTC</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-key">Model</span>
+          <span class="meta-val">google/gemini-3.1-flash-lite</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-key">Prompt</span>
+          <span class="meta-val">/home/jooguilhermesc/Documentos/lutz/web/prompts/tmpos7ngyir.md</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-key">Articles</span>
+          <span class="meta-val">17</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-key">Total tokens</span>
+          <span class="meta-val">610,354</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-key">Duration</span>
+          <span class="meta-val">10.3s</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Summary stats -->
+    <div class="stats">
+      <div class="stat-card" style="background:#fee2e2;border-left:4px solid #fca5a5">
+  <div class="stat-label" style="color:#991b1b">EXCLUDE</div>
+  <div class="stat-count" style="color:#991b1b">9</div>
+  <div class="stat-pct" style="color:#991b1b">53%</div>
+</div>
+<div class="stat-card" style="background:#dcfce7;border-left:4px solid #86efac">
+  <div class="stat-label" style="color:#166534">INCLUDE</div>
+  <div class="stat-count" style="color:#166534">8</div>
+  <div class="stat-pct" style="color:#166534">47%</div>
+</div>
+
+    </div>
+
+    <!-- Filter bar -->
+    <div class="filter-bar">
+      <span class="filter-bar-label">Filter:</span>
+      <button class="fbtn active" data-filter="all" onclick="applyFilter(this)">All (17)</button>
+      <button class="fbtn" data-filter="EXCLUDE" onclick="applyFilter(this)" style="background:#fee2e2;color:#991b1b;border-color:#fca5a5">EXCLUDE (9)</button>
+<button class="fbtn" data-filter="INCLUDE" onclick="applyFilter(this)" style="background:#dcfce7;color:#166534;border-color:#86efac">INCLUDE (8)</button>
+
+    </div>
+
+    <!-- Article cards -->
+    <div id="article-list">
+      <article class="card" data-relevance="EXCLUDE">
+  <div class="card-hd">
+    <span class="card-fn">1-s2.0-S0720048X25000373-main</span>
+    <div class="card-right"><span class="art-meta">16 chunks &middot; 14,473 tokens</span><span class="badge" style="background:#fee2e2;color:#991b1b;border:1px solid #fca5a5">EXCLUDE</span></div>
+  </div>
+  <details>
+  <summary>Show analysis</summary>
+  <div class="analysis-text">Article: 1-s2.0-S0720048X25000373-main<br>Relevance: IRRELEVANT<br>Domain: N/A<br>Methodology: N/A<br>Metrics: N/A<br>Framework: N/A<br>Confidence: 100<br>Reasoning: The article is a perspective piece focused on the application of Generative AI and Large Language Models (LLMs) specifically within the field of medicine and radiology. While it discusses technical aspects of LLMs (architecture, training, evaluation), it does not constitute a systematic literature review, mapping study, or meta-analysis of LLM applications in cybersecurity.<br><br>---VERDICT---<br>RELEVANCE: EXCLUDE</div>
+</details>
+
+</article>
+<article class="card" data-relevance="INCLUDE">
+  <div class="card-hd">
+    <span class="card-fn">1-s2.0-S0950584925001417-main</span>
+    <div class="card-right"><span class="art-meta">37 chunks &middot; 31,469 tokens</span><span class="badge" style="background:#dcfce7;color:#166534;border:1px solid #86efac">INCLUDE</span></div>
+  </div>
+  <details>
+  <summary>Show analysis</summary>
+  <div class="analysis-text">Article: 1-s2.0-S0950584925001417-main<br>Relevance: RELEVANT<br>Domain: GEN<br>Methodology: SRC, QAS, RPR<br>Metrics: PER, EFF, HUM, SEC<br>Framework: FWK<br>Confidence: 100<br>Reasoning: The article is a systematic literature review (specifically a snowballing literature review) that investigates evaluation metrics, methods, and processes for Generative AI/LLM systems. While it focuses on general software quality (ISO/IEC 25023), it explicitly includes cybersecurity-related domains (e.g., &quot;Security&quot; as a quality characteristic, and mentions of &quot;sensitive data leakage&quot; and &quot;risky outputs&quot; like privacy violations and copyright infringement). It covers multiple domains (document generation, code generation, etc.) without a single dominant cybersecurity focus, thus classified as `GEN`. It provides a clear search strategy (`SRC`), applies a quality assessment rubric (`QAS`), and details the review process for reproducibility (`RPR`). It aggregates performance, efficiency, human-centric, and security-specific metrics. It proposes a new five-step framework for quality evaluation (`FWK`).<br><br>---VERDICT---<br>RELEVANCE: INCLUDE</div>
+</details>
+
+</article>
+<article class="card" data-relevance="INCLUDE">
+  <div class="card-hd">
+    <span class="card-fn">1-s2.0-S1568494626002371-main</span>
+    <div class="card-right"><span class="art-meta">50 chunks &middot; 40,688 tokens</span><span class="badge" style="background:#dcfce7;color:#166534;border:1px solid #86efac">INCLUDE</span></div>
+  </div>
+  <details>
+  <summary>Show analysis</summary>
+  <div class="analysis-text">Article: 1-s2.0-S1568494626002371-main<br>Relevance: RELEVANT<br>Domain: GEN<br>Methodology: PRO, SRC, QAS, RPR<br>Metrics: NON<br>Framework: TAX<br>Confidence: 100<br>Reasoning: The article is a systematic mapping study (SMS) that investigates the ethical concerns and mitigation strategies associated with Large Language Models (LLMs) across multiple domains, including cybersecurity. It follows a rigorous methodology (Kitchenham et al.&#x27;s protocol and Petersen et al.&#x27;s mapping guidelines), explicitly describes its search strategy (databases, strings, snowballing), and performs a quality assessment of the primary studies. While it discusses the need for metrics, it does not aggregate quantitative performance metrics itself, focusing instead on thematic classification. It proposes a taxonomy of ethical dimensions and mitigation strategies.<br><br>---VERDICT---<br>RELEVANCE: INCLUDE</div>
+</details>
+
+</article>
+<article class="card" data-relevance="EXCLUDE">
+  <div class="card-hd">
+    <span class="card-fn">1-s2.0-S2212420926000944-main</span>
+    <div class="card-right"><span class="art-meta">24 chunks &middot; 24,198 tokens</span><span class="badge" style="background:#fee2e2;color:#991b1b;border:1px solid #fca5a5">EXCLUDE</span></div>
+  </div>
+  <details>
+  <summary>Show analysis</summary>
+  <div class="analysis-text">Article: 1-s2.0-S2212420926000944-main<br>Relevance: IRRELEVANT<br>Domain: N/A<br>Methodology: SRC, RPR<br>Metrics: NON<br>Framework: ADO<br>Confidence: 100<br>Reasoning: The article is a scoping review focused on cybersecurity in the humanitarian sector. While it discusses the digitalization of humanitarian aid and mentions the potential impact of AI in the future (e.g., &quot;we expect this challenge to be even more pronounced in the context of AI&quot; in Excerpt 13), it does not investigate the use of Large Language Models (LLMs) or language-model-based applications in cybersecurity. The review focuses on general cybersecurity preparedness, response, and communication strategies within humanitarian organizations. Therefore, it does not meet the specific inclusion criteria for this systematic review.<br><br>---VERDICT---<br>RELEVANCE: EXCLUDE</div>
+</details>
+
+</article>
+<article class="card" data-relevance="INCLUDE">
+  <div class="card-hd">
+    <span class="card-fn">1-s2.0-S2215016125004765-main</span>
+    <div class="card-right"><span class="art-meta">45 chunks &middot; 39,730 tokens</span><span class="badge" style="background:#dcfce7;color:#166534;border:1px solid #86efac">INCLUDE</span></div>
+  </div>
+  <details>
+  <summary>Show analysis</summary>
+  <div class="analysis-text">Article: 1-s2.0-S2215016125004765-main<br>Relevance: RELEVANT<br>Domain: PHI<br>Methodology: SRC, RPR<br>Metrics: PER, EFF, SEC<br>Framework: TAX<br>Confidence: 95<br>Reasoning: The article is an integrative review focusing on deepfake generation and detection, which falls under the `PHI` (Phishing &amp; Social Engineering) domain as it covers deepfake-based identity theft, social engineering, and biometric spoofing. It describes a search strategy and provides detailed implementation information (pseudocode, hyperparameter settings) to improve reproducibility (`RPR`, `SRC`). It reports performance metrics like accuracy and inference speed (`PER`, `EFF`) and security-specific metrics like evasion rates (`SEC`). It proposes a taxonomy/classification of detection techniques and defense mechanisms (`TAX`).<br><br>---VERDICT---<br>RELEVANCE: INCLUDE</div>
+</details>
+
+</article>
+<article class="card" data-relevance="INCLUDE">
+  <div class="card-hd">
+    <span class="card-fn">1-s2.0-S2590005625001365-main</span>
+    <div class="card-right"><span class="art-meta">50 chunks &middot; 39,843 tokens</span><span class="badge" style="background:#dcfce7;color:#166534;border:1px solid #86efac">INCLUDE</span></div>
+  </div>
+  <details>
+  <summary>Show analysis</summary>
+  <div class="analysis-text">Article: 1-s2.0-S2590005625001365-main<br>Relevance: RELEVANT<br>Domain: SEC<br>Methodology: SRC, QAS<br>Metrics: PER, EFF, HUM<br>Framework: FWK<br>Confidence: 100<br>Reasoning: The article is a systematic literature review (SLR) that investigates the role of Generative AI (GenAI) and LLMs in enhancing cybersecurity specifically within the Software Development Life Cycle (SDLC). It explicitly describes its search strategy (databases, keywords, inclusion/exclusion criteria in Excerpt 12) and quality assessment process (QAC in Excerpt 12/13). It proposes a new framework, the &quot;Generative Artificial Intelligence Secure Software Development Lifecycle (GenAI-SSDLC)&quot; (Excerpt 36/40). It reports on performance metrics (e.g., detection accuracy, vulnerability reduction), efficiency metrics (e.g., time-to-detect, cost reduction), and human-centric metrics (e.g., expert survey feedback, developer productivity).<br><br>---VERDICT---<br>RELEVANCE: INCLUDE</div>
+</details>
+
+</article>
+<article class="card" data-relevance="EXCLUDE">
+  <div class="card-hd">
+    <span class="card-fn">1-s2.0-S2590005625002577-main</span>
+    <div class="card-right"><span class="art-meta">52 chunks &middot; 41,481 tokens</span><span class="badge" style="background:#fee2e2;color:#991b1b;border:1px solid #fca5a5">EXCLUDE</span></div>
+  </div>
+  <details>
+  <summary>Show analysis</summary>
+  <div class="analysis-text">Article: 1-s2.0-S2590005625002577-main<br>Relevance: IRRELEVANT<br>Domain: N/A<br>Methodology: N/A<br>Metrics: N/A<br>Framework: N/A<br>Confidence: 100<br>Reasoning: The article is a systematic literature review focused on the application of Generative AI (GAI) in digital marketing and customer engagement. It does not investigate cybersecurity domains (e.g., vulnerability analysis, malware, threat intelligence, etc.). While it mentions &quot;data privacy&quot; and &quot;security&quot; as barriers to GAI adoption in marketing, these are discussed in the context of marketing compliance (GDPR/CCPA) and organizational risk, not cybersecurity research or LLM-based security applications.<br><br>---VERDICT---<br>RELEVANCE: EXCLUDE</div>
+</details>
+
+</article>
+<article class="card" data-relevance="EXCLUDE">
+  <div class="card-hd">
+    <span class="card-fn">1-s2.0-S2590005626001827-main</span>
+    <div class="card-right"><span class="art-meta">30 chunks &middot; 29,670 tokens</span><span class="badge" style="background:#fee2e2;color:#991b1b;border:1px solid #fca5a5">EXCLUDE</span></div>
+  </div>
+  <details>
+  <summary>Show analysis</summary>
+  <div class="analysis-text">Article: 1-s2.0-S2590005626001827-main<br>Relevance: IRRELEVANT<br>Domain: N/A<br>Methodology: N/A<br>Metrics: N/A<br>Framework: N/A<br>Confidence: 100<br>Reasoning: The article is a systematic review of cybersecurity quality metrics within &quot;Decentralized Computational Ecosystems&quot; (DCE), focusing on blockchain, distributed ledgers, and federated learning. While it touches upon AI and machine learning in the context of decentralized systems, it does not focus on Large Language Models (LLMs) or transformer-based language models as the primary subject of investigation. Per the decision rules, articles that cover AI/ML broadly but do not focus on language models are marked as IRRELEVANT.<br><br>---VERDICT---<br>RELEVANCE: EXCLUDE</div>
+</details>
+
+</article>
+<article class="card" data-relevance="EXCLUDE">
+  <div class="card-hd">
+    <span class="card-fn">1-s2.0-S2590174526003326-main</span>
+    <div class="card-right"><span class="art-meta">54 chunks &middot; 54,666 tokens</span><span class="badge" style="background:#fee2e2;color:#991b1b;border:1px solid #fca5a5">EXCLUDE</span></div>
+  </div>
+  <details>
+  <summary>Show analysis</summary>
+  <div class="analysis-text">Article: 1-s2.0-S2590174526003326-main<br>Relevance: IRRELEVANT<br>Domain: N/A<br>Methodology: N/A<br>Metrics: N/A<br>Framework: N/A<br>Confidence: 100<br>Reasoning: The article is a systematic literature review focused on &quot;Artificial intelligence-driven smart grid optimization&quot; and energy management. While it mentions cybersecurity as one of its application domains (Section 7), the primary focus is on energy systems, grid optimization, and renewable energy integration. The cybersecurity content is a sub-component of the broader smart grid review, not a systematic review of LLM applications in cybersecurity. The mention of LLMs is limited to their role as an emerging technology within the energy sector (e.g., for maintenance protocols or decision support), rather than a cybersecurity-focused investigation.<br><br>---VERDICT---<br>RELEVANCE: EXCLUDE</div>
+</details>
+
+</article>
+<article class="card" data-relevance="EXCLUDE">
+  <div class="card-hd">
+    <span class="card-fn">1-s2.0-S2590198225003781-main</span>
+    <div class="card-right"><span class="art-meta">42 chunks &middot; 35,127 tokens</span><span class="badge" style="background:#fee2e2;color:#991b1b;border:1px solid #fca5a5">EXCLUDE</span></div>
+  </div>
+  <details>
+  <summary>Show analysis</summary>
+  <div class="analysis-text">Article: 1-s2.0-S2590198225003781-main<br>Relevance: IRRELEVANT<br>Domain: N/A<br>Methodology: N/A<br>Metrics: N/A<br>Framework: N/A<br>Confidence: 100<br>Reasoning: The article is a systematic review and bibliometric analysis focused on the application of Large Language Models (LLMs) and Generative AI in the domain of transportation (Intelligent Transportation Systems, autonomous driving, and traffic safety). While it briefly mentions &quot;cybersecurity concerns&quot; as a challenge in transportation (Excerpt 1) and discusses adversarial attacks on traffic signs (Excerpt 31), the primary focus is not cybersecurity. It does not investigate LLM applications *in* cybersecurity (e.g., vulnerability detection, malware analysis, SOC automation, etc.), but rather uses LLMs to solve transportation-specific problems. Therefore, it falls outside the scope of this systematic review.<br><br>---VERDICT---<br>RELEVANCE: EXCLUDE</div>
+</details>
+
+</article>
+<article class="card" data-relevance="INCLUDE">
+  <div class="card-hd">
+    <span class="card-fn">1-s2.0-S2666188826001644-main</span>
+    <div class="card-right"><span class="art-meta">27 chunks &middot; 22,689 tokens</span><span class="badge" style="background:#dcfce7;color:#166534;border:1px solid #86efac">INCLUDE</span></div>
+  </div>
+  <details>
+  <summary>Show analysis</summary>
+  <div class="analysis-text">Article: 1-s2.0-S2666188826001644-main<br>Relevance: RELEVANT<br>Domain: GEN<br>Methodology: SRC, RPR<br>Metrics: NON<br>Framework: TAX<br>Confidence: 100<br>Reasoning: The article is a bibliometric review (a type of systematic mapping study) that investigates the intersection of AI (including LLMs) and cybersecurity within educational technology. While it covers multiple domains (AI, cybersecurity, education), it does not focus on a single cybersecurity domain, thus `GEN` is appropriate. It describes a clear search strategy in Scopus (Excerpt 4) and provides sufficient detail for reproducibility (Excerpt 4), qualifying for `SRC` and `RPR`. It does not report performance or security metrics of the primary studies (only bibliometric indices like h-index), so `NON` is assigned for metrics. It proposes a thematic classification/taxonomy of the research landscape (Excerpt 22), qualifying for `TAX`.<br><br>---VERDICT---<br>RELEVANCE: INCLUDE</div>
+</details>
+
+</article>
+<article class="card" data-relevance="EXCLUDE">
+  <div class="card-hd">
+    <span class="card-fn">1-s2.0-S2666386426001670-main</span>
+    <div class="card-right"><span class="art-meta">20 chunks &middot; 18,700 tokens</span><span class="badge" style="background:#fee2e2;color:#991b1b;border:1px solid #fca5a5">EXCLUDE</span></div>
+  </div>
+  <details>
+  <summary>Show analysis</summary>
+  <div class="analysis-text">Article: 1-s2.0-S2666386426001670-main<br>Relevance: IRRELEVANT<br>Domain: N/A<br>Methodology: N/A<br>Metrics: N/A<br>Framework: N/A<br>Confidence: 100<br>Reasoning: The article is a &quot;Perspective&quot; piece on cybersecurity challenges in renewable-dominated power grids. While it discusses the potential future role of AI (including LLMs) in cybersecurity (e.g., &quot;Generative AI will accelerate both sides... Defenders can respond with AI-assisted log triage, large-language-model code scanning&quot;), it is not a systematic literature review, scoping review, mapping study, or meta-analysis of LLM applications in cybersecurity. It focuses on power system resilience, historical attack analysis, and policy/standardization.<br><br>---VERDICT---<br>RELEVANCE: EXCLUDE</div>
+</details>
+
+</article>
+<article class="card" data-relevance="EXCLUDE">
+  <div class="card-hd">
+    <span class="card-fn">1-s2.0-S2666389926000437-main</span>
+    <div class="card-right"><span class="art-meta">39 chunks &middot; 35,149 tokens</span><span class="badge" style="background:#fee2e2;color:#991b1b;border:1px solid #fca5a5">EXCLUDE</span></div>
+  </div>
+  <details>
+  <summary>Show analysis</summary>
+  <div class="analysis-text">Article: 1-s2.0-S2666389926000437-main<br>Relevance: IRRELEVANT<br>Domain: N/A<br>Methodology: N/A<br>Metrics: N/A<br>Framework: N/A<br>Confidence: 100<br>Reasoning: The article is a tutorial on &quot;Pitfalls and risks of generative AI in machine learning&quot; (Excerpt 1). While it discusses cybersecurity as one of several potential risk areas (e.g., security of data, code, and remote model components), it is not a systematic literature review, scoping review, mapping study, or meta-analysis of LLM usage in cybersecurity. It is an educational tutorial providing guidance on ML workflows, and therefore does not meet the inclusion criteria for this systematic review.<br><br>---VERDICT---<br>RELEVANCE: EXCLUDE</div>
+</details>
+
+</article>
+<article class="card" data-relevance="INCLUDE">
+  <div class="card-hd">
+    <span class="card-fn">1-s2.0-S2667345223000585-main</span>
+    <div class="card-right"><span class="art-meta">44 chunks &middot; 34,946 tokens</span><span class="badge" style="background:#dcfce7;color:#166534;border:1px solid #86efac">INCLUDE</span></div>
+  </div>
+  <details>
+  <summary>Show analysis</summary>
+  <div class="analysis-text">Article: 1-s2.0-S2667345223000585-main<br>Relevance: RELEVANT<br>Domain: SOC<br>Methodology: SRC, RPR<br>Metrics: PER, SEC<br>Framework: TAX<br>Confidence: 95<br>Reasoning: The article is a systematic survey and mapping study that reviews machine learning (ML) techniques for cyber threat detection in IoT environments. While the primary focus is on traditional ML/DL (e.g., SVM, Random Forest, Neural Networks), it explicitly includes a section on the &quot;future vision with Generative AI and LLMs&quot; (Section 7), discussing their application in vulnerability detection, penetration testing, and access control. It follows a structured search strategy (describing databases and screening phases) and proposes a taxonomy of ML methods and IoT security challenges.<br><br>---VERDICT---<br>RELEVANCE: INCLUDE</div>
+</details>
+
+</article>
+<article class="card" data-relevance="INCLUDE">
+  <div class="card-hd">
+    <span class="card-fn">1-s2.0-S2667345225000082-main</span>
+    <div class="card-right"><span class="art-meta">104 chunks &middot; 94,732 tokens</span><span class="badge" style="background:#dcfce7;color:#166534;border:1px solid #86efac">INCLUDE</span></div>
+  </div>
+  <details>
+  <summary>Show analysis</summary>
+  <div class="analysis-text">Article: 1-s2.0-S2667345225000082-main<br>Relevance: RELEVANT<br>Domain: GEN<br>Methodology: SRC<br>Metrics: PER, EFF, HUM, SEC<br>Framework: TAX<br>Confidence: 100<br>Reasoning: The article is a comprehensive systematic review (&quot;systematic literature review of over 180 works&quot;, Excerpt 7/8) that investigates LLM applications across the entire cybersecurity domain (VUL, MAL, PEN, SOC, PHI, GRC, SEC, ADV). It describes a clear search strategy (citing specific venues and literature review methodology, Excerpt 10), reports on various performance, efficiency, human-centric, and security-specific metrics (Excerpts 19-21, 45-48), and proposes/adopts taxonomies for alignment and vulnerability classification (Excerpts 9, 11).<br><br>---VERDICT---<br>RELEVANCE: INCLUDE</div>
+</details>
+
+</article>
+<article class="card" data-relevance="INCLUDE">
+  <div class="card-hd">
+    <span class="card-fn">1-s2.0-S2667345226000076-main</span>
+    <div class="card-right"><span class="art-meta">33 chunks &middot; 29,331 tokens</span><span class="badge" style="background:#dcfce7;color:#166534;border:1px solid #86efac">INCLUDE</span></div>
+  </div>
+  <details>
+  <summary>Show analysis</summary>
+  <div class="analysis-text">Article: 1-s2.0-S2667345226000076-main<br>Relevance: RELEVANT<br>Domain: GEN<br>Methodology: SRC<br>Metrics: PER, SEC<br>Framework: TAX<br>Confidence: 100<br>Reasoning: The article is a comprehensive review/survey of Generative AI and LLM applications in cybersecurity. It covers a wide range of domains (vulnerability analysis, malware, offensive security, SOC, phishing, GRC, etc.), justifying the `GEN` classification. It describes a search strategy (referencing a &quot;comprehensive literature review&quot; in Excerpt 9 and citing numerous studies) and proposes a taxonomy of GenAI-related cybersecurity threats (Category A, B, and C in Excerpt 18). It discusses performance metrics (e.g., recall, accuracy, success rates) and security-specific metrics (e.g., jailbreak resistance, evasion rates).<br><br>---VERDICT---<br>RELEVANCE: INCLUDE</div>
+</details>
+
+</article>
+<article class="card" data-relevance="EXCLUDE">
+  <div class="card-hd">
+    <span class="card-fn">1-s2.0-S2949791426000102-main</span>
+    <div class="card-right"><span class="art-meta">25 chunks &middot; 23,462 tokens</span><span class="badge" style="background:#fee2e2;color:#991b1b;border:1px solid #fca5a5">EXCLUDE</span></div>
+  </div>
+  <details>
+  <summary>Show analysis</summary>
+  <div class="analysis-text">Article: 1-s2.0-S2949791426000102-main<br>Relevance: IRRELEVANT<br>Domain: N/A<br>Methodology: N/A<br>Metrics: N/A<br>Framework: N/A<br>Confidence: 100<br>Reasoning: The article is a bibliometric analysis of governmental cybersecurity policies and governance frameworks. While it mentions &quot;artificial intelligence&quot; as a technological trend within the broader cybersecurity landscape, it does not focus on Large Language Models (LLMs), transformers, or NLP-based language models as a subject of investigation. Per the decision rules, articles that cover AI/ML broadly but do not focus on language models are marked as irrelevant.<br><br>---VERDICT---<br>RELEVANCE: EXCLUDE</div>
+</details>
+
+</article>
+
+    </div>
+    <div id="no-results">No articles match this filter.</div>
+
+    <footer class="footer">
+      Generated by <a href="https://github.com/jooguilhermesc/lutz">lutz</a>
+    </footer>
+  </div>
+
+  <script>
+    function applyFilter(btn) {
+      document.querySelectorAll('.fbtn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const f = btn.dataset.filter;
+      let visible = 0;
+      document.querySelectorAll('.card').forEach(card => {
+        const show = f === 'all' || card.dataset.relevance === f;
+        card.classList.toggle('hidden', !show);
+        if (show) visible++;
+      });
+      document.getElementById('no-results').style.display = visible === 0 ? 'block' : 'none';
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,185 @@
+{
+  "metadata": {
+    "mode": "per_article",
+    "prompt_path": "/home/jooguilhermesc/Documentos/lutz/web/prompts/tmpos7ngyir.md",
+    "prompt_content": "# LLM Applications in Cybersecurity: Systematic Review Screening and Classification\n\n## Objective\nScreen and classify articles from systematic literature reviews (SLRs) and mapping studies that investigate the use of Large Language Models (LLMs) in cybersecurity. The goal is to support a meta-analysis that synthesizes how these reviews have been conducted, what application domains they cover, which evaluation metrics they report, and whether they propose or adopt analytical frameworks.\n\n## Classification Framework\n\n### 1. Application Domain\n\n| Code | Domain | Description | Keywords |\n|------|--------|-------------|----------|\n| `VUL` | Vulnerability Analysis | LLMs applied to vulnerability detection, CVE triage, code auditing, static/dynamic analysis | vulnerability, CVE, SAST, DAST, code audit, weakness detection |\n| `MAL` | Malware & Threat Intelligence | LLMs for malware classification, threat hunting, IOC extraction, CTI enrichment | malware, threat intelligence, IOC, YARA, APT, threat hunting |\n| `PEN` | Offensive Security & Pen Testing | LLMs assisting in penetration testing, exploit generation, red teaming, attack simulation | pentest, red team, exploit, attack simulation, offensive |\n| `SOC` | Security Operations & Incident Response | LLMs in SOC automation, alert triage, log analysis, SIEM/SOAR augmentation, forensics | SOC, SIEM, SOAR, incident response, alert triage, forensics |\n| `PHI` | Phishing & Social Engineering | LLMs for detecting or generating phishing, deepfake analysis, social engineering research | phishing, social engineering, deepfake, BEC, spam |\n| `GRC` | Governance, Risk & Compliance | LLMs applied to policy analysis, risk assessment, compliance automation, privacy | GRC, compliance, risk assessment, policy, GDPR, NIST, ISO 27001 |\n| `SEC` | Secure Development & DevSecOps | LLMs integrated into SDLC, secure coding assistants, CI/CD security gates | DevSecOps, secure coding, SDLC, code review, supply chain |\n| `ADV` | Adversarial ML & LLM Security | Research on attacks against LLMs themselves — prompt injection, jailbreaking, model poisoning | adversarial, prompt injection, jailbreak, alignment, poisoning, guardrails |\n| `GEN` | General / Cross-Domain | Review covers multiple domains without a single dominant focus | survey, overview, landscape, taxonomy, broad |\n\n### 2. Review Methodology Quality\n\n| Code | Aspect | Description |\n|------|--------|-------------|\n| `PRO` | Protocol & Registration | Review follows a registered protocol (PROSPERO, OSF) or explicitly describes one |\n| `SRC` | Search Strategy | Describes databases, queries, and inclusion/exclusion criteria with sufficient detail for reproduction |\n| `QAS` | Quality Assessment | Applies a quality appraisal tool or checklist to included primary studies (e.g., CASP, JBI, custom rubric) |\n| `BIA` | Bias Reporting | Discusses risk of bias, publication bias, or methodological limitations |\n| `RPR` | Reproducibility | Provides enough detail (queries, data, code, PRISMA flow) for independent replication |\n\n### 3. Evaluation Metrics Reported\n\n| Code | Metric Category | Examples |\n|------|----------------|----------|\n| `PER` | Performance Metrics | Accuracy, precision, recall, F1, AUC-ROC, detection rate, FPR |\n| `EFF` | Efficiency Metrics | Latency, throughput, token cost, resource consumption, time-to-detect |\n| `HUM` | Human-Centric Metrics | User study, expert agreement, analyst productivity gain, false positive reduction |\n| `SEC` | Security-Specific Metrics | CVE coverage, CVSS correlation, MITRE ATT&CK mapping accuracy, evasion rate |\n| `NON` | No Metrics Reported | Review does not aggregate or compare quantitative evaluation metrics |\n\n### 4. Framework & Taxonomy Contribution\n\n| Code | Contribution Type | Description |\n|------|------------------|-------------|\n| `FWK` | Framework Proposed | Proposes a new analytical, architectural, or evaluation framework |\n| `TAX` | Taxonomy Proposed | Proposes a classification, typology, or categorization scheme |\n| `ADO` | Framework Adopted | Adopts or extends an existing framework (cite which one) |\n| `NON` | None | No framework or taxonomy proposed or adopted |\n\n## Instructions\n\nFor each article represented in the excerpts:\n\n1. **Relevance**: Decide `RELEVANT` or `IRRELEVANT`. Mark as `RELEVANT` only if the article is a systematic review, scoping review, mapping study, or meta-analysis that investigates LLM/AI-language-model usage in any cybersecurity domain.\n2. **Application Domain**: Assign exactly one domain code from §1. If the review spans multiple domains without a dominant one, use `GEN`.\n3. **Methodology Quality**: List all applicable codes from §2 that describe the review's methodological rigor based on available evidence.\n4. **Evaluation Metrics**: List all applicable codes from §3 for metrics aggregated or discussed in the review.\n5. **Framework Contribution**: Assign exactly one code from §4.\n6. **Confidence**: Score from 0 to 100 reflecting how clearly the excerpts support your classification.\n7. **Rationale**: Brief evidence-based justification citing the source filename and specific textual evidence.\n\n## Output Format\n\nRepeat the block below for each article:\n\n```text\nArticle: <filename>\nRelevance: <RELEVANT | IRRELEVANT>\nDomain: <VUL | MAL | PEN | SOC | PHI | GRC | SEC | ADV | GEN | N/A>\nMethodology: <comma-separated codes from §2, or N/A>\nMetrics: <comma-separated codes from §3, or N/A>\nFramework: <FWK | TAX | ADO | NON | N/A>\nConfidence: <0-100 | N/A>\nReasoning: <brief explanation grounded in the excerpts, citing the filename>\n```\n\nIf an article is `IRRELEVANT`, use `N/A` for all fields except `Relevance` and `Reasoning`.\n\n## Decision Rules\n\n- **Borderline relevance**: If the article covers AI/ML in cybersecurity broadly but does not focus on language models (LLMs, transformers, NLP-based approaches), mark as `IRRELEVANT` and note the distinction in the reasoning.\n- **Multiple domains**: Choose the domain with the most textual evidence. If genuinely balanced, use `GEN`.\n- **Methodology codes**: Be strict — only assign a code if the excerpt provides explicit evidence (e.g., mentioning PRISMA for `RPR`, naming databases for `SRC`).\n- **Metrics**: Assign `NON` only if the review explicitly lacks any quantitative aggregation; if unclear from the excerpt, note the uncertainty in the reasoning.",
+    "filter_sections": null,
+    "started_at": "2026-05-21T15:45:41.553776+00:00",
+    "finished_at": "2026-05-21T15:45:51.850336+00:00",
+    "elapsed_seconds": 10.3,
+    "vector_store": {
+      "total_records": 692,
+      "unique_documents": 17,
+      "last_updated": "2026-05-21T15:09:21.883266+00:00"
+    },
+    "workers": 8,
+    "max_chunks_per_article": null,
+    "embedding": {
+      "provider": "openai",
+      "model": "openai/text-embedding-3-small",
+      "tokens": 0
+    },
+    "llm": {
+      "provider": "openai",
+      "model": "google/gemini-3.1-flash-lite",
+      "prompt_tokens": 606916,
+      "completion_tokens": 3438,
+      "total_tokens": 610354
+    }
+  },
+  "articles": [
+    {
+      "filename": "1-s2.0-S0720048X25000373-main",
+      "chunks_used": 16,
+      "llm_prompt_tokens": 14319,
+      "llm_completion_tokens": 154,
+      "llm_total_tokens": 14473,
+      "relevance": "EXCLUDE",
+      "analysis": "Article: 1-s2.0-S0720048X25000373-main\nRelevance: IRRELEVANT\nDomain: N/A\nMethodology: N/A\nMetrics: N/A\nFramework: N/A\nConfidence: 100\nReasoning: The article is a perspective piece focused on the application of Generative AI and Large Language Models (LLMs) specifically within the field of medicine and radiology. While it discusses technical aspects of LLMs (architecture, training, evaluation), it does not constitute a systematic literature review, mapping study, or meta-analysis of LLM applications in cybersecurity.\n\n---VERDICT---\nRELEVANCE: EXCLUDE"
+    },
+    {
+      "filename": "1-s2.0-S0950584925001417-main",
+      "chunks_used": 37,
+      "llm_prompt_tokens": 31203,
+      "llm_completion_tokens": 266,
+      "llm_total_tokens": 31469,
+      "relevance": "INCLUDE",
+      "analysis": "Article: 1-s2.0-S0950584925001417-main\nRelevance: RELEVANT\nDomain: GEN\nMethodology: SRC, QAS, RPR\nMetrics: PER, EFF, HUM, SEC\nFramework: FWK\nConfidence: 100\nReasoning: The article is a systematic literature review (specifically a snowballing literature review) that investigates evaluation metrics, methods, and processes for Generative AI/LLM systems. While it focuses on general software quality (ISO/IEC 25023), it explicitly includes cybersecurity-related domains (e.g., \"Security\" as a quality characteristic, and mentions of \"sensitive data leakage\" and \"risky outputs\" like privacy violations and copyright infringement). It covers multiple domains (document generation, code generation, etc.) without a single dominant cybersecurity focus, thus classified as `GEN`. It provides a clear search strategy (`SRC`), applies a quality assessment rubric (`QAS`), and details the review process for reproducibility (`RPR`). It aggregates performance, efficiency, human-centric, and security-specific metrics. It proposes a new five-step framework for quality evaluation (`FWK`).\n\n---VERDICT---\nRELEVANCE: INCLUDE"
+    },
+    {
+      "filename": "1-s2.0-S1568494626002371-main",
+      "chunks_used": 50,
+      "llm_prompt_tokens": 40492,
+      "llm_completion_tokens": 196,
+      "llm_total_tokens": 40688,
+      "relevance": "INCLUDE",
+      "analysis": "Article: 1-s2.0-S1568494626002371-main\nRelevance: RELEVANT\nDomain: GEN\nMethodology: PRO, SRC, QAS, RPR\nMetrics: NON\nFramework: TAX\nConfidence: 100\nReasoning: The article is a systematic mapping study (SMS) that investigates the ethical concerns and mitigation strategies associated with Large Language Models (LLMs) across multiple domains, including cybersecurity. It follows a rigorous methodology (Kitchenham et al.'s protocol and Petersen et al.'s mapping guidelines), explicitly describes its search strategy (databases, strings, snowballing), and performs a quality assessment of the primary studies. While it discusses the need for metrics, it does not aggregate quantitative performance metrics itself, focusing instead on thematic classification. It proposes a taxonomy of ethical dimensions and mitigation strategies.\n\n---VERDICT---\nRELEVANCE: INCLUDE"
+    },
+    {
+      "filename": "1-s2.0-S2212420926000944-main",
+      "chunks_used": 24,
+      "llm_prompt_tokens": 23999,
+      "llm_completion_tokens": 199,
+      "llm_total_tokens": 24198,
+      "relevance": "EXCLUDE",
+      "analysis": "Article: 1-s2.0-S2212420926000944-main\nRelevance: IRRELEVANT\nDomain: N/A\nMethodology: SRC, RPR\nMetrics: NON\nFramework: ADO\nConfidence: 100\nReasoning: The article is a scoping review focused on cybersecurity in the humanitarian sector. While it discusses the digitalization of humanitarian aid and mentions the potential impact of AI in the future (e.g., \"we expect this challenge to be even more pronounced in the context of AI\" in Excerpt 13), it does not investigate the use of Large Language Models (LLMs) or language-model-based applications in cybersecurity. The review focuses on general cybersecurity preparedness, response, and communication strategies within humanitarian organizations. Therefore, it does not meet the specific inclusion criteria for this systematic review.\n\n---VERDICT---\nRELEVANCE: EXCLUDE"
+    },
+    {
+      "filename": "1-s2.0-S2215016125004765-main",
+      "chunks_used": 45,
+      "llm_prompt_tokens": 39532,
+      "llm_completion_tokens": 198,
+      "llm_total_tokens": 39730,
+      "relevance": "INCLUDE",
+      "analysis": "Article: 1-s2.0-S2215016125004765-main\nRelevance: RELEVANT\nDomain: PHI\nMethodology: SRC, RPR\nMetrics: PER, EFF, SEC\nFramework: TAX\nConfidence: 95\nReasoning: The article is an integrative review focusing on deepfake generation and detection, which falls under the `PHI` (Phishing & Social Engineering) domain as it covers deepfake-based identity theft, social engineering, and biometric spoofing. It describes a search strategy and provides detailed implementation information (pseudocode, hyperparameter settings) to improve reproducibility (`RPR`, `SRC`). It reports performance metrics like accuracy and inference speed (`PER`, `EFF`) and security-specific metrics like evasion rates (`SEC`). It proposes a taxonomy/classification of detection techniques and defense mechanisms (`TAX`).\n\n---VERDICT---\nRELEVANCE: INCLUDE"
+    },
+    {
+      "filename": "1-s2.0-S2590005625001365-main",
+      "chunks_used": 50,
+      "llm_prompt_tokens": 39600,
+      "llm_completion_tokens": 243,
+      "llm_total_tokens": 39843,
+      "relevance": "INCLUDE",
+      "analysis": "Article: 1-s2.0-S2590005625001365-main\nRelevance: RELEVANT\nDomain: SEC\nMethodology: SRC, QAS\nMetrics: PER, EFF, HUM\nFramework: FWK\nConfidence: 100\nReasoning: The article is a systematic literature review (SLR) that investigates the role of Generative AI (GenAI) and LLMs in enhancing cybersecurity specifically within the Software Development Life Cycle (SDLC). It explicitly describes its search strategy (databases, keywords, inclusion/exclusion criteria in Excerpt 12) and quality assessment process (QAC in Excerpt 12/13). It proposes a new framework, the \"Generative Artificial Intelligence Secure Software Development Lifecycle (GenAI-SSDLC)\" (Excerpt 36/40). It reports on performance metrics (e.g., detection accuracy, vulnerability reduction), efficiency metrics (e.g., time-to-detect, cost reduction), and human-centric metrics (e.g., expert survey feedback, developer productivity).\n\n---VERDICT---\nRELEVANCE: INCLUDE"
+    },
+    {
+      "filename": "1-s2.0-S2590005625002577-main",
+      "chunks_used": 52,
+      "llm_prompt_tokens": 41298,
+      "llm_completion_tokens": 183,
+      "llm_total_tokens": 41481,
+      "relevance": "EXCLUDE",
+      "analysis": "Article: 1-s2.0-S2590005625002577-main\nRelevance: IRRELEVANT\nDomain: N/A\nMethodology: N/A\nMetrics: N/A\nFramework: N/A\nConfidence: 100\nReasoning: The article is a systematic literature review focused on the application of Generative AI (GAI) in digital marketing and customer engagement. It does not investigate cybersecurity domains (e.g., vulnerability analysis, malware, threat intelligence, etc.). While it mentions \"data privacy\" and \"security\" as barriers to GAI adoption in marketing, these are discussed in the context of marketing compliance (GDPR/CCPA) and organizational risk, not cybersecurity research or LLM-based security applications.\n\n---VERDICT---\nRELEVANCE: EXCLUDE"
+    },
+    {
+      "filename": "1-s2.0-S2590005626001827-main",
+      "chunks_used": 30,
+      "llm_prompt_tokens": 29482,
+      "llm_completion_tokens": 188,
+      "llm_total_tokens": 29670,
+      "relevance": "EXCLUDE",
+      "analysis": "Article: 1-s2.0-S2590005626001827-main\nRelevance: IRRELEVANT\nDomain: N/A\nMethodology: N/A\nMetrics: N/A\nFramework: N/A\nConfidence: 100\nReasoning: The article is a systematic review of cybersecurity quality metrics within \"Decentralized Computational Ecosystems\" (DCE), focusing on blockchain, distributed ledgers, and federated learning. While it touches upon AI and machine learning in the context of decentralized systems, it does not focus on Large Language Models (LLMs) or transformer-based language models as the primary subject of investigation. Per the decision rules, articles that cover AI/ML broadly but do not focus on language models are marked as IRRELEVANT.\n\n---VERDICT---\nRELEVANCE: EXCLUDE"
+    },
+    {
+      "filename": "1-s2.0-S2590174526003326-main",
+      "chunks_used": 54,
+      "llm_prompt_tokens": 54464,
+      "llm_completion_tokens": 202,
+      "llm_total_tokens": 54666,
+      "relevance": "EXCLUDE",
+      "analysis": "Article: 1-s2.0-S2590174526003326-main\nRelevance: IRRELEVANT\nDomain: N/A\nMethodology: N/A\nMetrics: N/A\nFramework: N/A\nConfidence: 100\nReasoning: The article is a systematic literature review focused on \"Artificial intelligence-driven smart grid optimization\" and energy management. While it mentions cybersecurity as one of its application domains (Section 7), the primary focus is on energy systems, grid optimization, and renewable energy integration. The cybersecurity content is a sub-component of the broader smart grid review, not a systematic review of LLM applications in cybersecurity. The mention of LLMs is limited to their role as an emerging technology within the energy sector (e.g., for maintenance protocols or decision support), rather than a cybersecurity-focused investigation.\n\n---VERDICT---\nRELEVANCE: EXCLUDE"
+    },
+    {
+      "filename": "1-s2.0-S2590198225003781-main",
+      "chunks_used": 42,
+      "llm_prompt_tokens": 34908,
+      "llm_completion_tokens": 219,
+      "llm_total_tokens": 35127,
+      "relevance": "EXCLUDE",
+      "analysis": "Article: 1-s2.0-S2590198225003781-main\nRelevance: IRRELEVANT\nDomain: N/A\nMethodology: N/A\nMetrics: N/A\nFramework: N/A\nConfidence: 100\nReasoning: The article is a systematic review and bibliometric analysis focused on the application of Large Language Models (LLMs) and Generative AI in the domain of transportation (Intelligent Transportation Systems, autonomous driving, and traffic safety). While it briefly mentions \"cybersecurity concerns\" as a challenge in transportation (Excerpt 1) and discusses adversarial attacks on traffic signs (Excerpt 31), the primary focus is not cybersecurity. It does not investigate LLM applications *in* cybersecurity (e.g., vulnerability detection, malware analysis, SOC automation, etc.), but rather uses LLMs to solve transportation-specific problems. Therefore, it falls outside the scope of this systematic review.\n\n---VERDICT---\nRELEVANCE: EXCLUDE"
+    },
+    {
+      "filename": "1-s2.0-S2666188826001644-main",
+      "chunks_used": 27,
+      "llm_prompt_tokens": 22462,
+      "llm_completion_tokens": 227,
+      "llm_total_tokens": 22689,
+      "relevance": "INCLUDE",
+      "analysis": "Article: 1-s2.0-S2666188826001644-main\nRelevance: RELEVANT\nDomain: GEN\nMethodology: SRC, RPR\nMetrics: NON\nFramework: TAX\nConfidence: 100\nReasoning: The article is a bibliometric review (a type of systematic mapping study) that investigates the intersection of AI (including LLMs) and cybersecurity within educational technology. While it covers multiple domains (AI, cybersecurity, education), it does not focus on a single cybersecurity domain, thus `GEN` is appropriate. It describes a clear search strategy in Scopus (Excerpt 4) and provides sufficient detail for reproducibility (Excerpt 4), qualifying for `SRC` and `RPR`. It does not report performance or security metrics of the primary studies (only bibliometric indices like h-index), so `NON` is assigned for metrics. It proposes a thematic classification/taxonomy of the research landscape (Excerpt 22), qualifying for `TAX`.\n\n---VERDICT---\nRELEVANCE: INCLUDE"
+    },
+    {
+      "filename": "1-s2.0-S2666386426001670-main",
+      "chunks_used": 20,
+      "llm_prompt_tokens": 18507,
+      "llm_completion_tokens": 193,
+      "llm_total_tokens": 18700,
+      "relevance": "EXCLUDE",
+      "analysis": "Article: 1-s2.0-S2666386426001670-main\nRelevance: IRRELEVANT\nDomain: N/A\nMethodology: N/A\nMetrics: N/A\nFramework: N/A\nConfidence: 100\nReasoning: The article is a \"Perspective\" piece on cybersecurity challenges in renewable-dominated power grids. While it discusses the potential future role of AI (including LLMs) in cybersecurity (e.g., \"Generative AI will accelerate both sides... Defenders can respond with AI-assisted log triage, large-language-model code scanning\"), it is not a systematic literature review, scoping review, mapping study, or meta-analysis of LLM applications in cybersecurity. It focuses on power system resilience, historical attack analysis, and policy/standardization.\n\n---VERDICT---\nRELEVANCE: EXCLUDE"
+    },
+    {
+      "filename": "1-s2.0-S2666389926000437-main",
+      "chunks_used": 39,
+      "llm_prompt_tokens": 34965,
+      "llm_completion_tokens": 184,
+      "llm_total_tokens": 35149,
+      "relevance": "EXCLUDE",
+      "analysis": "Article: 1-s2.0-S2666389926000437-main\nRelevance: IRRELEVANT\nDomain: N/A\nMethodology: N/A\nMetrics: N/A\nFramework: N/A\nConfidence: 100\nReasoning: The article is a tutorial on \"Pitfalls and risks of generative AI in machine learning\" (Excerpt 1). While it discusses cybersecurity as one of several potential risk areas (e.g., security of data, code, and remote model components), it is not a systematic literature review, scoping review, mapping study, or meta-analysis of LLM usage in cybersecurity. It is an educational tutorial providing guidance on ML workflows, and therefore does not meet the inclusion criteria for this systematic review.\n\n---VERDICT---\nRELEVANCE: EXCLUDE"
+    },
+    {
+      "filename": "1-s2.0-S2667345223000585-main",
+      "chunks_used": 44,
+      "llm_prompt_tokens": 34756,
+      "llm_completion_tokens": 190,
+      "llm_total_tokens": 34946,
+      "relevance": "INCLUDE",
+      "analysis": "Article: 1-s2.0-S2667345223000585-main\nRelevance: RELEVANT\nDomain: SOC\nMethodology: SRC, RPR\nMetrics: PER, SEC\nFramework: TAX\nConfidence: 95\nReasoning: The article is a systematic survey and mapping study that reviews machine learning (ML) techniques for cyber threat detection in IoT environments. While the primary focus is on traditional ML/DL (e.g., SVM, Random Forest, Neural Networks), it explicitly includes a section on the \"future vision with Generative AI and LLMs\" (Section 7), discussing their application in vulnerability detection, penetration testing, and access control. It follows a structured search strategy (describing databases and screening phases) and proposes a taxonomy of ML methods and IoT security challenges.\n\n---VERDICT---\nRELEVANCE: INCLUDE"
+    },
+    {
+      "filename": "1-s2.0-S2667345225000082-main",
+      "chunks_used": 104,
+      "llm_prompt_tokens": 94516,
+      "llm_completion_tokens": 216,
+      "llm_total_tokens": 94732,
+      "relevance": "INCLUDE",
+      "analysis": "Article: 1-s2.0-S2667345225000082-main\nRelevance: RELEVANT\nDomain: GEN\nMethodology: SRC\nMetrics: PER, EFF, HUM, SEC\nFramework: TAX\nConfidence: 100\nReasoning: The article is a comprehensive systematic review (\"systematic literature review of over 180 works\", Excerpt 7/8) that investigates LLM applications across the entire cybersecurity domain (VUL, MAL, PEN, SOC, PHI, GRC, SEC, ADV). It describes a clear search strategy (citing specific venues and literature review methodology, Excerpt 10), reports on various performance, efficiency, human-centric, and security-specific metrics (Excerpts 19-21, 45-48), and proposes/adopts taxonomies for alignment and vulnerability classification (Excerpts 9, 11).\n\n---VERDICT---\nRELEVANCE: INCLUDE"
+    },
+    {
+      "filename": "1-s2.0-S2667345226000076-main",
+      "chunks_used": 33,
+      "llm_prompt_tokens": 29118,
+      "llm_completion_tokens": 213,
+      "llm_total_tokens": 29331,
+      "relevance": "INCLUDE",
+      "analysis": "Article: 1-s2.0-S2667345226000076-main\nRelevance: RELEVANT\nDomain: GEN\nMethodology: SRC\nMetrics: PER, SEC\nFramework: TAX\nConfidence: 100\nReasoning: The article is a comprehensive review/survey of Generative AI and LLM applications in cybersecurity. It covers a wide range of domains (vulnerability analysis, malware, offensive security, SOC, phishing, GRC, etc.), justifying the `GEN` classification. It describes a search strategy (referencing a \"comprehensive literature review\" in Excerpt 9 and citing numerous studies) and proposes a taxonomy of GenAI-related cybersecurity threats (Category A, B, and C in Excerpt 18). It discusses performance metrics (e.g., recall, accuracy, success rates) and security-specific metrics (e.g., jailbreak resistance, evasion rates).\n\n---VERDICT---\nRELEVANCE: INCLUDE"
+    },
+    {
+      "filename": "1-s2.0-S2949791426000102-main",
+      "chunks_used": 25,
+      "llm_prompt_tokens": 23295,
+      "llm_completion_tokens": 167,
+      "llm_total_tokens": 23462,
+      "relevance": "EXCLUDE",
+      "analysis": "Article: 1-s2.0-S2949791426000102-main\nRelevance: IRRELEVANT\nDomain: N/A\nMethodology: N/A\nMetrics: N/A\nFramework: N/A\nConfidence: 100\nReasoning: The article is a bibliometric analysis of governmental cybersecurity policies and governance frameworks. While it mentions \"artificial intelligence\" as a technological trend within the broader cybersecurity landscape, it does not focus on Large Language Models (LLMs), transformers, or NLP-based language models as a subject of investigation. Per the decision rules, articles that cover AI/ML broadly but do not focus on language models are marked as irrelevant.\n\n---VERDICT---\nRELEVANCE: EXCLUDE"
+    }
+  ]
+}
