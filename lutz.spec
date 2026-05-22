@@ -89,6 +89,7 @@ hidden_imports = [
 # Reduce binary size by excluding things we don't need at runtime.
 
 excludes = [
+    # GUI toolkits not needed
     "matplotlib",
     "IPython",
     "jupyter",
@@ -96,10 +97,21 @@ excludes = [
     "tkinter",
     "PyQt5",
     "wx",
+    # Test frameworks
     "test",
     "tests",
     "unittest",
     "doctest",
+    # PyTorch CUDA / GPU — we use CPU-only torch in binary builds
+    # (install with: pip install torch --index-url https://download.pytorch.org/whl/cpu)
+    "torch.cuda",
+    "torch.backends.cuda",
+    "torch.backends.cudnn",
+    "torch.backends.mps",
+    "torch.distributed",
+    "torch.fx",
+    "caffe2",
+    "functorch",
 ]
 
 # ── Analysis ──────────────────────────────────────────────────────────────────
