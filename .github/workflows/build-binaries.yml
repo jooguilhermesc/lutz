@@ -60,6 +60,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip pyinstaller
           pip install .
+          pip install torch --index-url https://download.pytorch.org/whl/cpu --force-reinstall
 
       - name: Build main CLI binary
         run: pyinstaller lutz.spec
