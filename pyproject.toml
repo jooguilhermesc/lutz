@@ -34,13 +34,21 @@ dependencies = [
     "rich>=13.7",
     "gitpython>=3.1",
     "pyarrow>=15.0",
+    "pymupdf>=1.24",
     "pdfplumber>=0.11",
     "sentence-transformers>=3.0",
     "transformers>=4.40",
     "torch>=2.0",
     "tantivy>=0.22",
     "pyyaml>=6.0",
-    "streamlit>=1.32",
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.29",
+    "python-multipart>=0.0.9",
+    "python-docx>=1.1",
+    "openpyxl>=3.1",
+    "python-pptx>=1.0",
+    "weasyprint>=60",
+    "duckdb>=1.0",
 ]
 
 [project.optional-dependencies]
@@ -57,6 +65,15 @@ layout = [
     "layoutparser[layoutmodels]>=0.3.4",
     "pdf2image>=1.16",
 ]
+security = [
+    # google-re2: linear-time regex engine (C++ RE2 binding).
+    # Eliminates catastrophic backtracking on adversarial PDF text.
+    # Requires the libre2 system library:
+    #   Linux:  sudo apt install libre2-dev
+    #   macOS:  brew install re2
+    # Falls back to stdlib re transparently when not installed.
+    "google-re2>=1.1",
+]
 
 [project.scripts]
 lutz = "lutz.cli:cli"
@@ -68,9 +85,10 @@ Issues = "https://github.com/jooguilhermesc/lutz/issues"
 [tool.hatch.build.targets.wheel]
 packages = ["lutz"]
 
-[tool.hatch.build.targets.wheel.sources]
-"lutz/templates" = "lutz/templates"
-"lutz/ui" = "lutz/ui"
+[tool.hatch.build.targets.wheel.force-include]
+# Bundle the pre-built React SPA into the package.
+# Build before releasing: cd web && npm run build
+"web/dist" = "lutz/web"
 
 [tool.ruff]
 line-length = 100
