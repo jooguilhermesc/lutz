@@ -1,0 +1,155 @@
+# Prompt injection patterns for Lutz security scanner
+#
+# ATLAS technique: AML.T0051 — LLM Prompt Injection
+# OWASP LLM01: Prompt Injection
+#
+# Each entry:
+#   pattern:     Python regex (re / google-re2 compatible)
+#   severity:    HIGH | MEDIUM
+#   description: Human-readable label for audit logs
+#   atlas:       MITRE ATLAS technique ID
+
+# ── Direct instruction override ──────────────────────────────────────────────
+- pattern: "ignore\\s+(all\\s+)?(previous|prior|above)\\s+instructions?"
+  severity: HIGH
+  description: "Direct instruction override: 'ignore previous instructions'"
+  atlas: AML.T0051.000
+
+- pattern: "disregard\\s+(all\\s+)?(previous|prior|above)\\s+instructions?"
+  severity: HIGH
+  description: "Direct instruction override: 'disregard instructions'"
+  atlas: AML.T0051.000
+
+- pattern: "forget\\s+(everything|all)\\s+(you|i)"
+  severity: HIGH
+  description: "Memory wipe attempt: 'forget everything you know'"
+  atlas: AML.T0051.000
+
+- pattern: "override\\s+(the\\s+)?system\\s+(prompt|instructions?)"
+  severity: HIGH
+  description: "System prompt override attempt"
+  atlas: AML.T0051.000
+
+- pattern: "do\\s+not\\s+follow\\s+(your\\s+)?(previous|prior)\\s+(instructions?|guidelines?)"
+  severity: HIGH
+  description: "Instruction negation pattern"
+  atlas: AML.T0051.000
+
+# ── Role hijacking ────────────────────────────────────────────────────────────
+- pattern: "you\\s+are\\s+now\\s+(a|an)\\s+\\w+"
+  severity: HIGH
+  description: "Role hijacking: 'you are now a ...'"
+  atlas: AML.T0051.000
+
+- pattern: "act\\s+as\\s+(if\\s+you\\s+are\\s+)?(a|an)\\s+\\w+"
+  severity: HIGH
+  description: "Role hijacking: 'act as a ...'"
+  atlas: AML.T0051.000
+
+- pattern: "pretend\\s+(you\\s+are|to\\s+be)\\s+(a|an)\\s+\\w+"
+  severity: HIGH
+  description: "Role hijacking: 'pretend you are a ...'"
+  atlas: AML.T0051.000
+
+# ── New instruction injection ─────────────────────────────────────────────────
+- pattern: "new\\s+instructions?:"
+  severity: HIGH
+  description: "New instruction block injection"
+  atlas: AML.T0051.001
+
+- pattern: "confidential\\s+instructions?:"
+  severity: HIGH
+  description: "Hidden instruction block injection"
+  atlas: AML.T0051.001
+
+- pattern: "note\\s+to\\s+(ai|assistant|llm|model|system)\\s*:"
+  severity: HIGH
+  description: "Indirect instruction targeting AI processor"
+  atlas: AML.T0051.001
+
+# ── LLM token marker injection ────────────────────────────────────────────────
+- pattern: "<\\s*\\|?\\s*(im_start|im_end|system|user|assistant)\\s*\\|?\\s*>"
+  severity: HIGH
+  description: "LLM token marker (ChatML format)"
+  atlas: AML.T0051.000
+
+- pattern: "\\[\\[\\s*system\\s*\\]\\]"
+  severity: HIGH
+  description: "System prompt marker injection"
+  atlas: AML.T0051.000
+
+- pattern: "###\\s*instruction"
+  severity: HIGH
+  description: "Instruction header injection (Alpaca/Llama format)"
+  atlas: AML.T0051.000
+
+- pattern: "<</SYS>>"
+  severity: HIGH
+  description: "Llama2 system tag injection"
+  atlas: AML.T0051.000
+
+- pattern: "<<SYS>>"
+  severity: HIGH
+  description: "Llama2 system tag injection"
+  atlas: AML.T0051.000
+
+- pattern: "\\[INST\\]"
+  severity: HIGH
+  description: "Llama2 instruction tag injection"
+  atlas: AML.T0051.000
+
+- pattern: "\\[/INST\\]"
+  severity: HIGH
+  description: "Llama2 instruction end tag injection"
+  atlas: AML.T0051.000
+
+- pattern: "system\\s*:\\s*(you are|your role|your task)"
+  severity: HIGH
+  description: "System role injection"
+  atlas: AML.T0051.000
+
+# ── Jailbreak / mode switch ───────────────────────────────────────────────────
+- pattern: "sudo\\s+(mode|override)"
+  severity: HIGH
+  description: "Sudo mode jailbreak attempt"
+  atlas: AML.T0054
+
+- pattern: "developer\\s+mode"
+  severity: HIGH
+  description: "Developer mode jailbreak"
+  atlas: AML.T0054
+
+- pattern: "jailbreak"
+  severity: HIGH
+  description: "Explicit jailbreak keyword"
+  atlas: AML.T0054
+
+- pattern: "DAN\\s+(mode|prompt)"
+  severity: HIGH
+  description: "DAN (Do Anything Now) jailbreak"
+  atlas: AML.T0054
+
+- pattern: "do\\s+anything\\s+now"
+  severity: HIGH
+  description: "DAN jailbreak trigger phrase"
+  atlas: AML.T0054
+
+# ── Unicode obfuscation (AML.T0054 — Defense Evasion) ────────────────────────
+# Zero-width characters used to hide text between visible characters
+- pattern: "[\u200b\u200c\u200d\u2060\ufeff]"
+  severity: MEDIUM
+  description: "Zero-width character detected (potential steganographic injection)"
+  atlas: AML.T0054
+
+# Right-to-left override — can reverse text rendering to hide injection
+- pattern: "[\u202e\u202d]"
+  severity: HIGH
+  description: "Right-to-left/left-to-right override character (text direction manipulation)"
+  atlas: AML.T0054
+
+# Homoglyphs: Cyrillic characters that look like Latin (common in adversarial text)
+# Pattern checks for Cyrillic mixed with primarily Latin text — a statistical flag
+- pattern: "[\u0400-\u04ff]{1,3}[a-zA-Z]{3,}[\u0400-\u04ff]{1,3}"
+  severity: MEDIUM
+  description: "Cyrillic-Latin homoglyph mixing detected (possible obfuscation)"
+  atlas: AML.T0054

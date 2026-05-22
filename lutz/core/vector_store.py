@@ -18,7 +18,10 @@ _TABLE_NAME = "articles"
 # Projecting only these columns avoids deserialising potentially hundreds of
 # megabytes of float32 vectors when only text is required.
 _TEXT_COLUMNS = ["filename", "chunk_index", "page", "char_start", "section", "text"]
-_META_COLUMNS = ["filename", "vectorized_at", "embedding_model", "embedding_provider"]
+_META_COLUMNS = [
+    "filename", "vectorized_at", "embedding_model", "embedding_provider",
+    "extraction_backend",
+]
 
 
 def _project(arrow_table: pa.Table, columns: list[str]) -> pa.Table:
@@ -64,6 +67,7 @@ class VectorStore:
                 pa.field("vectorized_at", pa.string()),
                 pa.field("embedding_model", pa.string()),
                 pa.field("embedding_provider", pa.string()),
+                pa.field("extraction_backend", pa.string()),
             ]
         )
 
@@ -79,13 +83,24 @@ class VectorStore:
                 "vectorized_at": r.get("vectorized_at", ""),
                 "embedding_model": r.get("embedding_model", ""),
                 "embedding_provider": r.get("embedding_provider", ""),
+                "extraction_backend": r.get("extraction_backend", "pymupdf"),
             }
             for r in records
         ]
 
         if _TABLE_NAME in self._db.table_names():
             tbl = self._db.open_table(_TABLE_NAME)
-            tbl.add(rows)
+            # Graceful schema-evolution: strip fields absent in the existing table
+            # so that stores created before this field was added keep working.
+            existing_cols = set(tbl.schema.names)
+            if "extraction_backend" not in existing_cols:
+                compat_rows = [
+                    {k: v for k, v in row.items() if k in existing_cols}
+                    for row in rows
+                ]
+                tbl.add(compat_rows)
+            else:
+                tbl.add(rows)
         else:
             self._db.create_table(_TABLE_NAME, data=rows, schema=schema)
 
@@ -343,6 +358,7 @@ class VectorStore:
                 "vectorized_at": group[0].get("vectorized_at", ""),
                 "embedding_model": group[0].get("embedding_model", ""),
                 "embedding_provider": group[0].get("embedding_provider", ""),
+                "extraction_backend": group[0].get("extraction_backend", ""),
             })
 
         total = len(rows)

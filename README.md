@@ -322,15 +322,37 @@ Processes PDFs and creates the vector index in `.lutz/vector_store/`.
 |---|---|---|
 | `--chunk-size` | Chunk size in words | `512` |
 | `--chunk-overlap` | Overlap between chunks | `64` |
+| `--extraction` | Extraction backend: `pymupdf`, `marker`, or `auto` (see below) | `pymupdf` |
 | `--section-parse` | Split articles into labeled sections before chunking | disabled |
 | `--skip-security` | Skip PDF security checks | disabled |
 | `--quarantine` | Process files in `articles/_quarantine/` | disabled |
 
 ```bash
 lutz vectorize
-lutz vectorize --section-parse          # section-aware (recommended)
+lutz vectorize --section-parse                    # section-aware chunking
 lutz vectorize --chunk-size 256 --chunk-overlap 32
+lutz vectorize --extraction marker                # OCR + multi-column layout
+lutz vectorize --extraction marker --section-parse
+lutz vectorize --extraction auto                  # auto-detect scanned PDFs
 ```
+
+**Extraction backends**
+
+| Document type | Recommended backend | Reason |
+|---|---|---|
+| Digital article, single column | `pymupdf` (default) | Fast, no extra deps |
+| Digital article, 2+ columns (IEEE, Elsevier, ACM) | `marker` | Layout detection |
+| Scanned book or old article | `marker` | OCR via surya |
+| Mixed corpus | `auto` | Detects and adapts per file |
+
+```bash
+# Install the marker backend (model weights ~500 MB, downloaded once)
+pip install "lutz-research[marker]"
+
+lutz vectorize --extraction marker
+```
+
+The `marker` backend handles multi-column layouts and scanned PDFs without requiring Poppler or Tesseract. When `--section-parse` is combined with `--extraction marker`, sections are parsed directly from the Markdown headings that marker produces — no layoutparser needed.
 
 ### `lutz analysis --p PROMPT [options]`
 
@@ -476,6 +498,7 @@ lutz/
 │   └── web.py                    # lutz web (FastAPI launcher)
 ├── core/
 │   ├── security_checker.py       # PDF security checks
+│   ├── extraction.py             # pluggable extraction strategies (PyMuPDF, marker)
 │   ├── pdf_processor.py          # text extraction and chunking
 │   ├── section_parser.py         # section detection
 │   ├── vector_store.py           # LanceDB wrapper
