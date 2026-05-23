@@ -881,25 +881,21 @@ export default function Chat() {
               />
               <div className="input-toolbar">
                 <div className="input-tools">
-                  <button
-                    className="tool-btn"
-                    title="Anexar arquivo"
-                    onClick={() => chatFileInputRef.current?.click()}
-                  >
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                      <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66L9.41 17.41a2 2 0 01-2.83-2.83l8.49-8.49" />
-                    </svg>
-                  </button>
-                  <button
-                    className={`tool-btn${showFiles ? ' active' : ''}`}
-                    title={t('chat.files.title')}
-                    onClick={() => { setShowFiles((v) => !v); setShowMemory(false) }}
-                  >
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-                      <polyline points="14 2 14 8 20 8" />
-                    </svg>
-                  </button>
+                  <span style={{ position: 'relative', display: 'inline-flex' }}>
+                    <button
+                      className={`tool-btn${showFiles ? ' active' : ''}`}
+                      title={t('chat.files.title')}
+                      onClick={() => { setShowFiles((v) => !v); setShowMemory(false) }}
+                    >
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                        <polyline points="14 2 14 8 20 8" />
+                      </svg>
+                    </button>
+                    {files.length > 0 && (
+                      <span className="tool-btn-badge">{files.length > 9 ? '9+' : files.length}</span>
+                    )}
+                  </span>
                 </div>
                 <button
                   className={`send-btn${!input.trim() || loading ? ' disabled' : ''}`}
