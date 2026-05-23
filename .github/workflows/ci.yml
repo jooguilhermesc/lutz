@@ -128,3 +128,171 @@ jobs:
         with:
           name: secrets-baseline
           path: .secrets.baseline
+
+  agents:
+    name: Agents
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PyYAML
+        run: python -m pip install --upgrade pip pyyaml
+
+      - name: Validate development agent definitions (.claude/agents/)
+        run: |
+          python - <<'EOF'
+          import pathlib, sys, yaml
+
+          agents_dir = pathlib.Path(".claude/agents")
+          if not agents_dir.exists():
+              print("::error::.claude/agents/ não encontrado")
+              sys.exit(1)
+
+          agent_files = list(agents_dir.glob("*.md"))
+          if not agent_files:
+              print("::error::Nenhum agente encontrado em .claude/agents/")
+              sys.exit(1)
+
+          errors = []
+          for agent_file in sorted(agent_files):
+              content = agent_file.read_text(encoding="utf-8")
+              if not content.startswith("---"):
+                  errors.append(f"{agent_file}: sem frontmatter YAML")
+                  continue
+              parts = content.split("---", 2)
+              if len(parts) < 3:
+                  errors.append(f"{agent_file}: frontmatter incompleto")
+                  continue
+              try:
+                  meta = yaml.safe_load(parts[1])
+              except yaml.YAMLError as e:
+                  errors.append(f"{agent_file}: YAML inválido — {e}")
+                  continue
+              for field in ("name", "description", "tools"):
+                  if field not in (meta or {}):
+                      errors.append(f"{agent_file}: campo obrigatório ausente: '{field}'")
+
+          if errors:
+              for e in errors:
+                  print(f"::error::{e}")
+              sys.exit(1)
+
+          print(f"✓ {len(agent_files)} agente(s) de desenvolvimento válido(s)")
+          EOF
+
+      - name: Validate research agent templates (.claude/agents/research/)
+        run: |
+          python - <<'EOF'
+          import pathlib, sys, yaml
+
+          templates_dir = pathlib.Path(".claude/agents/research")
+          if not templates_dir.exists():
+              print("::error::.claude/agents/research/ não encontrado")
+              sys.exit(1)
+
+          template_files = list(templates_dir.glob("*.md"))
+          if not template_files:
+              print("::error::Nenhum template encontrado em .claude/agents/research/")
+              sys.exit(1)
+
+          errors = []
+          for template_file in sorted(template_files):
+              content = template_file.read_text(encoding="utf-8")
+              if not content.startswith("---"):
+                  errors.append(f"{template_file}: sem frontmatter YAML")
+                  continue
+              parts = content.split("---", 2)
+              if len(parts) < 3:
+                  errors.append(f"{template_file}: frontmatter incompleto")
+                  continue
+              try:
+                  meta = yaml.safe_load(parts[1])
+              except yaml.YAMLError as e:
+                  errors.append(f"{template_file}: YAML inválido — {e}")
+                  continue
+              for field in ("name", "description", "tools"):
+                  if field not in (meta or {}):
+                      errors.append(f"{template_file}: campo obrigatório ausente: '{field}'")
+
+          if errors:
+              for e in errors:
+                  print(f"::error::{e}")
+              sys.exit(1)
+
+          print(f"✓ {len(template_files)} template(s) de pesquisa válido(s)")
+          EOF
+
+      - name: Validate security pattern catalogues (lutz/security/*.yaml)
+        run: |
+          python - <<'EOF'
+          import pathlib, sys, yaml
+
+          security_dir = pathlib.Path("lutz/security")
+          if not security_dir.exists():
+              print("::error::lutz/security/ não encontrado")
+              sys.exit(1)
+
+          yaml_files = list(security_dir.glob("*.yaml"))
+          if not yaml_files:
+              print("::error::Nenhum YAML encontrado em lutz/security/")
+              sys.exit(1)
+
+          errors = []
+          total_patterns = 0
+          for yaml_file in sorted(yaml_files):
+              try:
+                  data = yaml.safe_load(yaml_file.read_text(encoding="utf-8"))
+                  if not isinstance(data, list):
+                      errors.append(f"{yaml_file}: deve ser uma lista de padrões")
+                      continue
+                  for i, entry in enumerate(data):
+                      if "pattern" not in entry:
+                          errors.append(f"{yaml_file}[{i}]: campo 'pattern' ausente")
+                      if "severity" not in entry:
+                          errors.append(f"{yaml_file}[{i}]: campo 'severity' ausente")
+                      if entry.get("severity") not in ("HIGH", "MEDIUM", "LOW", None):
+                          errors.append(f"{yaml_file}[{i}]: severity inválido: {entry.get('severity')!r}")
+                  total_patterns += len(data)
+                  print(f"  {yaml_file.name}: {len(data)} padrões")
+              except yaml.YAMLError as e:
+                  errors.append(f"{yaml_file}: YAML inválido — {e}")
+
+          if errors:
+              for e in errors:
+                  print(f"::error::{e}")
+              sys.exit(1)
+
+          print(f"✓ {len(yaml_files)} arquivo(s) YAML válido(s), {total_patterns} padrões no total")
+          EOF
+
+      - name: Verify audit module integrity
+        run: |
+          python - <<'EOF'
+          import pathlib, sys
+
+          audit_file = pathlib.Path("lutz/core/audit.py")
+          if not audit_file.exists():
+              print("::error::lutz/core/audit.py não encontrado")
+              sys.exit(1)
+
+          # Smoke-test: importar e instanciar em diretório temporário
+          import tempfile, pathlib as pl
+          with tempfile.TemporaryDirectory() as tmpdir:
+              import sys
+              sys.path.insert(0, ".")
+              from lutz.core.audit import AuditLog
+              log = AuditLog(pl.Path(tmpdir) / "audit")
+              sig = log.record("ci-test", "smoke_test", detail="CI validation")
+              ok, errors = log.verify_chain()
+              if not ok:
+                  print(f"::error::AuditLog chain verification failed: {errors}")
+                  sys.exit(1)
+          print("✓ lutz/core/audit.py — importação e cadeia HMAC: OK")
+          EOF
