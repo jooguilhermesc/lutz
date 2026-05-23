@@ -2,33 +2,33 @@
 
 /* ── Custom properties ─────────────────────────────────────────────────────── */
 .chat-root {
-  --chat-bg-primary: #0a0a0f;
-  --chat-bg-secondary: #111118;
-  --chat-bg-tertiary: #16161f;
-  --chat-bg-hover: #1c1c28;
-  --chat-bg-active: #22223a;
-  --chat-surface: #1a1a26;
-  --chat-surface-raised: #1e1e2e;
-  --chat-border: rgba(255, 255, 255, 0.06);
-  --chat-border-active: rgba(255, 255, 255, 0.12);
-  --chat-text-primary: #e8e8f0;
-  --chat-text-secondary: #8888a4;
-  --chat-text-muted: #55556e;
-  --chat-accent-1: #7c5cfc;
-  --chat-accent-2: #a855f7;
-  --chat-accent-3: #6366f1;
-  --chat-gradient-main: linear-gradient(135deg, #7c5cfc 0%, #a855f7 50%, #6366f1 100%);
-  --chat-gradient-subtle: linear-gradient(135deg, rgba(124, 92, 252, 0.15), rgba(168, 85, 247, 0.08));
-  --chat-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
-  --chat-shadow-md: 0 4px 24px rgba(0, 0, 0, 0.4);
-  --chat-shadow-glow: 0 0 40px rgba(124, 92, 252, 0.15);
+  --chat-bg-primary: #f8fafc;
+  --chat-bg-secondary: #f1f5f9;
+  --chat-bg-tertiary: #e2e8f0;
+  --chat-bg-hover: #e2e8f0;
+  --chat-bg-active: #cbd5e1;
+  --chat-surface: #ffffff;
+  --chat-surface-raised: #f8fafc;
+  --chat-border: rgba(0, 0, 0, 0.08);
+  --chat-border-active: rgba(0, 0, 0, 0.15);
+  --chat-text-primary: #0f172a;
+  --chat-text-secondary: #475569;
+  --chat-text-muted: #94a3b8;
+  --chat-accent-1: #1A9494;
+  --chat-accent-2: #2DAAAA;
+  --chat-accent-3: #147878;
+  --chat-gradient-main: linear-gradient(135deg, #1A9494 0%, #2DAAAA 50%, #147878 100%);
+  --chat-gradient-subtle: linear-gradient(135deg, rgba(26, 148, 148, 0.08), rgba(45, 170, 170, 0.04));
+  --chat-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.08);
+  --chat-shadow-md: 0 4px 24px rgba(0, 0, 0, 0.12);
+  --chat-shadow-glow: 0 0 40px rgba(26, 148, 148, 0.12);
   --chat-radius-sm: 10px;
   --chat-radius-md: 14px;
   --chat-radius-lg: 20px;
   --chat-sidebar-width: 280px;
   --chat-transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 
-  font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   background: var(--chat-bg-primary);
   color: var(--chat-text-primary);
   -webkit-font-smoothing: antialiased;
@@ -167,7 +167,7 @@
 .chat-root .chat-item:hover { background: var(--chat-bg-hover); }
 .chat-root .chat-item.active {
   background: var(--chat-gradient-subtle);
-  border-color: rgba(124, 92, 252, 0.18);
+  border-color: rgba(26, 148, 148, 0.18);
 }
 
 .chat-root .chat-item-icon {
@@ -183,7 +183,7 @@
 }
 .chat-root .chat-item.active .chat-item-icon {
   background: var(--chat-gradient-main);
-  box-shadow: 0 0 16px rgba(124, 92, 252, 0.25);
+  box-shadow: 0 0 16px rgba(26, 148, 148, 0.25);
 }
 
 .chat-root .chat-item-info { flex: 1; min-width: 0; }
@@ -356,7 +356,7 @@
   transform: translateX(-50%);
   width: 600px;
   height: 300px;
-  background: radial-gradient(ellipse, rgba(124, 92, 252, 0.08) 0%, transparent 70%);
+  background: radial-gradient(ellipse, rgba(26, 148, 148, 0.08) 0%, transparent 70%);
   pointer-events: none;
   z-index: 0;
 }
@@ -417,7 +417,7 @@
 }
 .chat-root .topbar-btn:hover { background: var(--chat-bg-hover); color: var(--chat-text-primary); }
 .chat-root .topbar-btn.active {
-  background: rgba(124, 92, 252, 0.15);
+  background: rgba(26, 148, 148, 0.15);
   color: var(--chat-accent-1);
 }
 
@@ -459,7 +459,7 @@
   justify-content: center;
   font-size: 28px;
   margin-bottom: 22px;
-  box-shadow: var(--chat-shadow-glow), 0 0 80px rgba(124, 92, 252, 0.12);
+  box-shadow: var(--chat-shadow-glow), 0 0 80px rgba(26, 148, 148, 0.12);
 }
 .chat-root .welcome h2 {
   font-size: 26px;
@@ -541,11 +541,11 @@
   margin-top: 2px;
 }
 .chat-root .message.user .message-avatar {
-  background: linear-gradient(135deg, #6366f1, #a855f7);
+  background: linear-gradient(135deg, #147878, #2DAAAA);
 }
 .chat-root .message.assistant .message-avatar {
   background: var(--chat-gradient-main);
-  box-shadow: 0 0 20px rgba(124, 92, 252, 0.15);
+  box-shadow: 0 0 20px rgba(26, 148, 148, 0.15);
 }
 .chat-root .message-content {
   flex: 1;
@@ -663,9 +663,9 @@
   font-size: 10px;
   padding: 2px 6px;
   border-radius: 5px;
-  background: rgba(124, 92, 252, 0.1);
+  background: rgba(26, 148, 148, 0.1);
   color: var(--chat-text-muted);
-  border: 1px solid rgba(124, 92, 252, 0.2);
+  border: 1px solid rgba(26, 148, 148, 0.2);
 }
 
 /* message actions */
@@ -735,8 +735,8 @@
   box-shadow: var(--chat-shadow-sm);
 }
 .chat-root .input-box:focus-within {
-  border-color: rgba(124, 92, 252, 0.35);
-  box-shadow: var(--chat-shadow-md), 0 0 30px rgba(124, 92, 252, 0.08);
+  border-color: rgba(26, 148, 148, 0.35);
+  box-shadow: var(--chat-shadow-md), 0 0 30px rgba(26, 148, 148, 0.08);
 }
 .chat-root .input-box textarea {
   background: transparent;
@@ -793,12 +793,12 @@
   justify-content: center;
   font-size: 16px;
   transition: var(--chat-transition);
-  box-shadow: 0 2px 12px rgba(124, 92, 252, 0.3);
+  box-shadow: 0 2px 12px rgba(26, 148, 148, 0.3);
   flex-shrink: 0;
 }
 .chat-root .send-btn:hover {
   transform: scale(1.05);
-  box-shadow: 0 4px 20px rgba(124, 92, 252, 0.45);
+  box-shadow: 0 4px 20px rgba(26, 148, 148, 0.45);
 }
 .chat-root .send-btn:active { transform: scale(0.95); }
 .chat-root .send-btn.disabled {
@@ -822,10 +822,10 @@
   padding: 8px 12px;
   margin-bottom: 8px;
   border-radius: 10px;
-  background: rgba(124, 92, 252, 0.12);
-  border: 1px solid rgba(124, 92, 252, 0.25);
+  background: rgba(26, 148, 148, 0.12);
+  border: 1px solid rgba(26, 148, 148, 0.25);
   font-size: 13px;
-  color: #e8e8f0;
+  color: var(--chat-text-primary);
 }
 .chat-root .dataset-banner-icon { flex-shrink: 0; font-size: 15px; }
 .chat-root .dataset-banner-name {
@@ -923,11 +923,11 @@
   margin-top: 2px;
 }
 .chat-root .memory-badge.auto {
-  background: rgba(99, 102, 241, 0.2);
-  color: #818cf8;
+  background: rgba(26, 148, 148, 0.2);
+  color: var(--chat-accent-1);
 }
 .chat-root .memory-badge.manual {
-  background: rgba(168, 85, 247, 0.2);
+  background: rgba(45, 170, 170, 0.2);
   color: var(--chat-accent-2);
 }
 .chat-root .memory-text {

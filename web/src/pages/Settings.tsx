@@ -49,7 +49,15 @@ const LANGS: Array<{ value: Lang; label: string }> = [
 ]
 
 export default function Settings() {
-  const { t, lang, setLang, reportLang, setReportLang, showVectorStore, setShowVectorStore } = useLanguage()
+  const {
+    t, lang, setLang, reportLang, setReportLang,
+    showVectorStore, setShowVectorStore,
+    showChat, setShowChat,
+    showAnalytics, setShowAnalytics,
+    showCitations, setShowCitations,
+    showRoadmap, setShowRoadmap,
+    showProjects, setShowProjects,
+  } = useLanguage()
 
   const [cfg, setCfg] = useState<Config | null>(null)
   const [llmProvider, setLlmProvider] = useState(DEFAULTS.LLM_PROVIDER ?? 'openai')
@@ -109,29 +117,30 @@ export default function Settings() {
       <h2 className="text-xl font-bold text-slate-800">{t('settings.title')}</h2>
 
       {/* Language */}
-      <div className="card space-y-4">
-        <h3 className="font-semibold text-slate-700 text-sm">{t('settings.section.language')}</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className="label">{t('settings.lang.ui')}</label>
-            <select className="select" value={lang} onChange={(e) => setLang(e.target.value as Lang)}>
-              {LANGS.map(({ value, label }) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
-            <p className="text-xs text-slate-400 mt-1">Aplica imediatamente — sem necessidade de salvar.</p>
-          </div>
-          <div>
-            <label className="label">{t('settings.lang.report')}</label>
-            <select className="select" value={localReportLang} onChange={(e) => setLocalReportLang(e.target.value)}>
-              {LANGS.map(({ value, label }) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
-            <p className="text-xs text-slate-400 mt-1">{t('settings.lang.report.hint')}</p>
+      <CollapsibleSection title={t('settings.section.language')} storageKey="settings_language">
+        <div className="card space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="label">{t('settings.lang.ui')}</label>
+              <select className="select" value={lang} onChange={(e) => setLang(e.target.value as Lang)}>
+                {LANGS.map(({ value, label }) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+              <p className="text-xs text-slate-400 mt-1">Aplica imediatamente — sem necessidade de salvar.</p>
+            </div>
+            <div>
+              <label className="label">{t('settings.lang.report')}</label>
+              <select className="select" value={localReportLang} onChange={(e) => setLocalReportLang(e.target.value)}>
+                {LANGS.map(({ value, label }) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+              <p className="text-xs text-slate-400 mt-1">{t('settings.lang.report.hint')}</p>
+            </div>
           </div>
         </div>
-      </div>
+      </CollapsibleSection>
 
       {/* LLM & Embedding */}
       <CollapsibleSection title={t('settings.section.llm')} storageKey="settings_llm">
@@ -201,18 +210,27 @@ export default function Settings() {
       {/* Interface */}
       <CollapsibleSection title={t('settings.section.ui')} storageKey="settings_ui">
         <div className="card space-y-3">
-          <label className="flex items-start gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              className="rounded border-slate-300 text-lutz-500 focus:ring-lutz-400 mt-0.5"
-              checked={showVectorStore}
-              onChange={(e) => setShowVectorStore(e.target.checked)}
-            />
-            <div>
-              <p className="text-sm font-medium text-slate-700">{t('settings.showVectorStore')}</p>
-              <p className="text-xs text-slate-400">{t('settings.showVectorStore.hint')}</p>
-            </div>
-          </label>
+          {([
+            { key: 'showChat',       checked: showChat,       set: setShowChat,       label: t('settings.showChat'),       hint: t('settings.showChat.hint') },
+            { key: 'showAnalytics',  checked: showAnalytics,  set: setShowAnalytics,  label: t('settings.showAnalytics'),  hint: t('settings.showAnalytics.hint') },
+            { key: 'showCitations',  checked: showCitations,  set: setShowCitations,  label: t('settings.showCitations'),  hint: t('settings.showCitations.hint') },
+            { key: 'showRoadmap',    checked: showRoadmap,    set: setShowRoadmap,    label: t('settings.showRoadmap'),    hint: t('settings.showRoadmap.hint') },
+            { key: 'showProjects',   checked: showProjects,   set: setShowProjects,   label: t('settings.showProjects'),   hint: t('settings.showProjects.hint') },
+            { key: 'showVectorStore',checked: showVectorStore,set: setShowVectorStore,label: t('settings.showVectorStore'),hint: t('settings.showVectorStore.hint') },
+          ] as Array<{ key: string; checked: boolean; set: (v: boolean) => void; label: string; hint: string }>).map(({ key, checked, set, label, hint }) => (
+            <label key={key} className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                className="rounded border-slate-300 text-lutz-500 focus:ring-lutz-400 mt-0.5"
+                checked={checked}
+                onChange={(e) => set(e.target.checked)}
+              />
+              <div>
+                <p className="text-sm font-medium text-slate-700">{label}</p>
+                <p className="text-xs text-slate-400">{hint}</p>
+              </div>
+            </label>
+          ))}
         </div>
       </CollapsibleSection>
 

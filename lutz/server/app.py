@@ -12,6 +12,7 @@ import os
 import re
 import shutil
 import sys
+import tempfile
 import uuid
 from collections import deque
 from dataclasses import dataclass, field

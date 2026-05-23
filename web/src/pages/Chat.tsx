@@ -697,7 +697,7 @@ export default function Chat() {
     // Use negative margins to escape the Layout's px-4 py-8 padding, then full viewport height minus navbar
     <div
       className="chat-root flex overflow-hidden"
-      style={{ height: 'calc(100vh - 4rem)', margin: '-2rem -1rem 0' }}
+      style={{ height: 'calc(100vh - 3.5rem)' }}
     >
       {/* ── Confirm delete session dialog ── */}
       {confirmDeleteId && (
