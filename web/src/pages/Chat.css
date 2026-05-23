@@ -1157,3 +1157,62 @@
   .chat-root .chat-sidebar.open { transform: translateX(0); }
   .chat-root .suggestions { grid-template-columns: 1fr; }
 }
+
+/* ── Reasoning selector ──────────────────────────────────────────────────── */
+.chat-root .reasoning-select {
+  background: var(--chat-bg-secondary);
+  border: 1px solid var(--chat-bg-tertiary);
+  border-radius: 6px;
+  color: var(--chat-text-secondary);
+  font-size: 12px;
+  padding: 4px 6px;
+  cursor: pointer;
+  outline: none;
+  transition: var(--chat-transition);
+  height: 28px;
+}
+.chat-root .reasoning-select:hover {
+  border-color: var(--chat-accent);
+  color: var(--chat-text-primary);
+}
+.chat-root .reasoning-select:focus {
+  border-color: var(--chat-accent);
+  box-shadow: 0 0 0 2px rgba(20, 184, 166, 0.2);
+}
+
+/* ── Reasoning badge on messages ─────────────────────────────────────────── */
+.chat-root .reasoning-badge {
+  font-size: 11px;
+  opacity: 0.7;
+  margin-left: 4px;
+  cursor: default;
+}
+
+/* ── Thinking block ──────────────────────────────────────────────────────── */
+.chat-root .thinking-block {
+  margin-bottom: 8px;
+  border: 1px solid var(--chat-bg-tertiary);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.chat-root .thinking-block summary {
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--chat-text-muted);
+  cursor: pointer;
+  background: var(--chat-bg-secondary);
+  user-select: none;
+}
+.chat-root .thinking-block summary:hover { color: var(--chat-text-secondary); }
+.chat-root .thinking-content {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--chat-text-muted);
+  padding: 8px 10px;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--chat-bg-primary);
+  max-height: 300px;
+  overflow-y: auto;
+}

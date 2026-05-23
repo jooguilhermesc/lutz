@@ -1248,6 +1248,22 @@ _CHAT_LANG_INSTRUCTIONS: dict[str, str] = {
 }
 
 
+_REASONING_SETTINGS: dict[str, dict] = {
+    "fast": {"temperature": 0.1, "system_append": None},
+    "balanced": {
+        "temperature": 0.2,
+        "system_append": "Justifique brevemente sua resposta.",
+    },
+    "deep": {
+        "temperature": 0.3,
+        "system_append": (
+            "Antes de responder, analise o problema passo a passo, considere múltiplas "
+            "perspectivas e argumente contra as premissas quando relevante."
+        ),
+    },
+}
+
+
 def _run_chat(
     root: Path,
     messages: list[dict],
@@ -1261,15 +1277,21 @@ def _run_chat(
     use_rag: bool = options.get("use_rag", True)
     use_model_knowledge: bool = options.get("use_model_knowledge", True)
     use_context_files: bool = options.get("use_context_files", False)
+    use_library: bool = options.get("use_library", False)
     top_k: int = int(options.get("top_k", 5))
+    reasoning_level: str = options.get("reasoning_level", "balanced")
+    VALID_REASONING_LEVELS = {"fast", "balanced", "deep"}
+    if reasoning_level not in VALID_REASONING_LEVELS:
+        reasoning_level = "balanced"
     current_query = messages[-1]["content"]
 
     env = load_env(root)
 
     rag_chunks: list[dict] = []
+    library_chunks: list[dict] = []
     query_emb: list[float] | None = None
 
-    if use_rag or use_context_files:
+    if use_rag or use_context_files or use_library:
         emb_client = EmbeddingClient.from_env(env)
         query_emb, _ = emb_client.embed([current_query])
         query_emb = query_emb[0]
@@ -1283,6 +1305,13 @@ def _run_chat(
         ctx_store = ContextStore(root / ".lutz" / "context_store")
         if not ctx_store.is_empty():
             rag_chunks += ctx_store.search(query_emb, top_k=3)
+
+    if use_library and query_emb is not None:
+        try:
+            lib_store = VectorStore(root / ".lutz" / "vector_store")
+            library_chunks = lib_store.search(query_emb, top_k=top_k) or []
+        except Exception:
+            library_chunks = []
 
     parts: list[str] = [
         "You are a helpful research assistant that helps researchers understand "
@@ -1304,18 +1333,47 @@ def _run_chat(
         )
         parts.append(f"## Context from uploaded files\n\n{ctx_text}")
 
+    if library_chunks:
+        lib_text = "\n\n---\n\n".join(
+            f"[Biblioteca: {c['filename']} — p.{c['page']}]\n{c['text']}"
+            for c in library_chunks
+        )
+        parts.append(f"## Biblioteca de artigos\n\n{lib_text}")
+
     lang_instr = _CHAT_LANG_INSTRUCTIONS.get(language, _CHAT_LANG_INSTRUCTIONS["pt"])
     parts.append(f"## Language\n\n{lang_instr}")
 
-    system = "\n\n".join(parts)
-    llm = LLMClient.from_env(env)
-    text, usage = llm.complete_messages(system=system, messages=messages)
+    reasoning = _REASONING_SETTINGS.get(reasoning_level, _REASONING_SETTINGS["balanced"])
+    if reasoning["system_append"]:
+        parts.append(reasoning["system_append"])
 
-    return {
+    system = "\n\n".join(parts)
+    temperature: float = reasoning["temperature"]
+
+    llm = LLMClient.from_env(env)
+
+    thinking_config: dict | None = None
+    if env.get("LLM_PROVIDER", "").lower() == "anthropic" and reasoning_level == "deep":
+        thinking_config = {"type": "enabled", "budget_tokens": 8000}
+
+    text, usage = llm.complete_messages(
+        system=system,
+        messages=messages,
+        temperature=temperature,
+        thinking=thinking_config,
+    )
+
+    thinking_content: str | None = usage.pop("thinking_content", None)
+
+    all_sources = rag_chunks + library_chunks
+    result = {
         "response": text,
         "usage": usage,
-        "sources": [{"filename": c["filename"], "page": c["page"]} for c in rag_chunks],
+        "sources": [{"filename": c["filename"], "page": c["page"]} for c in all_sources],
     }
+    if thinking_content is not None:
+        result["thinking_content"] = thinking_content
+    return result
 
 
 @api.post("/chat/sessions/{session_id}/message")
