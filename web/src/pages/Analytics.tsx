@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, KeyboardEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useLanguage } from '../contexts/LanguageContext'
 import {
   queryVectorStoreAnalytics,
@@ -162,7 +161,6 @@ const EXAMPLES: { label: string; sql: string }[] = [
 
 export default function Analytics() {
   const { t } = useLanguage()
-  const navigate = useNavigate()
 
   const [udfs, setUdfs] = useState<UDFInfo[]>([])
   const [sql, setSql] = useState(EXAMPLES[0].sql)
@@ -314,31 +312,9 @@ export default function Analytics() {
             {running ? t('analytics.sql.running') : t('store.sql.run')}
           </button>
           {result && !error && (
-            <>
-              <span className="text-xs text-slate-500">
-                {result.count} {t('store.sql.rows')} &mdash; {result.elapsed_ms} ms
-              </span>
-              <button
-                className="btn-ghost text-xs text-lutz-600 border-lutz-200 hover:bg-lutz-50"
-                onClick={() => {
-                  const activeExample = EXAMPLES.find(e => e.sql === sql)
-                  const analysisType = activeExample?.label ?? 'Analytics'
-                  navigate('/chat', {
-                    state: {
-                      datasetContext: {
-                        name: `Análise: ${analysisType}`,
-                        source: 'analytics',
-                        columns: result.columns,
-                        rows: result.rows,
-                        row_count: result.count,
-                      },
-                    },
-                  })
-                }}
-              >
-                Analisar no chat
-              </button>
-            </>
+            <span className="text-xs text-slate-500">
+              {result.count} {t('store.sql.rows')} &mdash; {result.elapsed_ms} ms
+            </span>
           )}
         </div>
 

@@ -1,16 +1,14 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   useReactTable, getCoreRowModel, getSortedRowModel, getFilteredRowModel,
   flexRender, type ColumnDef, type SortingState, type ColumnFiltersState,
 } from '@tanstack/react-table'
 import * as XLSX from 'xlsx'
-import { getVectorStore, resetVectorStore, queryVectorStore, createDataset, type VectorStoreInfo, type QueryResult } from '../api/client'
+import { getVectorStore, resetVectorStore, queryVectorStore, type VectorStoreInfo, type QueryResult } from '../api/client'
 import { useLanguage } from '../contexts/LanguageContext'
 import { LANG_LOCALES } from '../i18n'
 import ConfirmDialog from '../components/ConfirmDialog'
 import CollapsibleSection from '../components/CollapsibleSection'
-import VectorStoreCatalog from './VectorStoreCatalog'
 
 function fmtDate(s: string | null, locale: string) {
   if (!s) return '—'
@@ -171,107 +169,14 @@ function ResultsTable({ columns, rows }: { columns: string[]; rows: (string | nu
   )
 }
 
-// ── Save dataset modal ────────────────────────────────────────────────────────
-
-function SaveDatasetModal({
-  sql,
-  result,
-  onClose,
-  onSaved,
-}: {
-  sql: string
-  result: QueryResult
-  onClose: () => void
-  onSaved: (name: string, id: string) => void
-}) {
-  const [name, setName] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  async function handleSave() {
-    if (!name.trim()) return
-    setSaving(true)
-    setError(null)
-    try {
-      const { dataset } = await createDataset({
-        name: name.trim(),
-        source: 'vector_store',
-        project_id: null,
-        query: sql,
-        columns: result.columns,
-        rows: result.rows,
-        row_count: result.count,
-        metadata: null,
-        updated_at: new Date().toISOString(),
-      })
-      onSaved(name.trim(), dataset.id)
-      onClose()
-    } catch (e) {
-      setError((e as Error).message)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
-        <h3 className="text-base font-semibold text-slate-800">Salvar como dataset</h3>
-        <p className="text-xs text-slate-500">
-          {result.count} linha{result.count !== 1 ? 's' : ''} · {result.columns.length} colunas
-        </p>
-        <div>
-          <label className="label">Nome do dataset</label>
-          <input
-            className="input"
-            placeholder="meu-dataset"
-            value={name}
-            autoFocus
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') handleSave() }}
-          />
-        </div>
-        {error && <p className="text-xs text-red-500">{error}</p>}
-        <div className="flex gap-2 justify-end">
-          <button className="btn-ghost text-sm" onClick={onClose}>Cancelar</button>
-          <button
-            className="btn-primary text-sm"
-            onClick={handleSave}
-            disabled={saving || !name.trim()}
-          >
-            {saving ? 'Salvando...' : 'Salvar'}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 // ── SQL panel ─────────────────────────────────────────────────────────────────
 
-function SqlPanel({ pendingSql, onPendingSqlConsumed, navigate }: {
-  pendingSql?: string
-  onPendingSqlConsumed?: () => void
-  navigate: ReturnType<typeof useNavigate>
-}) {
+function SqlPanel() {
   const { t } = useLanguage()
   const [sql, setSql] = useState(EXAMPLE_QUERIES[0].sql)
   const [result, setResult] = useState<QueryResult | null>(null)
   const [running, setRunning] = useState(false)
-  const [saveModal, setSaveModal] = useState(false)
-  const [savedToast, setSavedToast] = useState<string | null>(null)
-  const [savedDataset, setSavedDataset] = useState<{ id: string; name: string } | null>(null)
-  const [analyzingChat, setAnalyzingChat] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-
-  // Consume pending SQL from catalog "Usar no Query"
-  useEffect(() => {
-    if (pendingSql) {
-      setSql(pendingSql)
-      onPendingSqlConsumed?.()
-    }
-  }, [pendingSql, onPendingSqlConsumed])
 
   async function handleRun() {
     if (!sql.trim() || running) return
@@ -300,25 +205,6 @@ function SqlPanel({ pendingSql, onPendingSqlConsumed, navigate }: {
 
   return (
     <div className="space-y-4">
-      {saveModal && result && !result.error && (
-        <SaveDatasetModal
-          sql={sql}
-          result={result}
-          onClose={() => setSaveModal(false)}
-          onSaved={(name, id) => {
-            setSavedDataset({ id, name })
-            setSavedToast(name)
-            setTimeout(() => setSavedToast(null), 3000)
-          }}
-        />
-      )}
-
-      {savedToast && (
-        <div className="fixed bottom-6 right-6 z-50 bg-green-600 text-white text-sm px-4 py-2.5 rounded-xl shadow-lg">
-          Dataset "{savedToast}" salvo com sucesso
-        </div>
-      )}
-
       <div className="flex items-center justify-between">
         <h3 className="font-semibold text-slate-700">{t('store.sql.title')}</h3>
         <span className="text-xs text-slate-400">{t('store.sql.table')}</span>
@@ -371,61 +257,6 @@ function SqlPanel({ pendingSql, onPendingSqlConsumed, navigate }: {
             <>
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <span className="text-xs text-slate-400">{result.elapsed_ms} ms</span>
-                {result.columns.length > 0 && (
-                  <div className="flex items-center gap-2">
-                    <button
-                      className="btn-ghost text-xs"
-                      onClick={() => setSaveModal(true)}
-                    >
-                      Salvar como dataset
-                    </button>
-                    <button
-                      className="btn-ghost text-xs text-lutz-600 border-lutz-200 hover:bg-lutz-50"
-                      disabled={analyzingChat}
-                      onClick={async () => {
-                        setAnalyzingChat(true)
-                        try {
-                          let dsId = savedDataset?.id
-                          let dsName = savedDataset?.name
-                          if (!dsId) {
-                            const autoName = `Query ${new Date().toLocaleString()}`
-                            const { dataset } = await createDataset({
-                              name: autoName,
-                              source: 'vector_store',
-                              project_id: null,
-                              query: sql,
-                              columns: result.columns,
-                              rows: result.rows,
-                              row_count: result.count,
-                              metadata: null,
-                              updated_at: new Date().toISOString(),
-                            })
-                            dsId = dataset.id
-                            dsName = autoName
-                            setSavedDataset({ id: dsId, name: dsName })
-                          }
-                          navigate('/chat', {
-                            state: {
-                              datasetContext: {
-                                id: dsId,
-                                name: dsName,
-                                source: 'vector_store',
-                                query: sql,
-                                columns: result.columns,
-                                rows: result.rows,
-                                row_count: result.count,
-                              },
-                            },
-                          })
-                        } finally {
-                          setAnalyzingChat(false)
-                        }
-                      }}
-                    >
-                      {analyzingChat ? '...' : 'Analisar no chat'}
-                    </button>
-                  </div>
-                )}
               </div>
               {result.columns.length > 0 && (
                 <ResultsTable columns={result.columns} rows={result.rows} />
@@ -444,13 +275,10 @@ function SqlPanel({ pendingSql, onPendingSqlConsumed, navigate }: {
 export default function VectorStore() {
   const { t, lang } = useLanguage()
   const locale = LANG_LOCALES[lang]
-  const navigate = useNavigate()
   const [info, setInfo] = useState<VectorStoreInfo | null>(null)
   const [loading, setLoading] = useState(true)
   const [resetting, setResetting] = useState(false)
   const [confirmReset, setConfirmReset] = useState(false)
-  const [activeTab, setActiveTab] = useState<'query' | 'catalog'>('query')
-  const [pendingSql, setPendingSql] = useState<string | undefined>(undefined)
 
   const load = () => {
     setLoading(true)
@@ -465,11 +293,6 @@ export default function VectorStore() {
     await load()
     setResetting(false)
   }
-
-  const handleUseInQuery = useCallback((sql: string) => {
-    setPendingSql(sql)
-    setActiveTab('query')
-  }, [])
 
   if (loading) return <div className="text-slate-400 animate-pulse text-sm">{t('store.loading')}</div>
   if (!info) return <div className="text-red-500 text-sm">{t('store.error')}</div>
@@ -536,36 +359,9 @@ export default function VectorStore() {
         </CollapsibleSection>
       )}
 
-      {/* Tab bar: Query / Catálogo */}
-      <div className="flex gap-2 border-b border-slate-200">
-        {(['query', 'catalog'] as const).map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${
-              activeTab === tab
-                ? 'border-lutz-500 text-lutz-600'
-                : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            {tab === 'query' ? t('store.sql.title') : 'Catálogo'}
-          </button>
-        ))}
+      <div className="card space-y-4">
+        <SqlPanel />
       </div>
-
-      {activeTab === 'query' && (
-        <div className="card space-y-4">
-          <SqlPanel
-            pendingSql={pendingSql}
-            onPendingSqlConsumed={() => setPendingSql(undefined)}
-            navigate={navigate}
-          />
-        </div>
-      )}
-
-      {activeTab === 'catalog' && (
-        <VectorStoreCatalog onUseInQuery={handleUseInQuery} />
-      )}
 
       <div className="border border-red-200 rounded-xl p-4 bg-red-50 space-y-2">
         <p className="text-sm font-semibold text-red-700">{t('store.danger.title')}</p>

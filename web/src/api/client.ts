@@ -220,21 +220,10 @@ export const renameChatSession = (id: string, title: string) =>
 export const deleteChatSession = (id: string) =>
   request<{ ok: boolean }>('DELETE', `/chat/sessions/${id}`)
 
-export interface DatasetContext {
-  id?: string
-  name: string
-  source: 'vector_store' | 'analytics'
-  query?: string | null
-  columns: string[]
-  rows: unknown[][]
-  row_count: number
-}
-
 export const sendSessionMessage = (
   sessionId: string, content: string, options: ChatOptions, language: string,
-  datasetContext?: DatasetContext,
 ) => request<ChatResponse & { title: string }>('POST', `/chat/sessions/${sessionId}/message`,
-  { content, options, language, ...(datasetContext ? { dataset_context: datasetContext } : {}) })
+  { content, options, language })
 
 export const listChatMemory = () => request<{ memories: ChatMemory[] }>('GET', '/chat/memory')
 export const addChatMemory = (text: string, session_id?: string) =>
@@ -262,59 +251,6 @@ export const resetChatStore = () => request<{ ok: boolean }>('DELETE', '/chat/st
 
 export const sendChatMessage = (messages: ChatMessage[], options: ChatOptions, language: string) =>
   request<ChatResponse>('POST', '/chat/message', { messages, options, language })
-
-// ── Projects ──────────────────────────────────────────────────────────────────
-export interface Project {
-  id: string
-  name: string
-  color: string
-  icon: string
-  article_count: number
-  dataset_count: number
-  created_at: string
-  updated_at: string
-}
-
-export const listProjects = () => request<{ projects: Project[] }>('GET', '/projects')
-export const createProject = (data: { name: string; color?: string; icon?: string }) =>
-  request<{ project: Project }>('POST', '/projects', data)
-export const updateProject = (id: string, data: Partial<Project>) =>
-  request<{ project: Project }>('PUT', `/projects/${id}`, data)
-export const deleteProject = (id: string) =>
-  request<{ ok: boolean }>('DELETE', `/projects/${id}`)
-
-export const listProjectArticles = (projectId: string) =>
-  request<{ articles: string[] }>('GET', `/projects/${encodeURIComponent(projectId)}/articles`)
-
-export const addArticlesToProject = (projectId: string, paths: string[]) =>
-  request<{ ok: boolean }>('POST', `/projects/${encodeURIComponent(projectId)}/articles`, { paths })
-
-export const removeArticleFromProject = (projectId: string, articlePath: string) =>
-  request<{ ok: boolean }>('DELETE', `/projects/${encodeURIComponent(projectId)}/articles/${encodeURIComponent(articlePath)}`)
-
-// ── Datasets ──────────────────────────────────────────────────────────────────
-export interface Dataset {
-  id: string
-  name: string
-  source: 'vector_store' | 'analytics'
-  project_id: string | null
-  query: string | null
-  columns: string[]
-  rows?: unknown[][]
-  row_count: number
-  metadata: Record<string, unknown> | null
-  created_at: string
-  updated_at: string
-}
-
-export const listDatasets = (projectId?: string) =>
-  request<{ datasets: Dataset[] }>('GET', `/datasets${projectId ? `?project_id=${encodeURIComponent(projectId)}` : ''}`)
-export const createDataset = (data: Omit<Dataset, 'id' | 'created_at'>) =>
-  request<{ dataset: Dataset }>('POST', '/datasets', data)
-export const getDataset = (id: string) =>
-  request<{ dataset: Dataset }>('GET', `/datasets/${id}`)
-export const deleteDataset = (id: string) =>
-  request<{ ok: boolean }>('DELETE', `/datasets/${id}`)
 
 // ── Store Catalog ─────────────────────────────────────────────────────────────
 export interface CatalogColumn {
