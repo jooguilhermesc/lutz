@@ -780,6 +780,23 @@
 .chat-root .tool-btn:hover { color: var(--chat-text-primary); background: var(--chat-bg-hover); }
 .chat-root .tool-btn.active { color: var(--chat-accent-1); background: rgba(26, 148, 148, 0.12); }
 
+.chat-root .tool-btn-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: var(--chat-accent-1);
+  color: #ffffff;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+  pointer-events: none;
+}
+
 .chat-root .send-btn {
   width: 38px;
   height: 38px;
