@@ -370,8 +370,7 @@
   border-bottom: 1px solid var(--chat-border);
   position: relative;
   z-index: 1;
-  backdrop-filter: blur(12px);
-  background: rgba(10, 10, 15, 0.7);
+  background: #147878;
   flex-shrink: 0;
 }
 .chat-root .topbar-left {
@@ -382,7 +381,7 @@
 .chat-root .topbar-title {
   font-size: 15px;
   font-weight: 500;
-  color: var(--chat-text-primary);
+  color: #ffffff;
   max-width: 300px;
   white-space: nowrap;
   overflow: hidden;
@@ -390,11 +389,11 @@
 }
 .chat-root .topbar-model {
   font-size: 11px;
-  color: var(--chat-text-muted);
-  background: var(--chat-bg-tertiary);
+  color: rgba(255, 255, 255, 0.65);
+  background: rgba(255, 255, 255, 0.12);
   padding: 3px 10px;
   border-radius: 20px;
-  border: 1px solid var(--chat-border);
+  border: 1px solid rgba(255, 255, 255, 0.18);
 }
 .chat-root .topbar-right {
   display: flex;
@@ -407,7 +406,7 @@
   border: none;
   border-radius: var(--chat-radius-sm);
   background: transparent;
-  color: var(--chat-text-secondary);
+  color: rgba(255, 255, 255, 0.75);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -415,10 +414,10 @@
   transition: var(--chat-transition);
   font-size: 16px;
 }
-.chat-root .topbar-btn:hover { background: var(--chat-bg-hover); color: var(--chat-text-primary); }
+.chat-root .topbar-btn:hover { background: rgba(255, 255, 255, 0.12); color: #ffffff; }
 .chat-root .topbar-btn.active {
-  background: rgba(26, 148, 148, 0.15);
-  color: var(--chat-accent-1);
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
 }
 
 /* ── Chat area ──────────────────────────────────────────────────────────────── */
@@ -779,6 +778,7 @@
   transition: var(--chat-transition);
 }
 .chat-root .tool-btn:hover { color: var(--chat-text-primary); background: var(--chat-bg-hover); }
+.chat-root .tool-btn.active { color: var(--chat-accent-1); background: rgba(26, 148, 148, 0.12); }
 
 .chat-root .send-btn {
   width: 38px;
