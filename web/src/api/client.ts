@@ -195,7 +195,19 @@ export interface ChatOptions {
   use_library: boolean
   top_k: number
   reasoning_level: 'fast' | 'balanced' | 'deep'
+  selected_report_ids: string[]
 }
+
+export interface ChatReport {
+  id: string
+  filename: string
+  timestamp: string
+  analysis_type: string
+  article_count: number
+}
+
+export const listChatReports = () =>
+  request<{ reports: ChatReport[] }>('GET', '/chat/reports')
 export interface ChatSource { filename: string; page: number }
 export interface ChatResponse {
   response: string

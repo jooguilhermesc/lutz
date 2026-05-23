@@ -334,6 +334,36 @@
   text-align: right;
 }
 
+.chat-root .rag-section-divider {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+.chat-root .rag-section-divider::before,
+.chat-root .rag-section-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--chat-border);
+}
+.chat-root .rag-section-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--chat-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.chat-root .rag-reports-empty {
+  font-size: 11px;
+  color: var(--chat-text-muted);
+  text-align: center;
+  padding: 4px 0;
+  margin: 0;
+}
+
 /* ══════════════════════════════════════
    MAIN AREA
    ══════════════════════════════════════ */

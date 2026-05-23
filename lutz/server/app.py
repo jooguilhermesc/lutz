@@ -1264,6 +1264,74 @@ _REASONING_SETTINGS: dict[str, dict] = {
 }
 
 
+_REPORT_CONTEXT_MAX_CHARS = 8000
+
+
+def _build_report_context(root: Path, report_ids: list[str]) -> tuple[str, list[dict]]:
+    """Carrega JSONs de relatórios e monta texto estruturado para injeção no prompt.
+
+    Retorna (texto_contexto, lista_fontes).
+    O texto é limitado a _REPORT_CONTEXT_MAX_CHARS caracteres.
+    IDs de relatórios que não existem ou falham ao carregar são ignorados silenciosamente.
+    """
+    reports_dir = root / "analysis" / "execution_reports"
+    lines: list[str] = []
+    sources: list[dict] = []
+    total_chars = 0
+
+    for report_id in report_ids:
+        try:
+            report_path = _safe_child(reports_dir, f"{report_id}.json")
+        except HTTPException:
+            continue  # ID fora do diretório — ignora silenciosamente
+        try:
+            data = json.loads(report_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue  # arquivo ausente ou inválido — ignora silenciosamente
+
+        analysis_type = str(data.get("analysis_type") or data.get("type") or "analysis")[:50]
+        created_at = data.get("created_at") or ""
+        results = data.get("results") or []
+
+        header = f"[Relatório: {report_id}.json — {created_at}]"
+        header += f"\nTipo: {analysis_type} | Artigos: {len(results)}\n"
+
+        block_lines: list[str] = [header]
+        for item in results:
+            filename = str(item.get("filename", ""))[:200]
+            decision = str(item.get("decision", ""))[:50]
+            justification = str(item.get("justification", ""))[:500]
+            title = str(item.get("title", ""))[:200]
+            entry = f"- [DATA: filename] {filename}"
+            if title:
+                entry += f' [DATA: title] "{title}"'
+            entry += f" [DATA: decision] [{decision}]"
+            if justification:
+                entry += f" [DATA: justification] {justification}"
+            block_lines.append(entry)
+
+        block = "\n".join(block_lines)
+
+        # Truncar se ultrapassar o limite de caracteres
+        remaining = _REPORT_CONTEXT_MAX_CHARS - total_chars
+        if remaining <= 0:
+            break
+        if len(block) > remaining:
+            block = block[:remaining] + "\n[... truncado ...]"
+            lines.append(block)
+            sources.append({"filename": f"{report_id}.json", "page": 0})
+            break
+
+        lines.append(block)
+        sources.append({"filename": f"{report_id}.json", "page": 0})
+        total_chars += len(block)
+
+    if not lines:
+        return "", []
+
+    return "\n\n---\n\n".join(lines), sources
+
+
 def _run_chat(
     root: Path,
     messages: list[dict],
@@ -1280,6 +1348,7 @@ def _run_chat(
     use_library: bool = options.get("use_library", False)
     top_k: int = int(options.get("top_k", 5))
     reasoning_level: str = options.get("reasoning_level", "balanced")
+    selected_report_ids: list[str] = options.get("selected_report_ids") or []
     VALID_REASONING_LEVELS = {"fast", "balanced", "deep"}
     if reasoning_level not in VALID_REASONING_LEVELS:
         reasoning_level = "balanced"
@@ -1326,6 +1395,13 @@ def _run_chat(
         mem_text = "\n".join(f"- {m['text']}" for m in memories)
         parts.append(f"## Persistent memory (facts from previous conversations)\n\n{mem_text}")
 
+    # Injetar relatórios selecionados antes dos chunks de RAG
+    report_sources: list[dict] = []
+    if selected_report_ids:
+        report_context, report_sources = _build_report_context(root, selected_report_ids)
+        if report_context:
+            parts.append(f"## Relatórios de Análise\n\n{report_context}")
+
     if rag_chunks:
         ctx_text = "\n\n---\n\n".join(
             f"[{c['filename']} — page {c['page']}]\n{c['text']}"
@@ -1365,7 +1441,7 @@ def _run_chat(
 
     thinking_content: str | None = usage.pop("thinking_content", None)
 
-    all_sources = rag_chunks + library_chunks
+    all_sources = rag_chunks + library_chunks + report_sources
     result = {
         "response": text,
         "usage": usage,
@@ -1477,6 +1553,50 @@ def _parse_report_meta(f: Path) -> dict:
             "elapsed": 0.0,
             "model": "",
         }
+
+
+@api.get("/chat/reports")
+async def list_chat_reports() -> dict:
+    """Lista os relatórios disponíveis para injeção no chat.
+
+    Retorna uma lista de { id, filename, timestamp, analysis_type, article_count }.
+    Se o diretório não existe, retorna {"reports": []}.
+    """
+    root = _get_root()
+    reports_dir = root / "analysis" / "execution_reports"
+    if not reports_dir.exists():
+        return {"reports": []}
+
+    reports: list[dict] = []
+    for f in sorted(reports_dir.glob("*.json"), reverse=True):
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+        except Exception:
+            data = {}
+
+        analysis_type = (
+            data.get("analysis_type")
+            or data.get("type")
+            or "analysis"
+        )
+        results = data.get("results")
+        article_count = len(results) if isinstance(results, list) else 0
+        timestamp = data.get("created_at") or ""
+        if not timestamp:
+            import datetime as _dt
+            timestamp = _dt.datetime.fromtimestamp(
+                f.stat().st_mtime, tz=_dt.timezone.utc
+            ).isoformat()
+
+        reports.append({
+            "id": f.stem,
+            "filename": f.name,
+            "timestamp": timestamp,
+            "analysis_type": analysis_type,
+            "article_count": article_count,
+        })
+
+    return {"reports": reports}
 
 
 @api.get("/reports")
