@@ -1254,7 +1254,6 @@ def _run_chat(
     options: dict,
     language: str,
     memories: list[dict],
-    dataset_context: dict | None = None,
 ) -> dict:
     from lutz.core.embedding_client import EmbeddingClient
     from lutz.core.llm_client import LLMClient
@@ -1298,19 +1297,6 @@ def _run_chat(
         mem_text = "\n".join(f"- {m['text']}" for m in memories)
         parts.append(f"## Persistent memory (facts from previous conversations)\n\n{mem_text}")
 
-    if dataset_context:
-        cols = dataset_context.get("columns", [])
-        rows = dataset_context.get("rows", [])[:200]  # limite de 200 linhas
-        source_name = dataset_context.get("name", "Dataset")
-        header = " | ".join(str(c) for c in cols)
-        separator = " | ".join(["---"] * len(cols))
-        data_rows = "\n".join(
-            "| " + " | ".join(str(cell) for cell in row) + " |"
-            for row in rows
-        )
-        table_md = f"| {header} |\n| {separator} |\n{data_rows}"
-        parts.insert(1, f"## Dados para análise: {source_name}\n\n{table_md}")
-
     if rag_chunks:
         ctx_text = "\n\n---\n\n".join(
             f"[{c['filename']} — page {c['page']}]\n{c['text']}"
@@ -1350,7 +1336,6 @@ async def chat_session_message(session_id: str, body: dict) -> dict:
 
     options: dict = body.get("options", {})
     language: str = body.get("language", "pt")
-    dataset_context: dict | None = body.get("dataset_context") or None
 
     _db.add_message(root, session_id, "user", user_content)
 
@@ -1366,7 +1351,7 @@ async def chat_session_message(session_id: str, body: dict) -> dict:
 
     memories = _db.list_memory(root)
     result = await asyncio.get_event_loop().run_in_executor(
-        None, _run_chat, root, llm_messages, options, language, memories, dataset_context
+        None, _run_chat, root, llm_messages, options, language, memories
     )
 
     sources = result.get("sources")
@@ -1802,163 +1787,6 @@ async def job_log_stream(job_id: str) -> StreamingResponse:
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
-
-
-# ── Projects ──────────────────────────────────────────────────────────────────
-
-
-@api.get("/projects")
-async def list_projects_endpoint() -> dict:
-    from lutz.server import db as _db
-    root = _get_root()
-    return {"projects": _db.list_projects(root)}
-
-
-@api.post("/projects")
-async def create_project_endpoint(body: dict) -> dict:
-    from lutz.server import db as _db
-    root = _get_root()
-    name = (body.get("name") or "").strip()
-    if not name:
-        raise HTTPException(status_code=400, detail="name required")
-    project = _db.create_project(
-        root,
-        name,
-        body.get("color", "#6366f1"),
-        body.get("icon", "folder"),
-    )
-    return {"project": project}
-
-
-@api.get("/projects/{project_id}")
-async def get_project_endpoint(project_id: str) -> dict:
-    from lutz.server import db as _db
-    root = _get_root()
-    project = _db.get_project(root, project_id)
-    if project is None:
-        raise HTTPException(status_code=404, detail="Project not found")
-    return {"project": project}
-
-
-@api.put("/projects/{project_id}")
-async def update_project_endpoint(project_id: str, body: dict) -> dict:
-    from lutz.server import db as _db
-    root = _get_root()
-    existing = _db.get_project(root, project_id)
-    if existing is None:
-        raise HTTPException(status_code=404, detail="Project not found")
-    project = _db.update_project(
-        root,
-        project_id,
-        body.get("name", existing["name"]),
-        body.get("color", existing["color"]),
-        body.get("icon", existing["icon"]),
-    )
-    return {"project": project}
-
-
-@api.delete("/projects/{project_id}")
-async def delete_project_endpoint(project_id: str) -> dict:
-    from lutz.server import db as _db
-    root = _get_root()
-    _db.delete_project(root, project_id)
-    return {"ok": True}
-
-
-@api.get("/projects/{project_id}/articles")
-async def list_project_articles_endpoint(project_id: str) -> dict:
-    from lutz.server import db as _db
-    root = _get_root()
-    if _db.get_project(root, project_id) is None:
-        raise HTTPException(status_code=404, detail="Project not found")
-    return {"articles": _db.list_project_articles(root, project_id)}
-
-
-def _normalize_article_path(path: str) -> str:
-    """Normalize and validate an article path (relative, no traversal)."""
-    from pathlib import PurePosixPath
-    try:
-        p = PurePosixPath(path)
-    except Exception:
-        raise HTTPException(status_code=400, detail=f"Invalid path: {path!r}")
-    if p.is_absolute() or ".." in p.parts:
-        raise HTTPException(status_code=400, detail=f"Path not allowed: {path!r}")
-    return str(p)
-
-
-@api.post("/projects/{project_id}/articles")
-async def add_project_articles_endpoint(project_id: str, body: dict) -> dict:
-    from lutz.server import db as _db
-    root = _get_root()
-    if _db.get_project(root, project_id) is None:
-        raise HTTPException(status_code=404, detail="Project not found")
-    paths: list[str] = body.get("paths", [])
-    for p in paths:
-        safe_path = _normalize_article_path(p)
-        _db.add_article_to_project(root, project_id, safe_path)
-    return {"ok": True}
-
-
-@api.delete("/projects/{project_id}/articles/{article_path:path}")
-async def remove_project_article_endpoint(project_id: str, article_path: str) -> dict:
-    from lutz.server import db as _db
-    root = _get_root()
-    _db.remove_article_from_project(root, project_id, article_path)
-    return {"ok": True}
-
-
-# ── Datasets ──────────────────────────────────────────────────────────────────
-
-
-@api.get("/datasets")
-async def list_datasets_endpoint(project_id: str = "") -> dict:
-    from lutz.server import db as _db
-    root = _get_root()
-    pid = project_id or None
-    return {"datasets": _db.list_datasets(root, project_id=pid)}
-
-
-@api.post("/datasets")
-async def create_dataset_endpoint(body: dict) -> dict:
-    from lutz.server import db as _db
-    root = _get_root()
-    name = (body.get("name") or "").strip()[:255]
-    if not name:
-        raise HTTPException(status_code=400, detail="name required")
-    source = (body.get("source") or "").strip()
-    if not source:
-        raise HTTPException(status_code=400, detail="source required")
-    rows = body.get("rows", [])[:500]  # max 500 rows stored
-    dataset = _db.create_dataset(
-        root,
-        name=name,
-        source=source,
-        project_id=body.get("project_id") or None,
-        query=body.get("query") or None,
-        columns=body.get("columns", []),
-        rows=rows,
-        row_count=int(body.get("row_count", 0)),
-        metadata=body.get("metadata") or None,
-    )
-    return {"dataset": dataset}
-
-
-@api.get("/datasets/{dataset_id}")
-async def get_dataset_endpoint(dataset_id: str) -> dict:
-    from lutz.server import db as _db
-    root = _get_root()
-    dataset = _db.get_dataset(root, dataset_id)
-    if dataset is None:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-    return {"dataset": dataset}
-
-
-@api.delete("/datasets/{dataset_id}")
-async def delete_dataset_endpoint(dataset_id: str) -> dict:
-    from lutz.server import db as _db
-    root = _get_root()
-    _db.delete_dataset(root, dataset_id)
-    return {"ok": True}
 
 
 # ── Store catalog metadata ────────────────────────────────────────────────────

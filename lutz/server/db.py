@@ -36,44 +36,11 @@ def get_db(root: Path):
 
 
 _SCHEMA = """
-CREATE TABLE IF NOT EXISTS projects (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    color TEXT NOT NULL DEFAULT '#6366f1',
-    icon TEXT NOT NULL DEFAULT 'folder',
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS article_projects (
-    article_path TEXT NOT NULL,
-    project_id TEXT NOT NULL,
-    added_at TEXT NOT NULL,
-    PRIMARY KEY (article_path, project_id),
-    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS datasets (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    source TEXT NOT NULL,
-    project_id TEXT,
-    query TEXT,
-    columns_json TEXT NOT NULL,
-    rows_json TEXT NOT NULL,
-    row_count INTEGER NOT NULL DEFAULT 0,
-    metadata_json TEXT,
-    created_at TEXT NOT NULL,
-    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
-);
-
 CREATE TABLE IF NOT EXISTS chat_sessions (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL DEFAULT 'Nova conversa',
-    project_id TEXT,
     created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
+    updated_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS chat_messages (
@@ -132,8 +99,8 @@ def migrate_sessions(root: Path, conn: sqlite3.Connection) -> None:
             updated_at = data.get("updated_at", _now())
 
             conn.execute(
-                "INSERT OR IGNORE INTO chat_sessions (id, title, project_id, created_at, updated_at) "
-                "VALUES (?, ?, NULL, ?, ?)",
+                "INSERT OR IGNORE INTO chat_sessions (id, title, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?)",
                 (sid, title, created_at, updated_at),
             )
 
@@ -193,188 +160,6 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     return dict(row)
 
 
-def list_projects(root: Path) -> list[dict]:
-    with get_db(root) as conn:
-        rows = conn.execute(
-            """
-            SELECT
-                p.*,
-                COUNT(DISTINCT ap.article_path) AS article_count,
-                COUNT(DISTINCT d.id)             AS dataset_count
-            FROM projects p
-            LEFT JOIN article_projects ap ON ap.project_id = p.id
-            LEFT JOIN datasets d          ON d.project_id  = p.id
-            GROUP BY p.id
-            ORDER BY p.created_at DESC
-            """
-        ).fetchall()
-    return [_row_to_dict(r) for r in rows]
-
-
-def create_project(root: Path, name: str, color: str, icon: str) -> dict:
-    now = _now()
-    pid = str(uuid.uuid4())
-    with get_db(root) as conn:
-        conn.execute(
-            "INSERT INTO projects (id, name, color, icon, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (pid, name, color, icon, now, now),
-        )
-    return get_project(root, pid)  # type: ignore[return-value]
-
-
-def update_project(root: Path, project_id: str, name: str, color: str, icon: str) -> dict:
-    now = _now()
-    with get_db(root) as conn:
-        result = conn.execute(
-            "UPDATE projects SET name=?, color=?, icon=?, updated_at=? WHERE id=?",
-            (name, color, icon, now, project_id),
-        )
-        if result.rowcount == 0:
-            raise ValueError(f"Project {project_id!r} not found")
-    fetched = get_project(root, project_id)
-    if fetched is None:
-        raise ValueError(f"Project {project_id!r} not found after update")
-    return fetched
-
-
-def delete_project(root: Path, project_id: str) -> None:
-    with get_db(root) as conn:
-        conn.execute("DELETE FROM projects WHERE id=?", (project_id,))
-
-
-def get_project(root: Path, project_id: str) -> dict | None:
-    with get_db(root) as conn:
-        row = conn.execute(
-            """
-            SELECT
-                p.*,
-                COUNT(DISTINCT ap.article_path) AS article_count,
-                COUNT(DISTINCT d.id)             AS dataset_count
-            FROM projects p
-            LEFT JOIN article_projects ap ON ap.project_id = p.id
-            LEFT JOIN datasets d          ON d.project_id  = p.id
-            WHERE p.id = ?
-            GROUP BY p.id
-            """,
-            (project_id,),
-        ).fetchone()
-    return _row_to_dict(row) if row else None
-
-
-def list_project_articles(root: Path, project_id: str) -> list[str]:
-    with get_db(root) as conn:
-        rows = conn.execute(
-            "SELECT article_path FROM article_projects WHERE project_id=? ORDER BY added_at",
-            (project_id,),
-        ).fetchall()
-    return [r["article_path"] for r in rows]
-
-
-def add_article_to_project(root: Path, project_id: str, article_path: str) -> None:
-    now = _now()
-    with get_db(root) as conn:
-        conn.execute(
-            "INSERT OR IGNORE INTO article_projects (article_path, project_id, added_at) "
-            "VALUES (?, ?, ?)",
-            (article_path, project_id, now),
-        )
-
-
-def remove_article_from_project(root: Path, project_id: str, article_path: str) -> None:
-    with get_db(root) as conn:
-        conn.execute(
-            "DELETE FROM article_projects WHERE project_id=? AND article_path=?",
-            (project_id, article_path),
-        )
-
-
-# ---------------------------------------------------------------------------
-# Datasets
-# ---------------------------------------------------------------------------
-
-
-def list_datasets(root: Path, project_id: str | None = None) -> list[dict]:
-    query = (
-        "SELECT id, name, source, project_id, query, columns_json, row_count, "
-        "metadata_json, created_at FROM datasets"
-    )
-    params: list[Any] = []
-    if project_id is not None:
-        query += " WHERE project_id=?"
-        params.append(project_id)
-    query += " ORDER BY created_at DESC"
-
-    with get_db(root) as conn:
-        rows = conn.execute(query, params).fetchall()
-
-    result = []
-    for r in rows:
-        d = _row_to_dict(r)
-        d["columns"] = json.loads(d.pop("columns_json", "[]") or "[]")
-        if d.get("metadata_json"):
-            d["metadata"] = json.loads(d["metadata_json"])
-        else:
-            d["metadata"] = None
-        d.pop("metadata_json", None)
-        result.append(d)
-    return result
-
-
-def create_dataset(
-    root: Path,
-    name: str,
-    source: str,
-    project_id: str | None,
-    query: str | None,
-    columns: list,
-    rows: list,
-    row_count: int,
-    metadata: dict | None,
-) -> dict:
-    now = _now()
-    did = str(uuid.uuid4())
-    columns_json = json.dumps(columns)
-    rows_json = json.dumps(rows)
-    metadata_json = json.dumps(metadata) if metadata is not None else None
-
-    with get_db(root) as conn:
-        conn.execute(
-            "INSERT INTO datasets "
-            "(id, name, source, project_id, query, columns_json, rows_json, row_count, metadata_json, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (did, name, source, project_id, query, columns_json, rows_json, row_count, metadata_json, now),
-        )
-
-    fetched = get_dataset(root, did)
-    if fetched is None:
-        raise RuntimeError("Dataset creation failed")
-    return fetched
-
-
-def get_dataset(root: Path, dataset_id: str) -> dict | None:
-    with get_db(root) as conn:
-        row = conn.execute(
-            "SELECT * FROM datasets WHERE id=?", (dataset_id,)
-        ).fetchone()
-    if row is None:
-        return None
-    d = _row_to_dict(row)
-    d["columns"] = json.loads(d.pop("columns_json", "[]") or "[]")
-    d["rows"] = json.loads(d.pop("rows_json", "[]") or "[]")
-    if d.get("metadata_json"):
-        d["metadata"] = json.loads(d["metadata_json"])
-    else:
-        d["metadata"] = None
-    d.pop("metadata_json", None)
-    return d
-
-
-def delete_dataset(root: Path, dataset_id: str) -> None:
-    with get_db(root) as conn:
-        conn.execute("DELETE FROM datasets WHERE id=?", (dataset_id,))
-
-
 # ---------------------------------------------------------------------------
 # Chat sessions
 # ---------------------------------------------------------------------------
@@ -385,7 +170,7 @@ def list_sessions(root: Path) -> list[dict]:
         rows = conn.execute(
             """
             SELECT
-                s.id, s.title, s.project_id, s.created_at, s.updated_at,
+                s.id, s.title, s.created_at, s.updated_at,
                 COUNT(m.id) AS message_count
             FROM chat_sessions s
             LEFT JOIN chat_messages m ON m.session_id = s.id
@@ -401,14 +186,13 @@ def create_session(root: Path, title: str) -> dict:
     sid = str(uuid.uuid4())
     with get_db(root) as conn:
         conn.execute(
-            "INSERT INTO chat_sessions (id, title, project_id, created_at, updated_at) "
-            "VALUES (?, ?, NULL, ?, ?)",
+            "INSERT INTO chat_sessions (id, title, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?)",
             (sid, title, now, now),
         )
     return {
         "id": sid,
         "title": title,
-        "project_id": None,
         "created_at": now,
         "updated_at": now,
         "messages": [],
@@ -418,7 +202,7 @@ def create_session(root: Path, title: str) -> dict:
 def get_session(root: Path, session_id: str) -> dict | None:
     with get_db(root) as conn:
         row = conn.execute(
-            "SELECT id, title, project_id, created_at, updated_at "
+            "SELECT id, title, created_at, updated_at "
             "FROM chat_sessions WHERE id=?",
             (session_id,),
         ).fetchone()

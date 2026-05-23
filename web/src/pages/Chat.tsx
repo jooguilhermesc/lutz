@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react'
-import { useLocation } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
@@ -10,7 +9,6 @@ import {
   listContextFiles, uploadContextFiles, deleteContextFile,
   type ChatSession, type ChatMessage, type ChatOptions,
   type ChatSource, type ChatMemory, type ChatFile, type ContextFile,
-  type DatasetContext,
 } from '../api/client'
 import { useLanguage } from '../contexts/LanguageContext'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -498,8 +496,6 @@ function FilesPanelContent({
 
 export default function Chat() {
   const { t, reportLang } = useLanguage()
-  const location = useLocation()
-  const incomingDataset = location.state?.datasetContext as DatasetContext | undefined
 
   // Sessions
   const [sessions, setSessions] = useState<ChatSession[]>([])
@@ -519,9 +515,6 @@ export default function Chat() {
   // Confirm delete session dialog
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 
-  // Dataset context from navigation
-  const [activeDataset, setActiveDataset] = useState<DatasetContext | undefined>(incomingDataset)
-
   // Input & options
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -529,7 +522,7 @@ export default function Chat() {
   const [options, setOptions] = useState<ChatOptions>({
     use_rag: true, use_model_knowledge: true, use_context_files: false, top_k: 5,
   })
-  const [hasStarted, setHasStarted] = useState(!!incomingDataset)
+  const [hasStarted, setHasStarted] = useState(false)
 
   const bottomRef = useRef<HTMLDivElement>(null)
   const chatFileInputRef = useRef<HTMLInputElement>(null)
@@ -540,19 +533,6 @@ export default function Chat() {
     listChatMemory().then((r) => setMemories(r.memories ?? []))
     listChatFiles().then((r) => setFiles(r.files ?? []))
     listContextFiles().then((r) => setContextFiles(r.files ?? []))
-  }, [])
-
-  // Auto-create session when arriving with a dataset context and no active session
-  useEffect(() => {
-    if (incomingDataset && !activeId) {
-      createChatSession().then(({ session }) => {
-        setSessions((prev) => [session, ...prev])
-        setActiveId(session.id)
-        setMessages([])
-        setSourcesMap({})
-      })
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, loading])
@@ -623,7 +603,7 @@ export default function Chat() {
     setHasStarted(true)
 
     try {
-      const result = await sendSessionMessage(sessionId, text, options, reportLang, activeDataset)
+      const result = await sendSessionMessage(sessionId, text, options, reportLang)
       const assistantMsg: ChatMessage = { role: 'assistant', content: result.response }
       const idx = messages.length + 1
       setMessages((prev) => [...prev, assistantMsg])
@@ -667,7 +647,7 @@ export default function Chat() {
         const optimisticMsg: ChatMessage = { role: 'user', content: trimmed }
         setMessages((prev) => [...prev, optimisticMsg])
         try {
-          const result = await sendSessionMessage(sessionId, trimmed, options, reportLang, activeDataset)
+          const result = await sendSessionMessage(sessionId, trimmed, options, reportLang)
           const assistantMsg: ChatMessage = { role: 'assistant', content: result.response }
           const idx = messages.length + 1
           setMessages((prev) => [...prev, assistantMsg])
@@ -846,23 +826,6 @@ export default function Chat() {
         {/* Input area */}
         <div className="chat-input-area">
           <div className="input-wrapper">
-            {/* Dataset context banner */}
-            {activeDataset && (
-              <div className="dataset-banner">
-                <span className="dataset-banner-icon">📊</span>
-                <span className="dataset-banner-name">Contexto ativo: {activeDataset.name}</span>
-                <span className="dataset-banner-meta">
-                  {activeDataset.row_count} linhas · {activeDataset.columns.length} colunas
-                </span>
-                <button
-                  className="dataset-banner-close"
-                  title="Remover contexto"
-                  onClick={() => setActiveDataset(undefined)}
-                >
-                  ✕
-                </button>
-              </div>
-            )}
 
             <div className="input-box">
               <textarea
