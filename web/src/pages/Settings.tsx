@@ -56,7 +56,7 @@ export default function Settings() {
     showAnalytics, setShowAnalytics,
     showCitations, setShowCitations,
     showRoadmap, setShowRoadmap,
-    showProjects, setShowProjects,
+    // showProjects, setShowProjects,
   } = useLanguage()
 
   const [cfg, setCfg] = useState<Config | null>(null)
@@ -215,7 +215,7 @@ export default function Settings() {
             { key: 'showAnalytics',  checked: showAnalytics,  set: setShowAnalytics,  label: t('settings.showAnalytics'),  hint: t('settings.showAnalytics.hint') },
             { key: 'showCitations',  checked: showCitations,  set: setShowCitations,  label: t('settings.showCitations'),  hint: t('settings.showCitations.hint') },
             { key: 'showRoadmap',    checked: showRoadmap,    set: setShowRoadmap,    label: t('settings.showRoadmap'),    hint: t('settings.showRoadmap.hint') },
-            { key: 'showProjects',   checked: showProjects,   set: setShowProjects,   label: t('settings.showProjects'),   hint: t('settings.showProjects.hint') },
+            // { key: 'showProjects',   checked: showProjects,   set: setShowProjects,   label: t('settings.showProjects'),   hint: t('settings.showProjects.hint') },
             { key: 'showVectorStore',checked: showVectorStore,set: setShowVectorStore,label: t('settings.showVectorStore'),hint: t('settings.showVectorStore.hint') },
           ] as Array<{ key: string; checked: boolean; set: (v: boolean) => void; label: string; hint: string }>).map(({ key, checked, set, label, hint }) => (
             <label key={key} className="flex items-start gap-3 cursor-pointer">
