@@ -7,8 +7,9 @@ import {
   listChatMemory, addChatMemory, deleteChatMemory,
   listChatFiles, uploadChatFiles, deleteChatFile, resetChatStore,
   listContextFiles, uploadContextFiles, deleteContextFile,
+  listChatReports,
   type ChatSession, type ChatMessage, type ChatOptions,
-  type ChatSource, type ChatMemory, type ChatFile, type ContextFile,
+  type ChatSource, type ChatMemory, type ChatFile, type ContextFile, type ChatReport,
 } from '../api/client'
 import { useLanguage } from '../contexts/LanguageContext'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -155,7 +156,7 @@ function MessageRow({
 
 function SessionsSidebar({
   sessions, activeId, onSelect, onNew, onDelete, onRename,
-  options, setOptions, optionsOpen, setOptionsOpen,
+  options, setOptions, optionsOpen, setOptionsOpen, reports,
 }: {
   sessions: ChatSession[]
   activeId: string | null
@@ -167,6 +168,7 @@ function SessionsSidebar({
   setOptions: React.Dispatch<React.SetStateAction<ChatOptions>>
   optionsOpen: boolean
   setOptionsOpen: React.Dispatch<React.SetStateAction<boolean>>
+  reports: ChatReport[]
 }) {
   const { t } = useLanguage()
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -278,7 +280,7 @@ function SessionsSidebar({
       <div className="sidebar-footer">
         <button className="rag-options-toggle" onClick={() => setOptionsOpen((v) => !v)}>
           <span>⚙</span>
-          <span style={{ flex: 1 }}>Opções RAG</span>
+          <span style={{ flex: 1 }}>Opções Chat</span>
           <span>{optionsOpen ? '▲' : '▼'}</span>
         </button>
         {optionsOpen && (
@@ -327,7 +329,40 @@ function SessionsSidebar({
                 <div className="rag-option-hint">{t('chat.opt.library.hint')}</div>
               </div>
             </label>
-            <div className="rag-topk-row">
+
+            <div className="rag-section-divider">
+              <span className="rag-section-label">{t('chat.opt.reports.label')}</span>
+            </div>
+            {reports.length === 0 ? (
+              <p className="rag-reports-empty">{t('chat.opt.reports.empty')}</p>
+            ) : (
+              reports.map((r) => {
+                const checked = options.selected_report_ids.includes(r.id)
+                const dateStr = r.timestamp ? new Date(r.timestamp).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''
+                return (
+                  <label key={r.id} className="rag-option-row">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => {
+                        setOptions((o) => ({
+                          ...o,
+                          selected_report_ids: e.target.checked
+                            ? [...o.selected_report_ids, r.id]
+                            : o.selected_report_ids.filter((id) => id !== r.id),
+                        }))
+                      }}
+                    />
+                    <div>
+                      <div className="rag-option-label">{r.analysis_type} — {dateStr}</div>
+                      <div className="rag-option-hint">{r.article_count} artigos</div>
+                    </div>
+                  </label>
+                )
+              })
+            )}
+
+            {/* <div className="rag-topk-row">
               <span className="rag-topk-label">{t('chat.opt.topk.label')}</span>
               <input
                 type="range"
@@ -338,7 +373,7 @@ function SessionsSidebar({
                 onChange={(e) => setOptions((o) => ({ ...o, top_k: Number(e.target.value) }))}
               />
               <span className="rag-topk-value">{options.top_k}</span>
-            </div>
+            </div> */}
           </div>
         )}
       </div>
@@ -544,6 +579,9 @@ export default function Chat() {
   const [contextFiles, setContextFiles] = useState<ContextFile[]>([])
   const [showFiles, setShowFiles] = useState(false)
 
+  // Reports (analysis reports for chat injection)
+  const [reports, setReports] = useState<ChatReport[]>([])
+
   // Confirm delete session dialog
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 
@@ -552,8 +590,8 @@ export default function Chat() {
   const [loading, setLoading] = useState(false)
   const [optionsOpen, setOptionsOpen] = useState(false)
   const [options, setOptions] = useState<ChatOptions>({
-    use_rag: true, use_model_knowledge: true, use_context_files: false, use_library: false, top_k: 5,
-    reasoning_level: 'balanced',
+    use_rag: true, use_model_knowledge: false, use_context_files: false, use_library: false, top_k: 5,
+    reasoning_level: 'balanced', selected_report_ids: [],
   })
   const [hasStarted, setHasStarted] = useState(false)
 
@@ -566,6 +604,7 @@ export default function Chat() {
     listChatMemory().then((r) => setMemories(r.memories ?? []))
     listChatFiles().then((r) => setFiles(r.files ?? []))
     listContextFiles().then((r) => setContextFiles(r.files ?? []))
+    listChatReports().then((r) => setReports(r.reports ?? []))
   }, [])
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, loading])
@@ -759,6 +798,7 @@ export default function Chat() {
         setOptions={setOptions}
         optionsOpen={optionsOpen}
         setOptionsOpen={setOptionsOpen}
+        reports={reports}
       />
 
       {/* ── Main area ── */}
