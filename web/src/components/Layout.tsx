@@ -3,21 +3,21 @@ import { useLanguage } from '../contexts/LanguageContext'
 import { NotificationsPanel } from './NotificationsPanel'
 
 export default function Layout() {
-  const { t, showVectorStore } = useLanguage()
+  const { t, showVectorStore, showChat, showAnalytics, showCitations, showRoadmap, showProjects } = useLanguage()
   const location = useLocation()
   const isChatPage = location.pathname === '/chat'
 
   const NAV = [
     { to: '/',          label: t('nav.home'),      icon: '⌂' },
-    { to: '/chat',      label: t('nav.chat'),       icon: '💬' },
+    ...(showChat      ? [{ to: '/chat',      label: t('nav.chat'),      icon: '💬' }] : []),
     { to: '/vectorize', label: t('nav.vectorize'),  icon: '' },
-    ...(showVectorStore ? [{ to: '/store', label: t('nav.store'), icon: '' }] : []),
-    { to: '/analytics', label: t('nav.analytics'),  icon: '' },
+    ...(showVectorStore ? [{ to: '/store',    label: t('nav.store'),     icon: '' }] : []),
+    ...(showAnalytics ? [{ to: '/analytics', label: t('nav.analytics'), icon: '' }] : []),
     { to: '/analysis',  label: t('nav.analysis'),   icon: '' },
-    { to: '/citations', label: t('nav.citations'),  icon: '' },
-    { to: '/roadmap',   label: t('nav.roadmap'),    icon: '' },
+    ...(showCitations ? [{ to: '/citations', label: t('nav.citations'), icon: '' }] : []),
+    ...(showRoadmap   ? [{ to: '/roadmap',   label: t('nav.roadmap'),   icon: '' }] : []),
     { to: '/reports',   label: t('nav.reports'),    icon: '' },
-    { to: '/projects',  label: t('nav.projects'),   icon: '' },
+    ...(showProjects  ? [{ to: '/projects',  label: t('nav.projects'),  icon: '' }] : []),
     { to: '/settings',  label: t('nav.settings'),   icon: '' },
   ]
 
@@ -83,17 +83,19 @@ export default function Layout() {
       </header>
 
       {/* ── Content ──────────────────────────────────────────────────────── */}
-      <main className="flex-1 max-w-7xl mx-auto w-full px-4 py-8">
+      <main className={isChatPage ? 'flex-1 overflow-hidden' : 'flex-1 max-w-7xl mx-auto w-full px-4 py-8'}>
         <Outlet />
       </main>
 
-      <footer className="text-center py-4 text-xs text-slate-400 border-t border-slate-200">
-        <span className="text-lutz-500 font-medium">lutz</span>
-        {' '}—{' '}triagem de artigos acadêmicos com IA
-      </footer>
-
-      {/* ── Floating chat button (hidden on chat page) ────────────────── */}
       {!isChatPage && (
+        <footer className="text-center py-4 text-xs text-slate-400 border-t border-slate-200">
+          <span className="text-lutz-500 font-medium">lutz</span>
+          {' '}—{' '}triagem de artigos acadêmicos com IA
+        </footer>
+      )}
+
+      {/* ── Floating chat button (hidden on chat page or when chat is disabled) ── */}
+      {!isChatPage && showChat && (
         <NavLink
           to="/chat"
           className="fixed bottom-6 right-6 z-50 flex items-center gap-2 bg-lutz-500 hover:bg-lutz-600 text-white px-4 py-3 rounded-full shadow-lg hover:shadow-xl transition-all group"
