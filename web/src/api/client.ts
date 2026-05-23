@@ -192,10 +192,17 @@ export interface ChatOptions {
   use_rag: boolean
   use_model_knowledge: boolean
   use_context_files: boolean
+  use_library: boolean
   top_k: number
+  reasoning_level: 'fast' | 'balanced' | 'deep'
 }
 export interface ChatSource { filename: string; page: number }
-export interface ChatResponse { response: string; usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number }; sources: ChatSource[] }
+export interface ChatResponse {
+  response: string
+  usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
+  sources: ChatSource[]
+  thinking_content?: string | null
+}
 
 // ── Chat sessions ─────────────────────────────────────────────────────────────
 export interface ChatSession {

@@ -141,17 +141,25 @@ class LLMClient:
         self,
         system: str,
         messages: list[dict],
+        temperature: float | None = None,
+        thinking: dict | None = None,
     ) -> tuple[str, dict]:
         """Send a multi-turn conversation and return (text, usage).
 
         messages: list of {"role": "user"|"assistant", "content": str}
         usage dict keys: prompt_tokens, completion_tokens, total_tokens.
+        temperature: overrides the instance-level temperature when provided.
+        thinking: Anthropic thinking block config, e.g. {"type": "enabled", "budget_tokens": 8000}.
         """
+        if temperature is not None:
+            temperature = max(0.0, min(2.0, float(temperature)))
         match self.provider:
             case "docker_model_runner" | "openai":
-                return self._complete_messages_openai(system, messages)
+                return self._complete_messages_openai(system, messages, temperature=temperature)
             case "anthropic":
-                return self._complete_messages_anthropic(system, messages)
+                return self._complete_messages_anthropic(
+                    system, messages, temperature=temperature, thinking=thinking
+                )
             case _:
                 raise RuntimeError(f"Unsupported provider: {self.provider}")
 
@@ -173,13 +181,19 @@ class LLMClient:
     # Provider implementations
     # ------------------------------------------------------------------
 
-    def _complete_messages_openai(self, system: str, messages: list[dict]) -> tuple[str, dict]:
+    def _complete_messages_openai(
+        self,
+        system: str,
+        messages: list[dict],
+        temperature: float | None = None,
+    ) -> tuple[str, dict]:
         api_messages = [{"role": "system", "content": system}] + messages
+        temp = temperature if temperature is not None else self._kwargs.get("temperature", 0.2)
         response = self._get_client().chat.completions.create(
             model=self.model_id,
             messages=api_messages,
             max_tokens=self._kwargs.get("max_tokens", _DEFAULT_MAX_TOKENS),
-            temperature=self._kwargs.get("temperature", 0.2),
+            temperature=temp,
         )
         text = response.choices[0].message.content or ""
         u = response.usage
@@ -190,21 +204,51 @@ class LLMClient:
         }
         return text, usage
 
-    def _complete_messages_anthropic(self, system: str, messages: list[dict]) -> tuple[str, dict]:
-        response = self._get_client().messages.create(
-            model=self.model_id,
-            max_tokens=self._kwargs.get("max_tokens", _DEFAULT_MAX_TOKENS),
-            system=system,
-            messages=messages,
-            temperature=self._kwargs.get("temperature", 0.2),
-        )
-        text = response.content[0].text
+    def _complete_messages_anthropic(
+        self,
+        system: str,
+        messages: list[dict],
+        temperature: float | None = None,
+        thinking: dict | None = None,
+    ) -> tuple[str, dict]:
+        temp = temperature if temperature is not None else self._kwargs.get("temperature", 0.2)
+        client = self._get_client()
+        create_kwargs: dict = {
+            "model": self.model_id,
+            "max_tokens": self._kwargs.get("max_tokens", _DEFAULT_MAX_TOKENS),
+            "system": system,
+            "messages": messages,
+        }
+        thinking_content: str | None = None
+        if thinking and thinking.get("type") == "enabled":
+            try:
+                create_kwargs["thinking"] = thinking
+                # Anthropic thinking blocks require betas parameter on some SDK versions
+                response = client.messages.create(**create_kwargs)
+                text = ""
+                for block in response.content:
+                    if getattr(block, "type", None) == "thinking":
+                        thinking_content = getattr(block, "thinking", None)
+                    elif getattr(block, "type", None) == "text":
+                        text = block.text
+            except Exception:
+                # Fallback: thinking not supported by this SDK version
+                create_kwargs.pop("thinking", None)
+                create_kwargs["temperature"] = temp
+                response = client.messages.create(**create_kwargs)
+                text = response.content[0].text
+        else:
+            create_kwargs["temperature"] = temp
+            response = client.messages.create(**create_kwargs)
+            text = response.content[0].text
         u = response.usage
         usage = {
             "prompt_tokens": u.input_tokens if u else 0,
             "completion_tokens": u.output_tokens if u else 0,
             "total_tokens": (u.input_tokens + u.output_tokens) if u else 0,
         }
+        if thinking_content is not None:
+            usage["thinking_content"] = thinking_content
         return text, usage
 
     def _complete_openai(self, system: str, user: str) -> tuple[str, dict]:

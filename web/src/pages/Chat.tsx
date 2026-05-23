@@ -75,12 +75,20 @@ function MarkdownContent({ content }: { content: string }) {
 
 // ── Message row ───────────────────────────────────────────────────────────────
 
+const REASONING_EMOJI: Record<string, string> = {
+  fast: '⚡',
+  balanced: '⚖️',
+  deep: '🧠',
+}
+
 function MessageRow({
-  msg, sources, onSaveMemory,
+  msg, sources, onSaveMemory, thinkingContent, reasoningLevel,
 }: {
   msg: ChatMessage
   sources?: ChatSource[]
   onSaveMemory?: (text: string) => void
+  thinkingContent?: string
+  reasoningLevel?: string
 }) {
   const isUser = msg.role === 'user'
   const [copied, setCopied] = useState(false)
@@ -101,8 +109,19 @@ function MessageRow({
       <div className="message-content">
         <div className="message-header">
           <span className="message-name">{isUser ? 'Você' : 'Lutz'}</span>
+          {!isUser && reasoningLevel && (
+            <span className="reasoning-badge" title={reasoningLevel}>
+              {REASONING_EMOJI[reasoningLevel] ?? '⚖️'}
+            </span>
+          )}
           <span className="message-time">{timeStr}</span>
         </div>
+        {!isUser && thinkingContent && (
+          <details className="thinking-block">
+            <summary>Ver raciocínio</summary>
+            <pre className="thinking-content">{thinkingContent}</pre>
+          </details>
+        )}
         {isUser ? (
           <div className="message-body"><p style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</p></div>
         ) : (
@@ -295,6 +314,17 @@ function SessionsSidebar({
               <div>
                 <div className="rag-option-label">{t('chat.opt.context.label')}</div>
                 <div className="rag-option-hint">{t('chat.opt.context.hint')}</div>
+              </div>
+            </label>
+            <label className="rag-option-row">
+              <input
+                type="checkbox"
+                checked={options.use_library}
+                onChange={(e) => setOptions((o) => ({ ...o, use_library: e.target.checked }))}
+              />
+              <div>
+                <div className="rag-option-label">{t('chat.opt.library.label')}</div>
+                <div className="rag-option-hint">{t('chat.opt.library.hint')}</div>
               </div>
             </label>
             <div className="rag-topk-row">
@@ -502,6 +532,8 @@ export default function Chat() {
   const [activeId, setActiveId] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [sourcesMap, setSourcesMap] = useState<Record<number, ChatSource[]>>({})
+  const [thinkingMap, setThinkingMap] = useState<Record<number, string>>({})
+  const [reasoningMap, setReasoningMap] = useState<Record<number, string>>({})
 
   // Memory
   const [memories, setMemories] = useState<ChatMemory[]>([])
@@ -520,7 +552,8 @@ export default function Chat() {
   const [loading, setLoading] = useState(false)
   const [optionsOpen, setOptionsOpen] = useState(false)
   const [options, setOptions] = useState<ChatOptions>({
-    use_rag: true, use_model_knowledge: true, use_context_files: false, top_k: 5,
+    use_rag: true, use_model_knowledge: true, use_context_files: false, use_library: false, top_k: 5,
+    reasoning_level: 'balanced',
   })
   const [hasStarted, setHasStarted] = useState(false)
 
@@ -545,6 +578,8 @@ export default function Chat() {
     setActiveId(session.id)
     setMessages([])
     setSourcesMap({})
+    setThinkingMap({})
+    setReasoningMap({})
     setHasStarted(false)
   }
 
@@ -554,13 +589,18 @@ export default function Chat() {
     setActiveId(id)
     setMessages(session.messages)
     setSourcesMap({})
+    setThinkingMap({})
+    setReasoningMap({})
     if (session.messages.length > 0) setHasStarted(true)
   }
 
   async function handleDeleteSession(id: string) {
     await deleteChatSession(id)
     setSessions((prev) => prev.filter((s) => s.id !== id))
-    if (activeId === id) { setActiveId(null); setMessages([]); setSourcesMap({}); setHasStarted(false) }
+    if (activeId === id) {
+      setActiveId(null); setMessages([]); setSourcesMap({})
+      setThinkingMap({}); setReasoningMap({}); setHasStarted(false)
+    }
   }
 
   async function handleRenameSession(id: string, title: string) {
@@ -608,6 +648,8 @@ export default function Chat() {
       const idx = messages.length + 1
       setMessages((prev) => [...prev, assistantMsg])
       if (result.sources.length) setSourcesMap((prev) => ({ ...prev, [idx]: result.sources }))
+      if (result.thinking_content) setThinkingMap((prev) => ({ ...prev, [idx]: result.thinking_content! }))
+      setReasoningMap((prev) => ({ ...prev, [idx]: options.reasoning_level }))
       setSessions((prev) => prev.map((s) =>
         s.id === sessionId
           ? { ...s, title: result.title, message_count: s.message_count + 2, updated_at: new Date().toISOString() }
@@ -798,6 +840,8 @@ export default function Chat() {
                       key={i}
                       msg={msg}
                       sources={msg.role === 'assistant' ? sourcesMap[i] : undefined}
+                      thinkingContent={msg.role === 'assistant' ? thinkingMap[i] : undefined}
+                      reasoningLevel={msg.role === 'assistant' ? reasoningMap[i] : undefined}
                       onSaveMemory={msg.role === 'assistant'
                         ? (text) => handleAddMemory(text.slice(0, 300), activeId ?? undefined)
                         : undefined}
@@ -860,6 +904,16 @@ export default function Chat() {
                     )}
                   </span>
                 </div>
+                <select
+                  className="reasoning-select"
+                  value={options.reasoning_level}
+                  onChange={(e) => setOptions((o) => ({ ...o, reasoning_level: e.target.value as 'fast' | 'balanced' | 'deep' }))}
+                  title={options.reasoning_level === 'fast' ? t('chat.reasoning.fast') : options.reasoning_level === 'deep' ? t('chat.reasoning.deep') : t('chat.reasoning.balanced')}
+                >
+                  <option value="fast">⚡ {t('chat.reasoning.fast')}</option>
+                  <option value="balanced">⚖️ {t('chat.reasoning.balanced')}</option>
+                  <option value="deep">🧠 {t('chat.reasoning.deep')}</option>
+                </select>
                 <button
                   className={`send-btn${!input.trim() || loading ? ' disabled' : ''}`}
                   onClick={handleSend}
