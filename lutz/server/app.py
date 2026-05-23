@@ -395,6 +395,16 @@ def _build_job_args(job_type: str, body: dict, root: Path) -> tuple[list[str], s
 app = FastAPI(docs_url=None, redoc_url=None, title="lutz")
 api = APIRouter(prefix="/api")
 
+
+@app.on_event("startup")
+async def _startup() -> None:
+    from lutz.server import db as _db
+    try:
+        root = _get_root()
+        _db.init_db(root)
+    except Exception:
+        pass  # root may not exist yet (first run before lutz init)
+
 # ── Project ──────────────────────────────────────────────────────────────────
 
 
@@ -626,6 +636,62 @@ def _json_val(v: object) -> object:
     return str(v)
 
 
+_SQL_BLOCKED_STATEMENTS = re.compile(
+    r"""^\s*(COPY|ATTACH|DETACH|LOAD|INSTALL|IMPORT|EXPORT|INSERT|UPDATE|DELETE|
+          CREATE|DROP|ALTER|TRUNCATE|REPLACE|MERGE|CALL|PRAGMA|SET|RESET|
+          USE|SHOW|DESCRIBE|EXPLAIN|ANALYZE|VACUUM|CHECKPOINT|TRANSACTION|
+          BEGIN|COMMIT|ROLLBACK|SAVEPOINT|RELEASE)\b""",
+    re.IGNORECASE | re.VERBOSE,
+)
+
+_SQL_BLOCKED_FUNCTIONS = re.compile(
+    r"""\b(read_csv|read_parquet|read_json|read_text|read_blob|glob|
+          parquet_scan|csv_scan|json_scan|delta_scan|iceberg_scan|
+          read_csv_auto|read_json_auto|scan_csv|scan_parquet)\s*\(""",
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def _validate_select_only(sql: str) -> None:
+    """Raise ValueError if sql is not a safe single SELECT statement.
+
+    Uses sqlglot for structural parse when available; falls back to
+    regex keyword blocking if sqlglot is not installed.
+    """
+    try:
+        import sqlglot
+        import sqlglot.exp as exp
+
+        statements = sqlglot.parse(sql)
+        if not statements or len(statements) != 1:
+            raise ValueError("Exactly one SQL statement is required")
+        stmt = statements[0]
+        if not isinstance(stmt, exp.Select):
+            raise ValueError("Only SELECT statements are allowed")
+        _BLOCKED_FUNCS = {
+            "read_csv", "read_parquet", "read_json", "read_text", "read_blob",
+            "glob", "parquet_scan", "csv_scan", "delta_scan", "iceberg_scan",
+            "read_csv_auto", "read_json_auto", "scan_csv", "scan_parquet",
+        }
+        for func in stmt.find_all(exp.Anonymous):
+            if func.name.lower() in _BLOCKED_FUNCS:
+                raise ValueError(f"Function '{func.name}' is not allowed")
+        for func in stmt.find_all(exp.Func):
+            if type(func).__name__.lower() in _BLOCKED_FUNCS:
+                raise ValueError(f"Function '{type(func).__name__}' is not allowed")
+    except ImportError:
+        # sqlglot not available — fall back to regex-based validation
+        if _SQL_BLOCKED_STATEMENTS.match(sql):
+            raise ValueError("Only SELECT statements are allowed")
+        if _SQL_BLOCKED_FUNCTIONS.search(sql):
+            raise ValueError("SQL contains a disallowed table-valued function")
+        # Require the query to start with SELECT (after optional comments/whitespace)
+        clean = re.sub(r"--[^\n]*", "", sql)   # strip line comments
+        clean = re.sub(r"/\*.*?\*/", "", clean, flags=re.DOTALL)  # strip block comments
+        if not re.match(r"^\s*SELECT\b", clean, re.IGNORECASE):
+            raise ValueError("Only SELECT statements are allowed")
+
+
 @api.post("/vector-store/query")
 async def query_vector_store(body: dict) -> dict:
     """Execute a DuckDB SQL query against the main vector store table.
@@ -642,6 +708,11 @@ async def query_vector_store(body: dict) -> dict:
     sql: str = (body.get("sql") or "").strip()
     if not sql:
         raise HTTPException(status_code=400, detail="sql required")
+
+    try:
+        _validate_select_only(sql)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
     include_embeddings: bool = bool(body.get("include_embeddings", False))
     root = _get_root()
@@ -1035,7 +1106,8 @@ def _auto_extract_memories(root: Path, session_id: str, messages: list[dict]) ->
         return
 
     # Check if we already extracted at this message count to avoid duplicates
-    existing = _read_memory(root)
+    from lutz.server import db as _db
+    existing = _db.list_memory(root)
     already_extracted_at = {
         m.get("extracted_at_count")
         for m in existing
@@ -1081,24 +1153,8 @@ def _auto_extract_memories(root: Path, session_id: str, messages: list[dict]) ->
         from datetime import datetime, timezone
         import uuid
 
-        memories = _read_memory(root)
-        # Remove previous auto-memories for this session to avoid accumulation
-        memories = [m for m in memories if not (m.get("source") == "auto" and m.get("session_id") == session_id)]
-
-        now = datetime.now(timezone.utc).isoformat()
-        for fact in facts:
-            fact = str(fact).strip()[:200]
-            if fact:
-                memories.append({
-                    "id": str(uuid.uuid4()),
-                    "text": fact,
-                    "session_id": session_id,
-                    "source": "auto",
-                    "extracted_at_count": len(messages),
-                    "created_at": now,
-                })
-
-        _write_memory(root, memories)
+        from lutz.server import db as _db
+        _db.replace_auto_memory(root, session_id, facts, len(messages))
     except Exception:
         pass  # Never crash the main request on background extraction failure
 
@@ -1106,69 +1162,46 @@ def _auto_extract_memories(root: Path, session_id: str, messages: list[dict]) ->
 
 @api.get("/chat/sessions")
 async def list_chat_sessions() -> dict:
+    from lutz.server import db as _db
     root = _get_root()
-    sessions_dir = _sessions_dir(root)
-    sessions = []
-    for f in sorted(sessions_dir.glob("*.json"), key=lambda x: x.stat().st_mtime, reverse=True):
-        try:
-            data = _read_session(f)
-            sessions.append({
-                "id": data["id"],
-                "title": data.get("title", "Nova conversa"),
-                "created_at": data.get("created_at", ""),
-                "updated_at": data.get("updated_at", ""),
-                "message_count": len(data.get("messages", [])),
-            })
-        except Exception:
-            pass
-    return {"sessions": sessions}
+    return {"sessions": _db.list_sessions(root)}
 
 
 @api.post("/chat/sessions")
 async def create_chat_session(body: dict = {}) -> dict:
-    from datetime import datetime, timezone
+    from lutz.server import db as _db
     root = _get_root()
-    sessions_dir = _sessions_dir(root)
-    sid = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
-    now = datetime.now(timezone.utc).isoformat()
-    data = {
-        "id": sid,
-        "title": body.get("title", "Nova conversa"),
-        "created_at": now,
-        "updated_at": now,
-        "messages": [],
-    }
-    _write_session(sessions_dir / f"{sid}.json", data)
-    return {"session": data}
+    title = body.get("title", "Nova conversa")
+    session = _db.create_session(root, title)
+    return {"session": session}
 
 
 @api.get("/chat/sessions/{session_id}")
 async def get_chat_session(session_id: str) -> dict:
+    from lutz.server import db as _db
     root = _get_root()
-    path = _safe_child(_sessions_dir(root), f"{session_id}.json")
-    if not path.exists():
+    session = _db.get_session(root, session_id)
+    if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
-    return {"session": _read_session(path)}
+    return {"session": session}
 
 
 @api.put("/chat/sessions/{session_id}/title")
 async def rename_chat_session(session_id: str, body: dict) -> dict:
+    from lutz.server import db as _db
     root = _get_root()
-    path = _safe_child(_sessions_dir(root), f"{session_id}.json")
-    if not path.exists():
+    session = _db.get_session(root, session_id)
+    if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
-    data = _read_session(path)
-    data["title"] = body.get("title", data["title"])
-    _write_session(path, data)
+    _db.update_session_title(root, session_id, body.get("title", session["title"]))
     return {"ok": True}
 
 
 @api.delete("/chat/sessions/{session_id}")
 async def delete_chat_session(session_id: str) -> dict:
+    from lutz.server import db as _db
     root = _get_root()
-    path = _safe_child(_sessions_dir(root), f"{session_id}.json")
-    if path.exists():
-        path.unlink()
+    _db.delete_session(root, session_id)
     return {"ok": True}
 
 
@@ -1176,34 +1209,32 @@ async def delete_chat_session(session_id: str) -> dict:
 
 @api.get("/chat/memory")
 async def list_chat_memory() -> dict:
+    from lutz.server import db as _db
     root = _get_root()
-    return {"memories": _read_memory(root)}
+    return {"memories": _db.list_memory(root)}
 
 
 @api.post("/chat/memory")
 async def add_chat_memory(body: dict) -> dict:
-    from datetime import datetime, timezone
+    from lutz.server import db as _db
     root = _get_root()
     text = (body.get("text") or "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="text required")
-    memories = _read_memory(root)
-    entry = {
-        "id": datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f"),
-        "text": text,
-        "session_id": body.get("session_id", ""),
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-    memories.append(entry)
-    _write_memory(root, memories)
+    entry = _db.add_memory(
+        root,
+        text,
+        body.get("session_id") or None,
+        "manual",  # always manual via API — 'auto' is created only by _auto_extract_memories
+    )
     return {"memory": entry}
 
 
 @api.delete("/chat/memory/{memory_id}")
 async def delete_chat_memory(memory_id: str) -> dict:
+    from lutz.server import db as _db
     root = _get_root()
-    memories = [m for m in _read_memory(root) if m["id"] != memory_id]
-    _write_memory(root, memories)
+    _db.delete_memory(root, memory_id)
     return {"ok": True}
 
 
@@ -1222,6 +1253,7 @@ def _run_chat(
     options: dict,
     language: str,
     memories: list[dict],
+    dataset_context: dict | None = None,
 ) -> dict:
     from lutz.core.embedding_client import EmbeddingClient
     from lutz.core.llm_client import LLMClient
@@ -1264,6 +1296,20 @@ def _run_chat(
     if memories:
         mem_text = "\n".join(f"- {m['text']}" for m in memories)
         parts.append(f"## Persistent memory (facts from previous conversations)\n\n{mem_text}")
+
+    if dataset_context:
+        cols = dataset_context.get("columns", [])
+        rows = dataset_context.get("rows", [])[:200]  # limite de 200 linhas
+        source_name = dataset_context.get("name", "Dataset")
+        header = " | ".join(str(c) for c in cols)
+        separator = " | ".join(["---"] * len(cols))
+        data_rows = "\n".join(
+            "| " + " | ".join(str(cell) for cell in row) + " |"
+            for row in rows
+        )
+        table_md = f"| {header} |\n| {separator} |\n{data_rows}"
+        parts.insert(1, f"## Dados para análise: {source_name}\n\n{table_md}")
+
     if rag_chunks:
         ctx_text = "\n\n---\n\n".join(
             f"[{c['filename']} — page {c['page']}]\n{c['text']}"
@@ -1289,11 +1335,12 @@ def _run_chat(
 async def chat_session_message(session_id: str, body: dict) -> dict:
     """Send a message in a session — saves history and returns LLM response."""
     import asyncio
-    from datetime import datetime, timezone
+
+    from lutz.server import db as _db
 
     root = _get_root()
-    path = _safe_child(_sessions_dir(root), f"{session_id}.json")
-    if not path.exists():
+    session = _db.get_session(root, session_id)
+    if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
 
     user_content: str = (body.get("content") or "").strip()
@@ -1302,41 +1349,51 @@ async def chat_session_message(session_id: str, body: dict) -> dict:
 
     options: dict = body.get("options", {})
     language: str = body.get("language", "pt")
+    dataset_context: dict | None = body.get("dataset_context") or None
 
-    session = _read_session(path)
-    session["messages"].append({"role": "user", "content": user_content})
+    _db.add_message(root, session_id, "user", user_content)
 
     # Auto-title from first user message
-    if session.get("title") in ("Nova conversa", "New conversation", "Nueva conversación", ""):
-        session["title"] = user_content[:60] + ("…" if len(user_content) > 60 else "")
+    current_title: str = session["title"]
+    if current_title in ("Nova conversa", "New conversation", "Nueva conversación", ""):
+        current_title = user_content[:60] + ("…" if len(user_content) > 60 else "")
+        _db.update_session_title(root, session_id, current_title)
 
-    memories = _read_memory(root)
+    # Build full message list for LLM context
+    chat_messages = _db.get_messages(root, session_id)
+    llm_messages = [{"role": m["role"], "content": m["content"]} for m in chat_messages]
+
+    memories = _db.list_memory(root)
     result = await asyncio.get_event_loop().run_in_executor(
-        None, _run_chat, root, session["messages"], options, language, memories
+        None, _run_chat, root, llm_messages, options, language, memories, dataset_context
     )
 
-    session["messages"].append({"role": "assistant", "content": result["response"]})
-    session["updated_at"] = datetime.now(timezone.utc).isoformat()
-    _write_session(path, session)
+    sources = result.get("sources")
+    _db.add_message(root, session_id, "assistant", result["response"], sources=sources)
+    _db.update_session_updated_at(root, session_id)
 
     # Background: extract memorable facts from this conversation
-    final_messages = list(session["messages"])
+    final_messages = _db.get_messages(root, session_id)
+    plain_messages = [{"role": m["role"], "content": m["content"]} for m in final_messages]
     asyncio.get_event_loop().run_in_executor(
-        None, _auto_extract_memories, root, session_id, final_messages
+        None, _auto_extract_memories, root, session_id, plain_messages
     )
 
-    return {**result, "title": session["title"]}
+    return {**result, "title": current_title}
 
 
 @api.post("/chat/message")
 async def chat_message(body: dict) -> dict:
     """Stateless chat — no session persistence. Kept for backwards compatibility."""
     import asyncio
+
+    from lutz.server import db as _db
+
     messages: list[dict] = body.get("messages", [])
     if not messages or not messages[-1].get("content", "").strip():
         raise HTTPException(status_code=400, detail="messages required")
     root = _get_root()
-    memories = _read_memory(root)
+    memories = _db.list_memory(root)
     result = await asyncio.get_event_loop().run_in_executor(
         None, _run_chat, root, messages, body.get("options", {}), body.get("language", "pt"), memories
     )
@@ -1744,6 +1801,339 @@ async def job_log_stream(job_id: str) -> StreamingResponse:
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ── Projects ──────────────────────────────────────────────────────────────────
+
+
+@api.get("/projects")
+async def list_projects_endpoint() -> dict:
+    from lutz.server import db as _db
+    root = _get_root()
+    return {"projects": _db.list_projects(root)}
+
+
+@api.post("/projects")
+async def create_project_endpoint(body: dict) -> dict:
+    from lutz.server import db as _db
+    root = _get_root()
+    name = (body.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name required")
+    project = _db.create_project(
+        root,
+        name,
+        body.get("color", "#6366f1"),
+        body.get("icon", "folder"),
+    )
+    return {"project": project}
+
+
+@api.get("/projects/{project_id}")
+async def get_project_endpoint(project_id: str) -> dict:
+    from lutz.server import db as _db
+    root = _get_root()
+    project = _db.get_project(root, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return {"project": project}
+
+
+@api.put("/projects/{project_id}")
+async def update_project_endpoint(project_id: str, body: dict) -> dict:
+    from lutz.server import db as _db
+    root = _get_root()
+    existing = _db.get_project(root, project_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    project = _db.update_project(
+        root,
+        project_id,
+        body.get("name", existing["name"]),
+        body.get("color", existing["color"]),
+        body.get("icon", existing["icon"]),
+    )
+    return {"project": project}
+
+
+@api.delete("/projects/{project_id}")
+async def delete_project_endpoint(project_id: str) -> dict:
+    from lutz.server import db as _db
+    root = _get_root()
+    _db.delete_project(root, project_id)
+    return {"ok": True}
+
+
+@api.get("/projects/{project_id}/articles")
+async def list_project_articles_endpoint(project_id: str) -> dict:
+    from lutz.server import db as _db
+    root = _get_root()
+    if _db.get_project(root, project_id) is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return {"articles": _db.list_project_articles(root, project_id)}
+
+
+def _normalize_article_path(path: str) -> str:
+    """Normalize and validate an article path (relative, no traversal)."""
+    from pathlib import PurePosixPath
+    try:
+        p = PurePosixPath(path)
+    except Exception:
+        raise HTTPException(status_code=400, detail=f"Invalid path: {path!r}")
+    if p.is_absolute() or ".." in p.parts:
+        raise HTTPException(status_code=400, detail=f"Path not allowed: {path!r}")
+    return str(p)
+
+
+@api.post("/projects/{project_id}/articles")
+async def add_project_articles_endpoint(project_id: str, body: dict) -> dict:
+    from lutz.server import db as _db
+    root = _get_root()
+    if _db.get_project(root, project_id) is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    paths: list[str] = body.get("paths", [])
+    for p in paths:
+        safe_path = _normalize_article_path(p)
+        _db.add_article_to_project(root, project_id, safe_path)
+    return {"ok": True}
+
+
+@api.delete("/projects/{project_id}/articles/{article_path:path}")
+async def remove_project_article_endpoint(project_id: str, article_path: str) -> dict:
+    from lutz.server import db as _db
+    root = _get_root()
+    _db.remove_article_from_project(root, project_id, article_path)
+    return {"ok": True}
+
+
+# ── Datasets ──────────────────────────────────────────────────────────────────
+
+
+@api.get("/datasets")
+async def list_datasets_endpoint(project_id: str = "") -> dict:
+    from lutz.server import db as _db
+    root = _get_root()
+    pid = project_id or None
+    return {"datasets": _db.list_datasets(root, project_id=pid)}
+
+
+@api.post("/datasets")
+async def create_dataset_endpoint(body: dict) -> dict:
+    from lutz.server import db as _db
+    root = _get_root()
+    name = (body.get("name") or "").strip()[:255]
+    if not name:
+        raise HTTPException(status_code=400, detail="name required")
+    source = (body.get("source") or "").strip()
+    if not source:
+        raise HTTPException(status_code=400, detail="source required")
+    rows = body.get("rows", [])[:500]  # max 500 rows stored
+    dataset = _db.create_dataset(
+        root,
+        name=name,
+        source=source,
+        project_id=body.get("project_id") or None,
+        query=body.get("query") or None,
+        columns=body.get("columns", []),
+        rows=rows,
+        row_count=int(body.get("row_count", 0)),
+        metadata=body.get("metadata") or None,
+    )
+    return {"dataset": dataset}
+
+
+@api.get("/datasets/{dataset_id}")
+async def get_dataset_endpoint(dataset_id: str) -> dict:
+    from lutz.server import db as _db
+    root = _get_root()
+    dataset = _db.get_dataset(root, dataset_id)
+    if dataset is None:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    return {"dataset": dataset}
+
+
+@api.delete("/datasets/{dataset_id}")
+async def delete_dataset_endpoint(dataset_id: str) -> dict:
+    from lutz.server import db as _db
+    root = _get_root()
+    _db.delete_dataset(root, dataset_id)
+    return {"ok": True}
+
+
+# ── Store catalog metadata ────────────────────────────────────────────────────
+
+_CATALOG_COLUMN_DESCRIPTIONS: dict[str, dict[str, str]] = {
+    "articles": {
+        "filename": "Nome do arquivo PDF",
+        "chunk_index": "Índice do chunk no documento",
+        "page": "Página do PDF",
+        "char_start": "Posição do caractere inicial no texto",
+        "section": "Seção inferida do documento",
+        "text": "Conteúdo textual do chunk",
+        "embedding": "Vetor de embedding semântico",
+        "vectorized_at": "Timestamp de vetorização (ISO 8601)",
+        "embedding_model": "Modelo usado para gerar o embedding",
+        "embedding_provider": "Provedor do modelo de embedding",
+        "extraction_backend": "Backend usado para extrair texto do PDF",
+    },
+    "context": {
+        "filename": "Nome do arquivo de contexto",
+        "chunk_index": "Índice do chunk",
+        "page": "Página do arquivo",
+        "text": "Conteúdo do chunk",
+        "embedding": "Vetor de embedding",
+        "vectorized_at": "Timestamp de vetorização (ISO 8601)",
+        "embedding_model": "Modelo usado para gerar o embedding",
+        "embedding_provider": "Provedor do modelo de embedding",
+    },
+    "chat_files": {
+        "filename": "Nome do arquivo carregado no chat",
+        "chunk_index": "Índice do chunk",
+        "page": "Página do arquivo",
+        "text": "Conteúdo do chunk",
+        "embedding": "Vetor de embedding",
+        "vectorized_at": "Timestamp de vetorização (ISO 8601)",
+        "embedding_model": "Modelo usado para gerar o embedding",
+        "embedding_provider": "Provedor do modelo de embedding",
+    },
+}
+
+_CATALOG_TABLE_DESCRIPTIONS: dict[str, str] = {
+    "articles": "Chunks de artigos científicos vetorizados",
+    "context": "Arquivos de contexto para análise",
+    "chat_files": "Arquivos carregados em sessões de chat",
+}
+
+_CATALOG_FALLBACK_COLUMNS: dict[str, list[tuple[str, str]]] = {
+    "articles": [
+        ("filename", "string"),
+        ("chunk_index", "int32"),
+        ("page", "int32"),
+        ("char_start", "int32"),
+        ("section", "string"),
+        ("text", "string"),
+        ("embedding", "float32[N]"),
+        ("vectorized_at", "string"),
+        ("embedding_model", "string"),
+        ("embedding_provider", "string"),
+        ("extraction_backend", "string"),
+    ],
+    "context": [
+        ("filename", "string"),
+        ("chunk_index", "int32"),
+        ("page", "int32"),
+        ("text", "string"),
+        ("embedding", "float32[N]"),
+        ("vectorized_at", "string"),
+        ("embedding_model", "string"),
+        ("embedding_provider", "string"),
+    ],
+    "chat_files": [
+        ("filename", "string"),
+        ("chunk_index", "int32"),
+        ("page", "int32"),
+        ("text", "string"),
+        ("embedding", "float32[N]"),
+        ("vectorized_at", "string"),
+        ("embedding_model", "string"),
+        ("embedding_provider", "string"),
+    ],
+}
+
+
+def _pa_type_to_str(field) -> str:
+    """Convert a PyArrow field type to a human-readable string."""
+    import pyarrow as pa
+
+    t = field.type
+    if pa.types.is_string(t) or pa.types.is_large_string(t):
+        return "string"
+    if pa.types.is_int32(t):
+        return "int32"
+    if pa.types.is_int64(t):
+        return "int64"
+    if pa.types.is_float32(t):
+        return "float32"
+    if pa.types.is_float64(t):
+        return "float64"
+    if pa.types.is_boolean(t):
+        return "bool"
+    if pa.types.is_list(t) or pa.types.is_large_list(t) or pa.types.is_fixed_size_list(t):
+        vtype = t.value_type
+        if pa.types.is_float32(vtype):
+            return "float32[N]"
+        if pa.types.is_float64(vtype):
+            return "float64[N]"
+        return f"list[{vtype}]"
+    return str(t)
+
+
+def _build_catalog_table(
+    table_key: str,
+    db_path: Path,
+    lancedb_table_name: str,
+) -> dict:
+    """Build a single catalog table entry, falling back to static metadata on error."""
+    desc_map = _CATALOG_COLUMN_DESCRIPTIONS.get(table_key, {})
+    fallback_cols = _CATALOG_FALLBACK_COLUMNS.get(table_key, [])
+    table_description = _CATALOG_TABLE_DESCRIPTIONS.get(table_key, table_key)
+
+    try:
+        import lancedb
+
+        db = lancedb.connect(str(db_path))
+        if lancedb_table_name not in db.table_names():
+            raise ValueError("table not present")
+
+        tbl = db.open_table(lancedb_table_name)
+        record_count: int = tbl.count_rows()
+
+        last_updated: str | None = None
+        schema = tbl.schema
+        if "vectorized_at" in schema.names:
+            arrow_tbl = tbl.to_arrow().select(["vectorized_at"])
+            timestamps = [v for v in arrow_tbl.column("vectorized_at").to_pylist() if v]
+            last_updated = max(timestamps) if timestamps else None
+
+        columns = [
+            {
+                "name": field.name,
+                "type": _pa_type_to_str(field),
+                "description": desc_map.get(field.name, ""),
+            }
+            for field in schema
+        ]
+    except Exception:
+        record_count = 0
+        last_updated = None
+        columns = [
+            {"name": name, "type": typ, "description": desc_map.get(name, "")}
+            for name, typ in fallback_cols
+        ]
+
+    return {
+        "name": table_key,
+        "description": table_description,
+        "record_count": record_count,
+        "last_updated": last_updated,
+        "columns": columns,
+    }
+
+
+@api.get("/store/catalog")
+async def get_store_catalog() -> dict:
+    """Return schema and record counts for all LanceDB stores."""
+    root = _get_root()
+    lutz_dir = root / ".lutz"
+
+    store_configs = [
+        ("articles", lutz_dir / "vector_store", "articles"),
+        ("context", lutz_dir / "context_store", "context"),
+        ("chat_files", lutz_dir / "chat_store", "context"),
+    ]
+
+    tables = [_build_catalog_table(k, p, t) for k, p, t in store_configs]
+    return {"tables": tables}
 
 
 # ---------------------------------------------------------------------------

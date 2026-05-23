@@ -1,17 +1,21 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { getProject, type ProjectInfo } from '../api/client'
+import { getProject, listProjects, type ProjectInfo, type Project } from '../api/client'
 import { useLanguage } from '../contexts/LanguageContext'
 
 export default function Home() {
   const [info, setInfo] = useState<ProjectInfo | null>(null)
   const [error, setError] = useState('')
+  const [projects, setProjects] = useState<Project[]>([])
   const { t } = useLanguage()
 
   useEffect(() => {
     getProject()
       .then(setInfo)
       .catch((e) => setError(e.message))
+    listProjects()
+      .then((r) => setProjects(r.projects ?? []))
+      .catch(() => { /* non-critical */ })
   }, [])
 
   const CARDS = [
@@ -78,6 +82,44 @@ export default function Home() {
             <p className="text-sm text-slate-500">{t(descKey)}</p>
           </Link>
         ))}
+      </div>
+
+      {/* Library by project (Feature 3) */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-slate-700">{t('home.projects.title')}</h3>
+          <Link to="/projects" className="text-xs text-lutz-600 hover:text-lutz-700 hover:underline transition-colors">
+            {t('home.projects.viewAll')} →
+          </Link>
+        </div>
+        {projects.length === 0 ? (
+          <p className="text-xs text-slate-400">{t('home.projects.empty')}</p>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+            {projects.map((p) => (
+              <Link
+                key={p.id}
+                to="/projects"
+                className="card flex items-center gap-3 hover:shadow-md transition-shadow group py-3 px-4"
+              >
+                <div
+                  className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 text-sm font-bold text-white"
+                  style={{ backgroundColor: p.color }}
+                >
+                  {p.name.charAt(0).toUpperCase()}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-slate-700 truncate group-hover:text-lutz-600 transition-colors">
+                    {p.name}
+                  </p>
+                  <p className="text-[10px] text-slate-400">
+                    {p.article_count} {t('home.projects.articles')}
+                  </p>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )

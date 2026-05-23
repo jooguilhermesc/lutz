@@ -48,3 +48,9 @@ lutz/web/
 dist/
 build/
 *.spec.bak
+
+# Claude Code local config (agents, settings — stays local)
+.claude/
+
+# Dev prototypes / scratch files
+chat-ai-prototype.html

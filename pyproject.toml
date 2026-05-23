@@ -49,6 +49,7 @@ dependencies = [
     "python-pptx>=1.0",
     "weasyprint>=60",
     "duckdb>=1.0",
+    "sqlglot>=23.0",
 ]
 
 [project.optional-dependencies]

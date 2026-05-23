@@ -10,6 +10,7 @@ import Chat from './pages/Chat'
 import Reports from './pages/Reports'
 import Settings from './pages/Settings'
 import Analytics from './pages/Analytics'
+import Projects from './pages/Projects'
 
 export default function App() {
   return (
@@ -25,6 +26,7 @@ export default function App() {
           <Route path="roadmap" element={<Roadmap />} />
           <Route path="chat" element={<Chat />} />
           <Route path="reports" element={<Reports />} />
+          <Route path="projects" element={<Projects />} />
           <Route path="settings" element={<Settings />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

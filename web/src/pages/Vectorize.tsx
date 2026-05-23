@@ -2,12 +2,18 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { Document, Page, pdfjs } from 'react-pdf'
 import 'react-pdf/dist/Page/AnnotationLayer.css'
 import 'react-pdf/dist/Page/TextLayer.css'
-import { listArticles, uploadArticles, deleteArticle, deleteAllArticles, getArticleFileUrl, suggestArticleRename, renameArticle, type Article } from '../api/client'
+import {
+  listArticles, uploadArticles, deleteArticle, deleteAllArticles,
+  getArticleFileUrl, suggestArticleRename, renameArticle,
+  listProjects, listProjectArticles, addArticlesToProject,
+  type Article, type Project,
+} from '../api/client'
 import StreamLog from '../components/StreamLog'
 import { useLanguage } from '../contexts/LanguageContext'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { useNotifications } from '../contexts/NotificationsContext'
 import ActiveJobPanel from '../components/ActiveJobPanel'
+import CollapsibleSection from '../components/CollapsibleSection'
 
 // Configure PDF.js worker (CDN matching the installed pdfjs-dist version)
 pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
@@ -176,11 +182,12 @@ function PdfReaderModal({ article, onClose }: { article: Article; onClose: () =>
 // ── Article card (thumbnail view) ─────────────────────────────────────────────
 
 function ArticleCard({
-  article, onOpen, onDelete,
+  article, onOpen, onDelete, projectBadge,
 }: {
   article: Article
   onOpen: () => void
   onDelete: () => void
+  projectBadge?: { name: string; color: string } | null
 }) {
   const url = getArticleFileUrl(article.name)
   return (
@@ -197,6 +204,15 @@ function ArticleCard({
       <div className="px-3 py-2 flex-1 flex flex-col gap-0.5">
         <p className="text-xs font-medium text-slate-700 line-clamp-2 leading-tight">{article.name}</p>
         <p className="text-[10px] text-slate-400">{fmt(article.size)}</p>
+        {projectBadge && (
+          <span
+            className="mt-1 self-start text-[9px] font-medium px-1.5 py-0.5 rounded-full text-white truncate max-w-full"
+            style={{ backgroundColor: projectBadge.color }}
+            title={projectBadge.name}
+          >
+            {projectBadge.name}
+          </span>
+        )}
       </div>
 
       {/* Delete button */}
@@ -405,30 +421,97 @@ export default function Vectorize() {
   const [skipSecurity, setSkipSecurity] = useState(false)
   const [sectionParse, setSectionParse] = useState(false)
   const [quarantine, setQuarantine] = useState(false)
+  const [extractionBackend, setExtractionBackend] = useState<'pymupdf' | 'marker' | 'auto'>('pymupdf')
 
-  const load = () => {
+  // Project association state (Feature 1)
+  const [projects, setProjects] = useState<Project[]>([])
+  const [selectedArticles, setSelectedArticles] = useState<Set<string>>(new Set())
+  const [associatingProject, setAssociatingProject] = useState('')
+  const [associating, setAssociating] = useState(false)
+  // article name -> project { name, color } map
+  const [articleProjectMap, setArticleProjectMap] = useState<Map<string, { name: string; color: string }>>(new Map())
+
+  // Vectorization scope state (Feature 2)
+  const [vectorizeScope, setVectorizeScope] = useState<'all' | 'project'>('all')
+  const [vectorizeScopeProject, setVectorizeScopeProject] = useState('')
+
+  const loadProjects = useCallback(async () => {
+    const { projects: list } = await listProjects()
+    setProjects(list)
+    // Build article→project map in parallel
+    if (list.length > 0) {
+      const entries = await Promise.all(
+        list.map(async (p) => {
+          try {
+            const { articles: paths } = await listProjectArticles(p.id)
+            return paths.map((path) => [path, { name: p.name, color: p.color }] as [string, { name: string; color: string }])
+          } catch {
+            return []
+          }
+        })
+      )
+      setArticleProjectMap(new Map(entries.flat()))
+    } else {
+      setArticleProjectMap(new Map())
+    }
+  }, [])
+
+  const load = useCallback(() => {
     listArticles().then((r) => setArticles(r.articles ?? []))
-  }
-  useEffect(() => { load() }, [])
+  }, [])
+
+  useEffect(() => {
+    load()
+    loadProjects()
+  }, [load, loadProjects])
 
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files
     if (!files?.length) return
     setUploading(true)
     await uploadArticles(files)
-    await load()
+    load()
     setUploading(false)
     if (fileRef.current) fileRef.current.value = ''
   }
 
   async function handleDelete(name: string) {
     await deleteArticle(name)
-    await load()
+    load()
   }
 
   async function handleDeleteAll() {
     await deleteAllArticles()
-    await load()
+    load()
+  }
+
+  function toggleArticleSelect(name: string) {
+    setSelectedArticles((prev) => {
+      const next = new Set(prev)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return next
+    })
+  }
+
+  function toggleSelectAll() {
+    if (selectedArticles.size === articles.length) {
+      setSelectedArticles(new Set())
+    } else {
+      setSelectedArticles(new Set(articles.map((a) => a.name)))
+    }
+  }
+
+  async function handleAssociateToProject() {
+    if (!associatingProject || selectedArticles.size === 0) return
+    setAssociating(true)
+    try {
+      await addArticlesToProject(associatingProject, Array.from(selectedArticles))
+      await loadProjects()
+      setSelectedArticles(new Set())
+    } finally {
+      setAssociating(false)
+    }
   }
 
   async function startVectorize() {
@@ -437,13 +520,19 @@ export default function Vectorize() {
     setRunning(true)
     setDispatched(false)
     try {
-      const job = await dispatchJob('vectorize', {
+      // TODO: backend needs to support project_id filtering in the vectorize endpoint
+      const jobBody: Record<string, unknown> = {
         chunk_size: chunkSize,
         chunk_overlap: chunkOverlap,
         skip_security: skipSecurity,
         section_parse: sectionParse,
         quarantine,
-      })
+        extraction_backend: extractionBackend,
+      }
+      if (vectorizeScope === 'project' && vectorizeScopeProject) {
+        jobBody.project_id = vectorizeScopeProject
+      }
+      const job = await dispatchJob('vectorize', jobBody)
       setDispatched(true)
       // Subscribe to live log stream while on this page
       const ctrl = new AbortController()
@@ -543,8 +632,9 @@ export default function Vectorize() {
       </div>
 
       {tab === 'articles' && (
+        <CollapsibleSection title={t('vectorize.tab.articles')} storageKey="vectorize_articles">
         <div className="space-y-4">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <label className="btn-primary cursor-pointer">
               {uploading ? t('vectorize.uploading') : t('vectorize.upload')}
               <input ref={fileRef} type="file" accept=".pdf" multiple className="hidden" onChange={handleUpload} disabled={uploading} />
@@ -598,6 +688,38 @@ export default function Vectorize() {
             )}
           </div>
 
+          {/* Project association bar (Feature 1) */}
+          {articles.length > 0 && projects.length > 0 && (
+            <div className="flex items-center gap-2 flex-wrap p-3 bg-slate-50 rounded-xl border border-slate-200">
+              <span className="text-xs font-medium text-slate-600">{t('vectorize.project.selector')}:</span>
+              <select
+                className="input text-xs py-1 h-auto"
+                value={associatingProject}
+                onChange={(e) => setAssociatingProject(e.target.value)}
+              >
+                <option value="">{t('vectorize.project.none')}</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+              <button
+                className="btn-primary text-xs py-1 px-3"
+                disabled={!associatingProject || selectedArticles.size === 0 || associating}
+                onClick={handleAssociateToProject}
+              >
+                {associating ? t('vectorize.project.associating') : `${t('vectorize.project.associate')} (${selectedArticles.size})`}
+              </button>
+              {selectedArticles.size > 0 && (
+                <button
+                  className="btn-ghost text-xs py-1"
+                  onClick={() => setSelectedArticles(new Set())}
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          )}
+
           {articles.length === 0 ? (
             <div className="text-slate-400 text-sm py-8 text-center">
               {t('vectorize.empty')}
@@ -607,48 +729,113 @@ export default function Vectorize() {
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 text-xs text-slate-500 uppercase tracking-wide">
                   <tr>
+                    {projects.length > 0 && (
+                      <th className="px-3 py-2 w-8">
+                        <input
+                          type="checkbox"
+                          className="rounded"
+                          checked={selectedArticles.size === articles.length && articles.length > 0}
+                          onChange={toggleSelectAll}
+                          title="Selecionar todos"
+                        />
+                      </th>
+                    )}
                     <th className="text-left px-4 py-2">{t('vectorize.col.file')}</th>
+                    <th className="text-left px-4 py-2 hidden sm:table-cell">Projeto</th>
                     <th className="text-right px-4 py-2">{t('vectorize.col.size')}</th>
                     <th className="px-4 py-2" />
                   </tr>
                 </thead>
                 <tbody>
-                  {articles.map((a) => (
-                    <tr
-                      key={a.name}
-                      className="border-t border-slate-100 hover:bg-slate-50 cursor-pointer"
-                      onClick={() => setOpenArticle(a)}
-                    >
-                      <td className="px-4 py-2 font-medium text-slate-700 break-all">
-                        <span className="text-lutz-600 hover:underline">{a.name}</span>
-                      </td>
-                      <td className="px-4 py-2 text-right text-slate-400 whitespace-nowrap">{fmt(a.size)}</td>
-                      <td className="px-4 py-2 text-right" onClick={(e) => e.stopPropagation()}>
-                        <button onClick={() => setConfirmDelete(a)} className="text-red-400 hover:text-red-600 text-xs">
-                          {t('vectorize.remove')}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  {articles.map((a) => {
+                    const badge = articleProjectMap.get(a.name)
+                    return (
+                      <tr
+                        key={a.name}
+                        className={`border-t border-slate-100 hover:bg-slate-50 cursor-pointer ${
+                          selectedArticles.has(a.name) ? 'bg-lutz-50' : ''
+                        }`}
+                        onClick={() => setOpenArticle(a)}
+                      >
+                        {projects.length > 0 && (
+                          <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              className="rounded"
+                              checked={selectedArticles.has(a.name)}
+                              onChange={() => toggleArticleSelect(a.name)}
+                            />
+                          </td>
+                        )}
+                        <td className="px-4 py-2 font-medium text-slate-700 break-all">
+                          <span className="text-lutz-600 hover:underline">{a.name}</span>
+                        </td>
+                        <td className="px-4 py-2 hidden sm:table-cell">
+                          {badge ? (
+                            <span
+                              className="text-[10px] font-medium px-2 py-0.5 rounded-full text-white"
+                              style={{ backgroundColor: badge.color }}
+                            >
+                              {badge.name}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-slate-300">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2 text-right text-slate-400 whitespace-nowrap">{fmt(a.size)}</td>
+                        <td className="px-4 py-2 text-right" onClick={(e) => e.stopPropagation()}>
+                          <button onClick={() => setConfirmDelete(a)} className="text-red-400 hover:text-red-600 text-xs">
+                            {t('vectorize.remove')}
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
               {articles.map((a) => (
-                <ArticleCard
+                <div
                   key={a.name}
-                  article={a}
-                  onOpen={() => setOpenArticle(a)}
-                  onDelete={() => setConfirmDelete(a)}
-                />
+                  className="relative"
+                  onClick={(e) => {
+                    if (projects.length > 0) {
+                      e.stopPropagation()
+                      toggleArticleSelect(a.name)
+                    }
+                  }}
+                >
+                  {projects.length > 0 && (
+                    <div
+                      className="absolute top-1.5 left-1.5 z-10"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <input
+                        type="checkbox"
+                        className="rounded shadow"
+                        checked={selectedArticles.has(a.name)}
+                        onChange={() => toggleArticleSelect(a.name)}
+                      />
+                    </div>
+                  )}
+                  <ArticleCard
+                    article={a}
+                    onOpen={() => setOpenArticle(a)}
+                    onDelete={() => setConfirmDelete(a)}
+                    projectBadge={articleProjectMap.get(a.name) ?? null}
+                  />
+                </div>
               ))}
             </div>
           )}
         </div>
+        </CollapsibleSection>
       )}
 
       {tab === 'vectorize' && (
+        <CollapsibleSection title={t('vectorize.tab.vectorize')} storageKey="vectorize_options">
         <div className="space-y-6">
           <div className="card grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
@@ -659,6 +846,62 @@ export default function Vectorize() {
               <label className="label">{t('vectorize.opt.chunkOverlap')}</label>
               <input type="number" className="input" value={chunkOverlap} onChange={(e) => setChunkOverlap(+e.target.value)} min={0} max={512} />
             </div>
+            <div className="sm:col-span-2">
+              <label className="label">{t('vectorize.opt.extractionBackend')}</label>
+              <select
+                className="input"
+                value={extractionBackend}
+                onChange={(e) => setExtractionBackend(e.target.value as 'pymupdf' | 'marker' | 'auto')}
+              >
+                <option value="pymupdf">{t('vectorize.opt.extraction.pymupdf')}</option>
+                <option value="marker">{t('vectorize.opt.extraction.marker')}</option>
+                <option value="auto">{t('vectorize.opt.extraction.auto')}</option>
+              </select>
+            </div>
+
+            {/* Vectorization scope (Feature 2) */}
+            {projects.length > 0 && (
+              <div className="sm:col-span-2">
+                <label className="label">{t('vectorize.project.scope.label')}</label>
+                <div className="flex flex-col gap-2 mt-1">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="vectorize-scope"
+                      value="all"
+                      checked={vectorizeScope === 'all'}
+                      onChange={() => setVectorizeScope('all')}
+                    />
+                    <span className="text-sm">{t('vectorize.project.scope.all')}</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="vectorize-scope"
+                      value="project"
+                      checked={vectorizeScope === 'project'}
+                      onChange={() => setVectorizeScope('project')}
+                    />
+                    <span className="text-sm">{t('vectorize.project.scope.project')}</span>
+                    <select
+                      className="input text-xs py-1 h-auto ml-1"
+                      value={vectorizeScopeProject}
+                      onChange={(e) => {
+                        setVectorizeScopeProject(e.target.value)
+                        if (e.target.value) setVectorizeScope('project')
+                      }}
+                      disabled={vectorizeScope !== 'project'}
+                    >
+                      <option value="">— selecione —</option>
+                      {projects.map((p) => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              </div>
+            )}
+
             <div className="flex flex-col gap-2">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" className="rounded" checked={skipSecurity} onChange={(e) => setSkipSecurity(e.target.checked)} />
@@ -699,6 +942,7 @@ export default function Vectorize() {
 
           <StreamLog lines={logs} running={running} />
         </div>
+        </CollapsibleSection>
       )}
     </div>
   )

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { getConfig, saveConfig, type Config } from '../api/client'
 import { useLanguage } from '../contexts/LanguageContext'
 import { LANG_NAMES, type Lang } from '../i18n'
+import CollapsibleSection from '../components/CollapsibleSection'
 
 const LLM_PROVIDERS = [
   { value: 'openai',              label: 'OpenAI / OpenRouter' },
@@ -133,84 +134,87 @@ export default function Settings() {
       </div>
 
       {/* LLM & Embedding */}
-      <div className="card space-y-4">
-        <h3 className="font-semibold text-slate-700 text-sm">{t('settings.section.llm')}</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {/* Provider dropdowns */}
-          <div>
-            <label className="label">LLM Provider</label>
-            <select className="select" value={llmProvider} onChange={(e) => setLlmProvider(e.target.value)}>
-              {LLM_PROVIDERS.map(({ value, label }) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="label">Embedding Provider</label>
-            <select className="select" value={embProvider} onChange={(e) => setEmbProvider(e.target.value)}>
-              {EMBEDDING_PROVIDERS.map(({ value, label }) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
-          </div>
-          {/* Text fields */}
-          {TEXT_FIELDS.map((f) => (
-            <div key={f.key}>
-              <label className="label">{f.label}</label>
-              <input
-                type={f.type ?? 'text'}
-                className="input"
-                placeholder={f.placeholder}
-                value={form[f.key] ?? ''}
-                onChange={(e) => setForm((prev) => ({ ...prev, [f.key]: e.target.value }))}
-              />
+      <CollapsibleSection title={t('settings.section.llm')} storageKey="settings_llm">
+        <div className="card space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Provider dropdowns */}
+            <div>
+              <label className="label">LLM Provider</label>
+              <select className="select" value={llmProvider} onChange={(e) => setLlmProvider(e.target.value)}>
+                {LLM_PROVIDERS.map(({ value, label }) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
             </div>
-          ))}
+            <div>
+              <label className="label">Embedding Provider</label>
+              <select className="select" value={embProvider} onChange={(e) => setEmbProvider(e.target.value)}>
+                {EMBEDDING_PROVIDERS.map(({ value, label }) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+            </div>
+            {/* Text fields */}
+            {TEXT_FIELDS.map((f) => (
+              <div key={f.key}>
+                <label className="label">{f.label}</label>
+                <input
+                  type={f.type ?? 'text'}
+                  className="input"
+                  placeholder={f.placeholder}
+                  value={form[f.key] ?? ''}
+                  onChange={(e) => setForm((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                />
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      </CollapsibleSection>
 
       {/* API Keys */}
-      <div className="card space-y-4">
-        <h3 className="font-semibold text-slate-700 text-sm">{t('settings.section.keys')}</h3>
-        <p className="text-xs text-slate-400">{t('settings.keys.hint')}</p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {KEY_FIELDS.map(({ envKey, label, hasKey }) => (
-            <div key={envKey}>
-              <label className="label">
-                {label}
-                {cfg[hasKey] && (
-                  <span className="ml-2 text-green-600 font-normal text-xs">{t('settings.key.configured')}</span>
-                )}
-              </label>
-              <input
-                type="password"
-                className="input"
-                placeholder={cfg[hasKey] ? '••••••••••••••••' : 'sk-...'}
-                value={apiKeys[envKey] ?? ''}
-                onChange={(e) => setApiKeys((prev) => ({ ...prev, [envKey]: e.target.value }))}
-                autoComplete="off"
-              />
-            </div>
-          ))}
+      <CollapsibleSection title={t('settings.section.keys')} storageKey="settings_keys">
+        <div className="card space-y-4">
+          <p className="text-xs text-slate-400">{t('settings.keys.hint')}</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {KEY_FIELDS.map(({ envKey, label, hasKey }) => (
+              <div key={envKey}>
+                <label className="label">
+                  {label}
+                  {cfg[hasKey] && (
+                    <span className="ml-2 text-green-600 font-normal text-xs">{t('settings.key.configured')}</span>
+                  )}
+                </label>
+                <input
+                  type="password"
+                  className="input"
+                  placeholder={cfg[hasKey] ? '••••••••••••••••' : 'sk-...'}
+                  value={apiKeys[envKey] ?? ''}
+                  onChange={(e) => setApiKeys((prev) => ({ ...prev, [envKey]: e.target.value }))}
+                  autoComplete="off"
+                />
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      </CollapsibleSection>
 
       {/* Interface */}
-      <div className="card space-y-3">
-        <h3 className="font-semibold text-slate-700 text-sm">{t('settings.section.ui')}</h3>
-        <label className="flex items-start gap-3 cursor-pointer">
-          <input
-            type="checkbox"
-            className="rounded border-slate-300 text-lutz-500 focus:ring-lutz-400 mt-0.5"
-            checked={showVectorStore}
-            onChange={(e) => setShowVectorStore(e.target.checked)}
-          />
-          <div>
-            <p className="text-sm font-medium text-slate-700">{t('settings.showVectorStore')}</p>
-            <p className="text-xs text-slate-400">{t('settings.showVectorStore.hint')}</p>
-          </div>
-        </label>
-      </div>
+      <CollapsibleSection title={t('settings.section.ui')} storageKey="settings_ui">
+        <div className="card space-y-3">
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              className="rounded border-slate-300 text-lutz-500 focus:ring-lutz-400 mt-0.5"
+              checked={showVectorStore}
+              onChange={(e) => setShowVectorStore(e.target.checked)}
+            />
+            <div>
+              <p className="text-sm font-medium text-slate-700">{t('settings.showVectorStore')}</p>
+              <p className="text-xs text-slate-400">{t('settings.showVectorStore.hint')}</p>
+            </div>
+          </label>
+        </div>
+      </CollapsibleSection>
 
       {/* Actions */}
       <div className="flex items-center gap-4">

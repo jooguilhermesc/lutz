@@ -27,8 +27,8 @@ IS_WINDOWS = sys.platform == "win32"
 datas = [
     # React SPA static files
     (str(HERE / "lutz" / "web"), "lutz/web"),
-    # Default prompts shipped with the package (if any)
-    # (str(HERE / "lutz" / "prompts"), "lutz/prompts"),
+    # Security pattern catalogues (ATLAS T0051/T0054/T0070 + PII)
+    (str(HERE / "lutz" / "security"), "lutz/security"),
 ]
 
 # ── Hidden imports ────────────────────────────────────────────────────────────
@@ -66,6 +66,17 @@ hidden_imports = [
     "pypdf",
     "pdfplumber",
     "fitz",       # pymupdf
+    # marker-pdf (OCR + multi-column layout — bundled in binary)
+    "marker",
+    "marker.converters",
+    "marker.converters.pdf",
+    "marker.models",
+    "marker.output",
+    "surya",
+    "surya.ocr",
+    "surya.layout",
+    "surya.detection",
+    "surya.recognition",
     # DB
     "lancedb",
     "pyarrow",

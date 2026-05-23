@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 import click
@@ -19,7 +18,7 @@ from lutz.utils.templates import (
 
 console = Console()
 
-_PROJECT_DIRS = ["articles", "prompts", "analysis/execution_reports"]
+_PROJECT_DIRS = ["articles", "prompts", "analysis/execution_reports", "reports"]
 
 
 @click.command()
@@ -114,6 +113,7 @@ def init(project_name: str) -> None:
             border_style="green",
         )
     )
+
 
 
 def _write(path: Path, content: str) -> None:
