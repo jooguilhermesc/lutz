@@ -35,7 +35,7 @@ export default function Layout() {
           <div className="w-px h-6 bg-white/10 flex-shrink-0" />
 
           {/* Nav links */}
-          <nav className="flex items-center gap-0.5 overflow-x-auto flex-1">
+          <nav className="flex items-center justify-center gap-0.5 overflow-x-auto flex-1">
             {NAV.map(({ to, label, icon }) => (
               <NavLink
                 key={to}
