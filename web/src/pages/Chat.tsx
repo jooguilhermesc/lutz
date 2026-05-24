@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
   listChatSessions, createChatSession, getChatSession,
-  renameChatSession, deleteChatSession, sendSessionMessage,
+  renameChatSession, deleteChatSession, streamSessionMessage,
   listChatMemory, addChatMemory, deleteChatMemory,
   listChatFiles, uploadChatFiles, deleteChatFile, resetChatStore,
   listContextFiles, uploadContextFiles, deleteContextFile,
@@ -681,21 +681,39 @@ export default function Chat() {
     setLoading(true)
     setHasStarted(true)
 
+    // Add empty assistant message immediately so typing indicator shows
+    setMessages((prev) => [...prev, { role: 'assistant', content: '' }])
+    const assistantIdx = messages.length + 1
+
+    let accumulated = ''
     try {
-      const result = await sendSessionMessage(sessionId, text, options, reportLang)
-      const assistantMsg: ChatMessage = { role: 'assistant', content: result.response }
-      const idx = messages.length + 1
-      setMessages((prev) => [...prev, assistantMsg])
-      if (result.sources.length) setSourcesMap((prev) => ({ ...prev, [idx]: result.sources }))
-      if (result.thinking_content) setThinkingMap((prev) => ({ ...prev, [idx]: result.thinking_content! }))
-      setReasoningMap((prev) => ({ ...prev, [idx]: options.reasoning_level }))
-      setSessions((prev) => prev.map((s) =>
-        s.id === sessionId
-          ? { ...s, title: result.title, message_count: s.message_count + 2, updated_at: new Date().toISOString() }
-          : s
-      ))
+      for await (const event of streamSessionMessage(sessionId, text, options, reportLang)) {
+        if (event.type === 'token') {
+          accumulated += event.content as string
+          setMessages((prev) => {
+            const copy = [...prev]
+            copy[copy.length - 1] = { ...copy[copy.length - 1], content: accumulated }
+            return copy
+          })
+        }
+        if (event.type === 'sources') {
+          setSourcesMap((prev) => ({ ...prev, [assistantIdx]: event.sources as ChatSource[] }))
+        }
+        if (event.type === 'done') {
+          setSessions((prev) => prev.map((s) =>
+            s.id === sessionId
+              ? { ...s, title: event.title as string, message_count: s.message_count + 2, updated_at: new Date().toISOString() }
+              : s
+          ))
+        }
+      }
+      setReasoningMap((prev) => ({ ...prev, [assistantIdx]: options.reasoning_level }))
     } catch (err) {
-      setMessages((prev) => [...prev, { role: 'assistant', content: `⚠ ${(err as Error).message}` }])
+      setMessages((prev) => {
+        const copy = [...prev]
+        copy[copy.length - 1] = { role: 'assistant', content: `⚠ ${(err as Error).message}` }
+        return copy
+      })
     } finally {
       setLoading(false)
     }
@@ -727,19 +745,39 @@ export default function Chat() {
         }
         const optimisticMsg: ChatMessage = { role: 'user', content: trimmed }
         setMessages((prev) => [...prev, optimisticMsg])
+
+        // Add empty assistant message immediately
+        setMessages((prev) => [...prev, { role: 'assistant', content: '' }])
+        const assistantIdx = messages.length + 1
+
+        let accumulated = ''
         try {
-          const result = await sendSessionMessage(sessionId, trimmed, options, reportLang)
-          const assistantMsg: ChatMessage = { role: 'assistant', content: result.response }
-          const idx = messages.length + 1
-          setMessages((prev) => [...prev, assistantMsg])
-          if (result.sources.length) setSourcesMap((prev) => ({ ...prev, [idx]: result.sources }))
-          setSessions((prev) => prev.map((s) =>
-            s.id === sessionId
-              ? { ...s, title: result.title, message_count: s.message_count + 2, updated_at: new Date().toISOString() }
-              : s
-          ))
+          for await (const event of streamSessionMessage(sessionId, trimmed, options, reportLang)) {
+            if (event.type === 'token') {
+              accumulated += event.content as string
+              setMessages((prev) => {
+                const copy = [...prev]
+                copy[copy.length - 1] = { ...copy[copy.length - 1], content: accumulated }
+                return copy
+              })
+            }
+            if (event.type === 'sources') {
+              setSourcesMap((prev) => ({ ...prev, [assistantIdx]: event.sources as ChatSource[] }))
+            }
+            if (event.type === 'done') {
+              setSessions((prev) => prev.map((s) =>
+                s.id === sessionId
+                  ? { ...s, title: event.title as string, message_count: s.message_count + 2, updated_at: new Date().toISOString() }
+                  : s
+              ))
+            }
+          }
         } catch (err) {
-          setMessages((prev) => [...prev, { role: 'assistant', content: `⚠ ${(err as Error).message}` }])
+          setMessages((prev) => {
+            const copy = [...prev]
+            copy[copy.length - 1] = { role: 'assistant', content: `⚠ ${(err as Error).message}` }
+            return copy
+          })
         } finally {
           setLoading(false)
         }
@@ -888,7 +926,7 @@ export default function Chat() {
                     />
                   ))
                 )}
-                {loading && (
+                {loading && messages[messages.length - 1]?.content === '' && (
                   <div className="message assistant">
                     <div className="message-avatar">✦</div>
                     <div className="message-content">
