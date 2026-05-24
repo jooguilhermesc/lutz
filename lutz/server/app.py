@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncIterator, Literal
 
-from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.routing import APIRouter
 from fastapi.staticfiles import StaticFiles
@@ -28,6 +28,10 @@ from fastapi.staticfiles import StaticFiles
 from lutz.core.vector_store import VectorStore
 from lutz.core.context_store import ContextStore
 from lutz.utils.project import find_project_root, load_env
+from lutz.agent.conversation import ConversationManager
+
+# Singleton ConversationManager — session state lives in the process.
+_conversation_manager = ConversationManager()
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -2141,6 +2145,112 @@ async def get_store_catalog() -> dict:
 
     tables = [_build_catalog_table(k, p, t) for k, p, t in store_configs]
     return {"tables": tables}
+
+
+# ── Agent ─────────────────────────────────────────────────────────────────────
+
+
+@api.get("/agent/tools")
+async def list_agent_tools() -> dict:
+    """Return all registered agent tools with their JSON Schema definitions."""
+    from lutz.agent.tools import get_tool_registry
+    registry = get_tool_registry()
+    return {"tools": registry.list_tools()}
+
+
+@api.get("/agent/model-profiles")
+async def list_model_profiles() -> dict:
+    """Return all model profiles from the ModelSelector catalogue."""
+    from lutz.agent.model_router import ModelRouter
+    router = ModelRouter()
+    return {"profiles": router.selector._profiles}
+
+
+@api.get("/agent/sessions")
+async def list_agent_sessions() -> dict:
+    """List all chat sessions (agent sessions share the same table)."""
+    from lutz.server import db as _db
+    root = _get_root()
+    return {"sessions": _db.list_sessions(root)}
+
+
+@api.get("/agent/sessions/{session_id}")
+async def get_agent_session(session_id: str) -> dict:
+    """Return a single agent session with its message history."""
+    from lutz.server import db as _db
+    root = _get_root()
+    session = _db.get_session(root, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"session": session}
+
+
+@api.post("/agent/chat")
+async def agent_chat(request: Request) -> dict:
+    """Process a message through the AgentOrchestrator and return the response.
+
+    Body fields:
+      message (str, required): the user's natural language message
+      session_id (str, optional): existing session UUID; a new one is generated if absent
+
+    Returns:
+      session_id, response, state, plan, awaiting_confirmation, step_result
+    """
+    import asyncio as _asyncio
+
+    from lutz.agent.orchestrator import AgentOrchestrator
+    from lutz.agent.tools import get_tool_registry
+    from lutz.agent.model_router import ModelRouter
+    from lutz.core.llm_client import LLMClient
+    from lutz.server import db as _db
+
+    _MAX_AGENT_MESSAGE_CHARS = 8000
+
+    body = await request.json()
+    user_message: str = (body.get("message") or "").strip()
+    if not user_message:
+        raise HTTPException(status_code=400, detail="message required")
+    if len(user_message) > _MAX_AGENT_MESSAGE_CHARS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"message exceeds {_MAX_AGENT_MESSAGE_CHARS} characters",
+        )
+
+    session_id: str = body.get("session_id") or str(uuid.uuid4())
+    root = _get_root()
+
+    def _process() -> dict:
+        env = load_env(root)
+        llm = LLMClient.from_env(env)
+        registry = get_tool_registry()
+        router = ModelRouter()
+        orch = AgentOrchestrator(llm, registry, router, _conversation_manager)
+        return orch.process_message(session_id, user_message, vector_store=None)
+
+    result = await asyncio.get_event_loop().run_in_executor(None, _process)
+
+    # Persist user message and assistant response to SQLite (best-effort)
+    try:
+        session = _db.get_session(root, session_id)
+        if session is None:
+            _db.create_session(root, user_message[:60])
+            # Re-query to get the auto-created session record after potential race
+            session = _db.get_session(root, session_id)
+        _db.add_message(root, session_id, "user", user_message)
+        _db.add_message(
+            root,
+            session_id,
+            "assistant",
+            result.get("response", ""),
+        )
+        _db.update_session_updated_at(root, session_id)
+    except Exception:
+        pass  # Never crash the request on DB persistence failure
+
+    return {
+        "session_id": session_id,
+        **result,
+    }
 
 
 # ---------------------------------------------------------------------------
