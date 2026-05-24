@@ -77,19 +77,53 @@ def _handle_search_corpus(arguments: dict, vector_store=None) -> list[dict]:
     ]
 
 
-def _handle_analyze_corpus(arguments: dict, vector_store=None) -> dict:
-    """Queue a corpus analysis job (stub — Sprint 4 integration)."""
-    return {"status": "queued", "job_id": str(uuid.uuid4())}
+def _handle_analyze_corpus(arguments: dict, vector_store=None, job_manager=None) -> dict:
+    """Queue a corpus analysis job via JobManager when available."""
+    if job_manager is None:
+        return {"status": "queued", "job_id": str(uuid.uuid4()), "note": "no job_manager"}
+
+    prompt = arguments.get("prompt", "")
+    mode = arguments.get("mode", "rag")
+    top_k = int(arguments.get("top_k", 5))
+    workers = int(arguments.get("workers", 2))
+    language = arguments.get("language", "pt")
+
+    body = {
+        "prompt": prompt,
+        "mode": mode,
+        "top_k": top_k,
+        "workers": workers,
+        "language": language,
+        "output_name": f"agent_{uuid.uuid4().hex[:8]}",
+    }
+    job = job_manager.create("analysis", f"Análise: {prompt[:40]}", body)
+    return {"status": "queued", "job_id": job.id, "job_type": "analysis"}
 
 
-def _handle_extract_citations(arguments: dict, vector_store=None) -> dict:
-    """Queue a citation extraction job (stub — Sprint 4 integration)."""
-    return {"status": "queued", "job_id": str(uuid.uuid4())}
+def _handle_extract_citations(arguments: dict, vector_store=None, job_manager=None) -> dict:
+    """Queue a citation extraction job via JobManager when available."""
+    if job_manager is None:
+        return {"status": "queued", "job_id": str(uuid.uuid4()), "note": "no job_manager"}
+
+    body = {
+        "report_path": arguments.get("report_path", ""),
+        "language": arguments.get("language", "pt"),
+    }
+    job = job_manager.create("citations", "Extração de citações", body)
+    return {"status": "queued", "job_id": job.id, "job_type": "citations"}
 
 
-def _handle_generate_roadmap(arguments: dict, vector_store=None) -> dict:
-    """Queue a reading roadmap generation job (stub — Sprint 4 integration)."""
-    return {"status": "queued", "job_id": str(uuid.uuid4())}
+def _handle_generate_roadmap(arguments: dict, vector_store=None, job_manager=None) -> dict:
+    """Queue a reading roadmap generation job via JobManager when available."""
+    if job_manager is None:
+        return {"status": "queued", "job_id": str(uuid.uuid4()), "note": "no job_manager"}
+
+    body = {
+        "report_path": arguments.get("report_path", ""),
+        "language": arguments.get("language", "pt"),
+    }
+    job = job_manager.create("roadmap", "Geração de roadmap", body)
+    return {"status": "queued", "job_id": job.id, "job_type": "roadmap"}
 
 
 def _handle_query_analytics(arguments: dict, vector_store=None) -> dict:
@@ -337,7 +371,7 @@ class ToolRegistry:
             for t in self._tools.values()
         ]
 
-    def execute(self, name: str, arguments: dict, vector_store=None) -> Any:
+    def execute(self, name: str, arguments: dict, vector_store=None, job_manager=None) -> Any:
         """Execute a tool by name with the given arguments.
 
         Parameters
@@ -348,6 +382,8 @@ class ToolRegistry:
             Tool input dict (validated against the tool's JSON Schema by the caller).
         vector_store:
             Optional VectorStore instance injected at call time.
+        job_manager:
+            Optional JobManager instance injected at call time (Sprint 4).
 
         Raises
         ------
@@ -355,7 +391,13 @@ class ToolRegistry:
             When `name` is not registered.
         """
         tool = self.get(name)  # raises ToolNotFoundError on miss
-        return tool.handler(arguments, vector_store=vector_store)
+        import inspect
+        sig = inspect.signature(tool.handler)
+        params = sig.parameters
+        kwargs: dict[str, Any] = {"vector_store": vector_store}
+        if "job_manager" in params:
+            kwargs["job_manager"] = job_manager
+        return tool.handler(arguments, **kwargs)
 
 
 # ---------------------------------------------------------------------------

@@ -279,7 +279,9 @@ def test_execution_engine_executes_tool():
     step = {"step": 1, "tool": "inspect_corpus", "arguments": {}, "rationale": "teste"}
     result = engine.execute_step(step)
 
-    registry.execute.assert_called_once_with("inspect_corpus", {}, None)
+    registry.execute.assert_called_once_with(
+        "inspect_corpus", {}, vector_store=None, job_manager=None
+    )
     assert result == {"article_count": 5}
 
 

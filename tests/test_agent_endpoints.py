@@ -175,7 +175,9 @@ class TestAgentChatEndpoint:
         session_id = "persistent-session-abc"
         call_count = []
 
-        def fake_process_message(self_or_sid, sid_or_msg=None, msg_or_vs=None, vector_store=None):
+        def fake_process_message(
+            self_or_sid, sid_or_msg=None, msg_or_vs=None, vector_store=None, job_manager=None
+        ):
             # patch.object on a class passes (self, session_id, user_message, ...)
             # We just need to track calls and return a valid result.
             call_count.append(1)
