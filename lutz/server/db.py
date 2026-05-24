@@ -78,6 +78,7 @@ def init_db(root: Path) -> None:
         migrate_sessions(root, conn)
         migrate_memory(root, conn)
 
+    migrate_memory_schema(root)
     migrate_agent_schema(root)
 
 
@@ -301,8 +302,34 @@ def get_messages(root: Path, session_id: str) -> list[dict]:
 def list_memory(root: Path) -> list[dict]:
     with get_db(root) as conn:
         rows = conn.execute(
-            "SELECT id, text, session_id, source, extracted_at_count, created_at "
+            "SELECT id, text, session_id, source, extracted_at_count, created_at, "
+            "project_path, COALESCE(content, text) AS content, updated_at "
             "FROM chat_memory ORDER BY created_at DESC"
+        ).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+def get_memories(
+    root: Path,
+    session_id: str | None = None,
+    project_path: str | None = None,
+) -> list[dict]:
+    """Return memories, optionally filtered by session_id and/or project_path."""
+    clauses: list[str] = []
+    params: list[Any] = []
+    if session_id is not None:
+        clauses.append("session_id = ?")
+        params.append(session_id)
+    if project_path is not None:
+        clauses.append("project_path = ?")
+        params.append(project_path)
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    with get_db(root) as conn:
+        rows = conn.execute(
+            f"SELECT id, text, session_id, source, extracted_at_count, created_at, "
+            f"project_path, COALESCE(content, text) AS content, updated_at "
+            f"FROM chat_memory {where} ORDER BY created_at DESC",
+            params,
         ).fetchall()
     return [_row_to_dict(r) for r in rows]
 
@@ -313,23 +340,49 @@ def add_memory(
     session_id: str | None,
     source: str,
     extracted_at_count: int | None = None,
+    project_path: str | None = None,
 ) -> dict:
     now = _now()
     mid = str(uuid.uuid4())
     with get_db(root) as conn:
         conn.execute(
-            "INSERT INTO chat_memory (id, text, session_id, source, extracted_at_count, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (mid, text, session_id or None, source, extracted_at_count, now),
+            "INSERT INTO chat_memory "
+            "(id, text, session_id, source, extracted_at_count, created_at, project_path, content, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (mid, text, session_id or None, source, extracted_at_count, now, project_path, text, now),
         )
     return {
         "id": mid,
         "text": text,
+        "content": text,
         "session_id": session_id,
         "source": source,
         "extracted_at_count": extracted_at_count,
         "created_at": now,
+        "project_path": project_path,
+        "updated_at": now,
     }
+
+
+def update_memory(root: Path, memory_id: str, content: str) -> dict:
+    """Update the content of an existing memory entry. Returns updated record or raises KeyError."""
+    now = _now()
+    with get_db(root) as conn:
+        row = conn.execute(
+            "SELECT id, text, session_id, source, extracted_at_count, created_at, project_path "
+            "FROM chat_memory WHERE id=?",
+            (memory_id,),
+        ).fetchone()
+        if row is None:
+            raise KeyError(f"Memory {memory_id!r} not found")
+        conn.execute(
+            "UPDATE chat_memory SET content=?, text=?, updated_at=? WHERE id=?",
+            (content, content, now, memory_id),
+        )
+    d = _row_to_dict(row)
+    d["content"] = content
+    d["updated_at"] = now
+    return d
 
 
 def delete_memory(root: Path, memory_id: str) -> None:
@@ -340,6 +393,23 @@ def delete_memory(root: Path, memory_id: str) -> None:
 # ---------------------------------------------------------------------------
 # Agent schema migration (Sprint 4 — aditivo, sem DROP)
 # ---------------------------------------------------------------------------
+
+
+def migrate_memory_schema(root: Path) -> None:
+    """Add project_path and content columns to chat_memory (idempotent)."""
+    db_path = get_db_path(root)
+    conn = sqlite3.connect(str(db_path), check_same_thread=False)
+    conn.execute("PRAGMA journal_mode=WAL")
+    try:
+        _safe_alter(conn, "ALTER TABLE chat_memory ADD COLUMN project_path TEXT")
+        _safe_alter(conn, "ALTER TABLE chat_memory ADD COLUMN content TEXT")
+        _safe_alter(conn, "ALTER TABLE chat_memory ADD COLUMN updated_at TEXT")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def migrate_agent_schema(root: Path) -> None:
@@ -439,7 +509,8 @@ def replace_auto_memory(
             fact = str(fact).strip()[:200]
             if fact:
                 conn.execute(
-                    "INSERT INTO chat_memory (id, text, session_id, source, extracted_at_count, created_at) "
-                    "VALUES (?, ?, ?, 'auto', ?, ?)",
-                    (str(uuid.uuid4()), fact, session_id, message_count, now),
+                    "INSERT INTO chat_memory "
+                    "(id, text, session_id, source, extracted_at_count, created_at, content, updated_at) "
+                    "VALUES (?, ?, ?, 'auto', ?, ?, ?, ?)",
+                    (str(uuid.uuid4()), fact, session_id, message_count, now, fact, now),
                 )
