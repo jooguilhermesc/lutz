@@ -5,7 +5,7 @@ import {
   listChatSessions, createChatSession, getChatSession,
   renameChatSession, deleteChatSession, streamSessionMessage,
   listChatMemory, addChatMemory, deleteChatMemory, updateChatMemory,
-  listChatFiles, uploadChatFiles, deleteChatFile, resetChatStore,
+  listChatFiles, uploadChatFiles, deleteChatFile, resetChatStore, patchChatFile,
   listContextFiles, uploadContextFiles, deleteContextFile,
   listChatReports,
   type ChatSession, type ChatMessage, type ChatOptions,
@@ -488,10 +488,11 @@ function MemoryPanelContent({
 // ── Files panel (side panel content) ─────────────────────────────────────────
 
 function FilesPanelContent({
-  files, contextFiles, onRefreshChat, onRefreshContext,
+  files, contextFiles, sessionId, onRefreshChat, onRefreshContext,
 }: {
   files: ChatFile[]
   contextFiles: ContextFile[]
+  sessionId: string | null
   onRefreshChat: () => void
   onRefreshContext: () => void
 }) {
@@ -562,6 +563,18 @@ function FilesPanelContent({
           <div className="files-list">
             {files.map((f) => (
               <div key={f.name} className="files-item">
+                {f.id != null && sessionId && (
+                  <input
+                    type="checkbox"
+                    className="files-item-checkbox"
+                    checked={f.active ?? true}
+                    title={f.active ?? true ? t('chat.files.active') : t('chat.files.inactive')}
+                    onChange={async () => {
+                      await patchChatFile(sessionId, f.id!, !(f.active ?? true))
+                      onRefreshChat()
+                    }}
+                  />
+                )}
                 <span className="files-item-name">{f.name}</span>
                 <button
                   className="files-item-del"
@@ -1121,6 +1134,7 @@ export default function Chat() {
               <FilesPanelContent
                 files={files}
                 contextFiles={contextFiles}
+                sessionId={activeId}
                 onRefreshChat={() => listChatFiles().then((r) => setFiles(r.files ?? []))}
                 onRefreshContext={() => listContextFiles().then((r) => setContextFiles(r.files ?? []))}
               />

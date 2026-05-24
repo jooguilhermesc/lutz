@@ -1066,6 +1066,38 @@ async def reset_chat_store() -> dict:
     return {"ok": True}
 
 
+def _filter_chunks_by_active_files(chunks: list[dict], active_names: set[str] | None) -> list[dict]:
+    """Post-filter RAG chunks to exclude inactive files.
+
+    active_names semantics (from db.get_active_filenames):
+    - None  → no files registered for session → pass all chunks through unchanged
+    - set   → filter to only chunks whose filename is in active_names
+    """
+    if active_names is None:
+        return chunks
+    return [c for c in chunks if c.get("filename") in active_names]
+
+
+@api.patch("/chat/sessions/{session_id}/files/{file_id}")
+async def patch_chat_file_active(session_id: str, file_id: int, body: dict) -> dict:
+    """Toggle a file's active state for RAG retrieval within a session."""
+    from lutz.server import db as _db
+
+    if "active" not in body:
+        raise HTTPException(status_code=400, detail="'active' field is required")
+    active_val = body["active"]
+    if not isinstance(active_val, bool):
+        raise HTTPException(status_code=400, detail="'active' must be a boolean")
+
+    root = _get_root()
+    record = _db.get_chat_file(root, file_id, session_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="File not found in this session")
+
+    _db.set_file_active(root, file_id, active_val)
+    return {"id": file_id, "active": 1 if active_val else 0}
+
+
 # ── Chat sessions ──────────────────────────────────────────────────────────────
 
 def _sessions_dir(root: Path) -> Path:

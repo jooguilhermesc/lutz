@@ -80,6 +80,7 @@ def init_db(root: Path) -> None:
 
     migrate_memory_schema(root)
     migrate_agent_schema(root)
+    migrate_chat_files_schema(root)
 
 
 def migrate_sessions(root: Path, conn: sqlite3.Connection) -> None:
@@ -395,6 +396,34 @@ def delete_memory(root: Path, memory_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+def migrate_chat_files_schema(root: Path) -> None:
+    """Create chat_files table and add active column (idempotent)."""
+    db_path = get_db_path(root)
+    conn = sqlite3.connect(str(db_path), check_same_thread=False)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    try:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS chat_files (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                filename TEXT NOT NULL,
+                active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
+            )
+            """
+        )
+        _safe_alter(conn, "ALTER TABLE chat_files ADD COLUMN active INTEGER NOT NULL DEFAULT 1")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def migrate_memory_schema(root: Path) -> None:
     """Add project_path and content columns to chat_memory (idempotent)."""
     db_path = get_db_path(root)
@@ -490,6 +519,68 @@ def set_researcher_profile_key(root: Path, key: str, value: str) -> None:
             """,
             (key, value, now),
         )
+
+
+# ---------------------------------------------------------------------------
+# Chat files — per-session file tracking with active/inactive toggle
+# ---------------------------------------------------------------------------
+
+
+def add_chat_file(root: Path, session_id: str, filename: str) -> int:
+    """Insert a chat file record for a session and return its rowid."""
+    now = _now()
+    with get_db(root) as conn:
+        cur = conn.execute(
+            "INSERT INTO chat_files (session_id, filename, active, created_at) VALUES (?, ?, 1, ?)",
+            (session_id, filename, now),
+        )
+        return cur.lastrowid  # type: ignore[return-value]
+
+
+def list_session_files(root: Path, session_id: str) -> list[dict[str, Any]]:
+    """Return all chat files for a session, including the active column."""
+    with get_db(root) as conn:
+        rows = conn.execute(
+            "SELECT id, session_id, filename, active, created_at FROM chat_files WHERE session_id=? ORDER BY created_at, id",
+            (session_id,),
+        ).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+def get_chat_file(root: Path, file_id: int, session_id: str) -> dict[str, Any] | None:
+    """Return a single chat file record only if it belongs to session_id."""
+    with get_db(root) as conn:
+        row = conn.execute(
+            "SELECT id, session_id, filename, active, created_at FROM chat_files WHERE id=? AND session_id=?",
+            (file_id, session_id),
+        ).fetchone()
+    return _row_to_dict(row) if row is not None else None
+
+
+def set_file_active(root: Path, file_id: int, active: bool) -> None:
+    """Set the active flag for a chat file (1=active, 0=inactive)."""
+    with get_db(root) as conn:
+        conn.execute(
+            "UPDATE chat_files SET active=? WHERE id=?",
+            (1 if active else 0, file_id),
+        )
+
+
+def get_active_filenames(root: Path, session_id: str) -> set[str] | None:
+    """Return the set of active filenames for a session, or None if no files are registered.
+
+    - None  → no files registered for session → caller should not filter (pass all chunks)
+    - set() → files registered but all inactive → caller should filter out everything
+    - {..}  → the set of active filenames that should pass through the filter
+    """
+    with get_db(root) as conn:
+        rows = conn.execute(
+            "SELECT filename, active FROM chat_files WHERE session_id=?",
+            (session_id,),
+        ).fetchall()
+    if not rows:
+        return None
+    return {r["filename"] for r in rows if r["active"]}
 
 
 def replace_auto_memory(
