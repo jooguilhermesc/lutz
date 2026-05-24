@@ -77,7 +77,7 @@ def query(sql: str, include_embeddings: bool, fmt: str, db: str | None, limit: i
     store_path = Path(db) if db else root / ".lutz" / "vector_store"
 
     vs = VectorStore(store_path)
-    if "articles" not in vs._db.table_names():
+    if "articles" not in vs._db.list_tables().tables:
         raise click.ClickException(
             "Vector store is empty — run [bold]lutz vectorize[/bold] first."
         )
