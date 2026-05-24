@@ -78,6 +78,8 @@ def init_db(root: Path) -> None:
         migrate_sessions(root, conn)
         migrate_memory(root, conn)
 
+    migrate_agent_schema(root)
+
 
 def migrate_sessions(root: Path, conn: sqlite3.Connection) -> None:
     """Migrate .lutz/chat_sessions/*.json into chat_sessions + chat_messages tables."""
@@ -333,6 +335,91 @@ def add_memory(
 def delete_memory(root: Path, memory_id: str) -> None:
     with get_db(root) as conn:
         conn.execute("DELETE FROM chat_memory WHERE id=?", (memory_id,))
+
+
+# ---------------------------------------------------------------------------
+# Agent schema migration (Sprint 4 — aditivo, sem DROP)
+# ---------------------------------------------------------------------------
+
+
+def migrate_agent_schema(root: Path) -> None:
+    """Add agent-related tables and columns to the existing schema (idempotent).
+
+    Each ALTER TABLE is wrapped in try/except so repeated calls are safe.
+    """
+    db_path = get_db_path(root)
+    conn = sqlite3.connect(str(db_path), check_same_thread=False)
+    conn.execute("PRAGMA journal_mode=WAL")
+    try:
+        # New table: researcher preferences
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS researcher_profile (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                key TEXT NOT NULL UNIQUE,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+            """
+        )
+
+        # Extend chat_sessions with agent state
+        _safe_alter(conn, "ALTER TABLE chat_sessions ADD COLUMN agent_plan TEXT")
+        _safe_alter(
+            conn,
+            "ALTER TABLE chat_sessions ADD COLUMN agent_state TEXT DEFAULT 'idle'",
+        )
+
+        # Extend chat_messages with agent metadata
+        _safe_alter(conn, "ALTER TABLE chat_messages ADD COLUMN tool_calls TEXT")
+        _safe_alter(conn, "ALTER TABLE chat_messages ADD COLUMN model_used TEXT")
+        _safe_alter(conn, "ALTER TABLE chat_messages ADD COLUMN tier TEXT")
+        _safe_alter(conn, "ALTER TABLE chat_messages ADD COLUMN token_cost REAL")
+
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def _safe_alter(conn: sqlite3.Connection, sql: str) -> None:
+    """Execute an ALTER TABLE statement, silently ignoring 'duplicate column' errors."""
+    try:
+        conn.execute(sql)
+    except sqlite3.OperationalError as exc:
+        if "duplicate column" in str(exc).lower():
+            return
+        raise
+
+
+# ---------------------------------------------------------------------------
+# Researcher profile CRUD
+# ---------------------------------------------------------------------------
+
+
+def get_researcher_profile(root: Path) -> dict:
+    """Return all researcher profile key-value pairs as a plain dict."""
+    with get_db(root) as conn:
+        rows = conn.execute(
+            "SELECT key, value FROM researcher_profile"
+        ).fetchall()
+    return {row["key"]: row["value"] for row in rows}
+
+
+def set_researcher_profile_key(root: Path, key: str, value: str) -> None:
+    """Insert or update a researcher profile key (upsert by key)."""
+    now = _now()
+    with get_db(root) as conn:
+        conn.execute(
+            """
+            INSERT INTO researcher_profile (key, value, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at
+            """,
+            (key, value, now),
+        )
 
 
 def replace_auto_memory(

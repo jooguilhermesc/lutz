@@ -11,6 +11,7 @@ from lutz.commands.vector_store import vector_store
 from lutz.commands.citations import citations
 from lutz.commands.web import web
 from lutz.commands.query import query
+from lutz.commands.agent import agent
 
 console = Console()
 
@@ -33,3 +34,4 @@ cli.add_command(vector_store)
 cli.add_command(citations)
 cli.add_command(web)
 cli.add_command(query)
+cli.add_command(agent)
