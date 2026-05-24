@@ -2185,6 +2185,44 @@ async def get_agent_session(session_id: str) -> dict:
     return {"session": session}
 
 
+_MAX_AGENT_MESSAGE_CHARS = 8000
+
+
+def _run_agent(session_id: str, user_message: str, root: "Path") -> dict:
+    """Execute AgentOrchestrator synchronously and return the raw result dict.
+
+    Intended to be called from a thread-executor so it does not block the
+    asyncio event loop.  Persists the exchange to SQLite best-effort.
+    """
+    from lutz.agent.orchestrator import AgentOrchestrator
+    from lutz.agent.tools import get_tool_registry
+    from lutz.agent.model_router import ModelRouter
+    from lutz.core.llm_client import LLMClient
+    from lutz.server import db as _db
+
+    env = load_env(root)
+    llm = LLMClient.from_env(env)
+    registry = get_tool_registry()
+    router = ModelRouter()
+    orch = AgentOrchestrator(llm, registry, router, _conversation_manager)
+    result = orch.process_message(
+        session_id, user_message, vector_store=None, job_manager=_job_manager
+    )
+
+    # Persist exchange to SQLite (best-effort)
+    try:
+        session = _db.get_session(root, session_id)
+        if session is None:
+            _db.create_session(root, user_message[:60])
+        _db.add_message(root, session_id, "user", user_message)
+        _db.add_message(root, session_id, "assistant", result.get("response", ""))
+        _db.update_session_updated_at(root, session_id)
+    except Exception:
+        pass
+
+    return result
+
+
 @api.post("/agent/chat")
 async def agent_chat(request: Request) -> dict:
     """Process a message through the AgentOrchestrator and return the response.
@@ -2196,16 +2234,6 @@ async def agent_chat(request: Request) -> dict:
     Returns:
       session_id, response, state, plan, awaiting_confirmation, step_result
     """
-    import asyncio as _asyncio
-
-    from lutz.agent.orchestrator import AgentOrchestrator
-    from lutz.agent.tools import get_tool_registry
-    from lutz.agent.model_router import ModelRouter
-    from lutz.core.llm_client import LLMClient
-    from lutz.server import db as _db
-
-    _MAX_AGENT_MESSAGE_CHARS = 8000
-
     body = await request.json()
     user_message: str = (body.get("message") or "").strip()
     if not user_message:
@@ -2219,38 +2247,69 @@ async def agent_chat(request: Request) -> dict:
     session_id: str = body.get("session_id") or str(uuid.uuid4())
     root = _get_root()
 
-    def _process() -> dict:
-        env = load_env(root)
-        llm = LLMClient.from_env(env)
-        registry = get_tool_registry()
-        router = ModelRouter()
-        orch = AgentOrchestrator(llm, registry, router, _conversation_manager)
-        return orch.process_message(session_id, user_message, vector_store=None)
-
-    result = await asyncio.get_event_loop().run_in_executor(None, _process)
-
-    # Persist user message and assistant response to SQLite (best-effort)
-    try:
-        session = _db.get_session(root, session_id)
-        if session is None:
-            _db.create_session(root, user_message[:60])
-            # Re-query to get the auto-created session record after potential race
-            session = _db.get_session(root, session_id)
-        _db.add_message(root, session_id, "user", user_message)
-        _db.add_message(
-            root,
-            session_id,
-            "assistant",
-            result.get("response", ""),
-        )
-        _db.update_session_updated_at(root, session_id)
-    except Exception:
-        pass  # Never crash the request on DB persistence failure
+    result = await asyncio.get_event_loop().run_in_executor(
+        None, lambda: _run_agent(session_id, user_message, root)
+    )
 
     return {
         "session_id": session_id,
         **result,
     }
+
+
+@api.post("/agent/chat/stream")
+async def agent_chat_stream(request: Request) -> StreamingResponse:
+    """Stream the AgentOrchestrator response as Server-Sent Events.
+
+    SSE event sequence:
+      1. {type: 'session', session_id}  — always first
+      2. {type: 'token', content}       — one per word of the response text
+      3. {type: 'done', state, plan, step_result, awaiting_confirmation}
+
+    Body fields:
+      message (str, required)
+      session_id (str, optional)
+    """
+    body = await request.json()
+    session_id: str = body.get("session_id") or str(uuid.uuid4())
+    user_message: str = (body.get("message") or "").strip()
+    if not user_message:
+        raise HTTPException(status_code=400, detail="message is required")
+    if len(user_message) > _MAX_AGENT_MESSAGE_CHARS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"message exceeds {_MAX_AGENT_MESSAGE_CHARS} chars",
+        )
+
+    root = _get_root()
+
+    async def generate():
+        # 1. Session event
+        yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n"
+
+        # 2. Run the synchronous orchestrator in a thread executor
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None, lambda: _run_agent(session_id, user_message, root)
+        )
+
+        # 3. Stream response text token-by-token (word chunks, capped to avoid DoS)
+        _MAX_STREAM_WORDS = 5000
+        response_text = result.get("response", "")
+        words = response_text.split(" ")[:_MAX_STREAM_WORDS]
+        for i, word in enumerate(words):
+            chunk = word + (" " if i < len(words) - 1 else "")
+            yield f"data: {json.dumps({'type': 'token', 'content': chunk})}\n\n"
+            await asyncio.sleep(0.01)
+
+        # 4. Done event with full metadata
+        yield f"data: {json.dumps({'type': 'done', 'state': result.get('state'), 'plan': result.get('plan'), 'step_result': result.get('step_result'), 'awaiting_confirmation': result.get('awaiting_confirmation', False)})}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 # ---------------------------------------------------------------------------

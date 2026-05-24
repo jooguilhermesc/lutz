@@ -5,11 +5,12 @@ import { NotificationsPanel } from './NotificationsPanel'
 export default function Layout() {
   const { t, showVectorStore, showChat, showAnalytics, showCitations, showRoadmap, showProjects } = useLanguage()
   const location = useLocation()
-  const isChatPage = location.pathname === '/chat'
+  const isChatPage = location.pathname === '/chat' || location.pathname === '/agent'
 
   const NAV = [
     { to: '/',          label: t('nav.home'),      icon: '⌂' },
     ...(showChat      ? [{ to: '/chat',      label: t('nav.chat'),      icon: '💬' }] : []),
+    { to: '/agent',     label: t('nav.agent'),     icon: '🤖' },
     { to: '/vectorize', label: t('nav.vectorize'),  icon: '' },
     ...(showVectorStore ? [{ to: '/store',    label: t('nav.store'),     icon: '' }] : []),
     ...(showAnalytics ? [{ to: '/analytics', label: t('nav.analytics'), icon: '' }] : []),

@@ -271,6 +271,69 @@ export const resetChatStore = () => request<{ ok: boolean }>('DELETE', '/chat/st
 export const sendChatMessage = (messages: ChatMessage[], options: ChatOptions, language: string) =>
   request<ChatResponse>('POST', '/chat/message', { messages, options, language })
 
+// ── Agent ─────────────────────────────────────────────────────────────────────
+
+export interface AgentMessage {
+  role: 'user' | 'assistant'
+  content: string
+  state?: string
+  plan?: AgentPlan | null
+  step_result?: Record<string, unknown> | null
+}
+
+export interface AgentPlan {
+  steps: AgentStep[]
+  current_step: number
+  goal: string
+}
+
+export interface AgentStep {
+  step: number
+  tool: string
+  arguments: Record<string, unknown>
+  rationale: string
+  status?: 'pending' | 'running' | 'done' | 'error'
+}
+
+export interface AgentTool {
+  name: string
+  description: string
+  tier: number
+}
+
+export async function* streamAgentMessage(
+  sessionId: string | null,
+  message: string,
+): AsyncGenerator<{ type: string; [key: string]: unknown }> {
+  const res = await fetch(`${BASE}/agent/chat/stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: sessionId, message }),
+  })
+  if (!res.ok || !res.body) return
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n\n')
+    buffer = lines.pop() ?? ''
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        try { yield JSON.parse(line.slice(6)) } catch { /* skip */ }
+      }
+    }
+  }
+}
+
+export const listAgentTools = () =>
+  request<{ tools: AgentTool[] }>('GET', '/agent/tools')
+
+export const listAgentModelProfiles = () =>
+  request<{ profiles: Record<string, unknown> }>('GET', '/agent/profiles')
+
 // ── Store Catalog ─────────────────────────────────────────────────────────────
 export interface CatalogColumn {
   name: string

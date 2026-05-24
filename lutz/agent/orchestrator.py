@@ -163,7 +163,7 @@ class ExecutionEngine:
         self._registry = tool_registry
         self._router = model_router
 
-    def execute_step(self, step: dict, vector_store: Any = None) -> dict:
+    def execute_step(self, step: dict, vector_store: Any = None, job_manager: Any = None) -> dict:
         """Route the tool call to the correct tier and execute it.
 
         Returns the tool result dict, or {"error": str, "tool": name} on failure.
@@ -171,7 +171,9 @@ class ExecutionEngine:
         tool_name = step.get("tool", "")
         arguments = step.get("arguments", {})
         try:
-            result = self._registry.execute(tool_name, arguments, vector_store)
+            result = self._registry.execute(
+                tool_name, arguments, vector_store=vector_store, job_manager=job_manager
+            )
             return result
         except Exception as exc:
             logger.warning("ExecutionEngine.execute_step error (%s): %s", tool_name, exc)
@@ -198,6 +200,7 @@ class AgentOrchestrator:
         session_id: str,
         user_message: str,
         vector_store: Any = None,
+        job_manager: Any = None,
     ) -> dict:
         """Process a user message and return the agentic response.
 
@@ -233,7 +236,7 @@ class AgentOrchestrator:
             if msg_words & _CONFIRM_KEYWORDS:
                 self.conversation.transition(session_id, ConversationState.EXECUTING)
                 ctx = self.conversation.get_or_create(session_id)
-                step_result = self._execute_current_step(session_id, vector_store)
+                step_result = self._execute_current_step(session_id, vector_store, job_manager)
                 has_next = self.conversation.advance_step(session_id)
                 if has_next:
                     self.conversation.transition(session_id, ConversationState.STEP_COMPLETE)
@@ -308,12 +311,14 @@ class AgentOrchestrator:
     # Private helpers
     # ------------------------------------------------------------------
 
-    def _execute_current_step(self, session_id: str, vector_store: Any) -> dict:
+    def _execute_current_step(
+        self, session_id: str, vector_store: Any, job_manager: Any = None
+    ) -> dict:
         ctx = self.conversation.get_or_create(session_id)
         if ctx.plan is None or not ctx.plan.steps:
             return {}
         step = ctx.plan.steps[ctx.plan.current_step]
-        return self.execution_engine.execute_step(step, vector_store)
+        return self.execution_engine.execute_step(step, vector_store, job_manager)
 
     def _current_step(self, session_id: str) -> dict:
         ctx = self.conversation.get_or_create(session_id)
