@@ -18,6 +18,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from contextlib import asynccontextmanager
 from typing import AsyncIterator, Literal
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
@@ -397,18 +398,19 @@ def _build_job_args(job_type: str, body: dict, root: Path) -> tuple[list[str], s
 # App + API router
 # ---------------------------------------------------------------------------
 
-app = FastAPI(docs_url=None, redoc_url=None, title="lutz")
-api = APIRouter(prefix="/api")
-
-
-@app.on_event("startup")
-async def _startup() -> None:
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     from lutz.server import db as _db
     try:
         root = _get_root()
         _db.init_db(root)
     except Exception:
         pass  # root may not exist yet (first run before lutz init)
+    yield
+
+
+app = FastAPI(docs_url=None, redoc_url=None, title="lutz", lifespan=lifespan)
+api = APIRouter(prefix="/api")
 
 # ── Project ──────────────────────────────────────────────────────────────────
 
@@ -729,7 +731,7 @@ async def query_vector_store(body: dict) -> dict:
         from lutz.core.vector_store import VectorStore
 
         vs = VectorStore(root / ".lutz" / "vector_store")
-        if "articles" not in vs._db.table_names():
+        if "articles" not in vs._db.list_tables().tables:
             return {"columns": [], "rows": [], "count": 0, "elapsed_ms": 0.0,
                     "error": "Vector store is empty — vectorize some articles first."}
 
@@ -2338,7 +2340,7 @@ def _build_catalog_table(
         import lancedb
 
         db = lancedb.connect(str(db_path))
-        if lancedb_table_name not in db.table_names():
+        if lancedb_table_name not in db.list_tables().tables:
             raise ValueError("table not present")
 
         tbl = db.open_table(lancedb_table_name)

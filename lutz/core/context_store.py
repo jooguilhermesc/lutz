@@ -69,7 +69,7 @@ class ContextStore:
             for r in records
         ]
 
-        if _TABLE_NAME in self._db.table_names():
+        if _TABLE_NAME in self._db.list_tables().tables:
             tbl = self._db.open_table(_TABLE_NAME)
             tbl.add(rows)
         else:
@@ -79,7 +79,7 @@ class ContextStore:
 
     def delete_by_filename(self, filename: str) -> int:
         """Delete all chunks for a context file. Returns the count deleted."""
-        if _TABLE_NAME not in self._db.table_names():
+        if _TABLE_NAME not in self._db.list_tables().tables:
             return 0
         tbl = self._db.open_table(_TABLE_NAME)
         before = tbl.count_rows()
@@ -93,7 +93,7 @@ class ContextStore:
 
     def get_all_chunks(self) -> list[dict]:
         """Return all context chunks ordered by filename + chunk_index."""
-        if _TABLE_NAME not in self._db.table_names():
+        if _TABLE_NAME not in self._db.list_tables().tables:
             return []
         tbl = self._db.open_table(_TABLE_NAME)
         arrow_tbl = tbl.to_arrow().select(
@@ -103,7 +103,7 @@ class ContextStore:
 
     def search(self, query_embedding: list[float], top_k: int = 10) -> list[dict]:
         """Return top-K context chunks closest to the query embedding."""
-        if _TABLE_NAME not in self._db.table_names():
+        if _TABLE_NAME not in self._db.list_tables().tables:
             return []
         tbl = self._db.open_table(_TABLE_NAME)
         limit = min(top_k, tbl.count_rows())
@@ -122,7 +122,7 @@ class ContextStore:
 
     def list_filenames(self) -> list[str]:
         """Return sorted list of unique context file names."""
-        if _TABLE_NAME not in self._db.table_names():
+        if _TABLE_NAME not in self._db.list_tables().tables:
             return []
         tbl = self._db.open_table(_TABLE_NAME)
         arrow_tbl = tbl.to_arrow().select(["filename"])
@@ -130,7 +130,7 @@ class ContextStore:
 
     def count_by_filename(self) -> dict[str, int]:
         """Return chunk count per context file."""
-        if _TABLE_NAME not in self._db.table_names():
+        if _TABLE_NAME not in self._db.list_tables().tables:
             return {}
         tbl = self._db.open_table(_TABLE_NAME)
         rows = tbl.to_arrow().select(["filename"]).to_pylist()
@@ -141,10 +141,10 @@ class ContextStore:
         return counts
 
     def is_empty(self) -> bool:
-        if _TABLE_NAME not in self._db.table_names():
+        if _TABLE_NAME not in self._db.list_tables().tables:
             return True
         return self._db.open_table(_TABLE_NAME).count_rows() == 0
 
     def drop_all(self) -> None:
-        if _TABLE_NAME in self._db.table_names():
+        if _TABLE_NAME in self._db.list_tables().tables:
             self._db.drop_table(_TABLE_NAME)

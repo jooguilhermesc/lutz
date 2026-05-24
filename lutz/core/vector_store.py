@@ -88,7 +88,7 @@ class VectorStore:
             for r in records
         ]
 
-        if _TABLE_NAME in self._db.table_names():
+        if _TABLE_NAME in self._db.list_tables().tables:
             tbl = self._db.open_table(_TABLE_NAME)
             # Graceful schema-evolution: strip fields absent in the existing table
             # so that stores created before this field was added keep working.
@@ -127,7 +127,7 @@ class VectorStore:
             ``--section-parse`` was introduced) are excluded when this filter
             is active.
         """
-        if _TABLE_NAME not in self._db.table_names():
+        if _TABLE_NAME not in self._db.list_tables().tables:
             return []
 
         tbl = self._db.open_table(_TABLE_NAME)
@@ -155,7 +155,7 @@ class VectorStore:
 
     def get_by_filename(self, filename: str) -> list[dict]:
         """Return all chunks for a specific article, ordered by chunk_index."""
-        if _TABLE_NAME not in self._db.table_names():
+        if _TABLE_NAME not in self._db.list_tables().tables:
             return []
         tbl = self._db.open_table(_TABLE_NAME)
         # Project only text columns — skip embedding vectors
@@ -194,7 +194,7 @@ class VectorStore:
             are included. Articles that end up with zero chunks after filtering
             are still present as empty lists so callers can detect them.
         """
-        if _TABLE_NAME not in self._db.table_names():
+        if _TABLE_NAME not in self._db.list_tables().tables:
             return {}
         tbl = self._db.open_table(_TABLE_NAME)
 
@@ -232,7 +232,7 @@ class VectorStore:
         Used by the reading roadmap feature to compute semantic distances
         between articles and the corpus centroid.
         """
-        if _TABLE_NAME not in self._db.table_names():
+        if _TABLE_NAME not in self._db.list_tables().tables:
             return {}
         tbl = self._db.open_table(_TABLE_NAME)
         # Must include embeddings here — this is the one method that needs them
@@ -251,7 +251,7 @@ class VectorStore:
 
     def list_filenames(self) -> list[str]:
         """Return sorted list of unique article filenames in the store."""
-        if _TABLE_NAME not in self._db.table_names():
+        if _TABLE_NAME not in self._db.list_tables().tables:
             return []
         tbl = self._db.open_table(_TABLE_NAME)
         # Project only the filename column
@@ -264,7 +264,7 @@ class VectorStore:
         Uses LanceDB's update() API (available since 0.4.x).  Returns the
         number of rows that were updated (0 if the article wasn't in the store).
         """
-        if _TABLE_NAME not in self._db.table_names():
+        if _TABLE_NAME not in self._db.list_tables().tables:
             return 0
         tbl = self._db.open_table(_TABLE_NAME)
         # Escape single quotes in filenames to prevent SQL injection
@@ -275,7 +275,7 @@ class VectorStore:
 
     def drop_all(self) -> int:
         """Delete all records and return the count of deleted rows."""
-        if _TABLE_NAME not in self._db.table_names():
+        if _TABLE_NAME not in self._db.list_tables().tables:
             return 0
         tbl = self._db.open_table(_TABLE_NAME)
         count = tbl.count_rows()
@@ -284,7 +284,7 @@ class VectorStore:
 
     def info(self) -> dict[str, Any]:
         """Return metadata about the current vector store state."""
-        if _TABLE_NAME not in self._db.table_names():
+        if _TABLE_NAME not in self._db.list_tables().tables:
             return {"total_records": 0, "unique_documents": 0, "last_updated": None}
 
         tbl = self._db.open_table(_TABLE_NAME)
@@ -309,7 +309,7 @@ class VectorStore:
         Articles vectorized without --section-parse will have all chunks under
         the empty string key ``""`` (no section label).
         """
-        if _TABLE_NAME not in self._db.table_names():
+        if _TABLE_NAME not in self._db.list_tables().tables:
             return {}
         tbl = self._db.open_table(_TABLE_NAME)
         arrow_tbl = _project(tbl.to_arrow(), ["filename", "section"])
@@ -331,7 +331,7 @@ class VectorStore:
 
     def summarize(self) -> dict[str, Any]:
         """Return a detailed summary including per-article breakdown."""
-        if _TABLE_NAME not in self._db.table_names():
+        if _TABLE_NAME not in self._db.list_tables().tables:
             return {
                 "total_records": 0,
                 "unique_documents": 0,
