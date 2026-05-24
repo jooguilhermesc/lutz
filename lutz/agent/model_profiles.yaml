@@ -1,0 +1,131 @@
+deepseek-v3:
+  context_window: 131072
+  max_output_tokens: 8192
+  supports_tool_calling: true
+  supports_thinking: false
+  supports_json_mode: true
+  architecture: moe
+  active_params: "37B"
+  strengths:
+    - reasoning
+    - code
+    - structured_output
+  weaknesses:
+    - creative_writing
+  recommended_temperature:
+    classification: 0.0
+    synthesis: 0.3
+    planning: 0.2
+
+deepseek-r1:
+  context_window: 131072
+  max_output_tokens: 8192
+  supports_tool_calling: true
+  supports_thinking: true
+  supports_json_mode: true
+  architecture: moe
+  active_params: "37B"
+  strengths:
+    - deep_reasoning
+    - multi_step_planning
+    - academic_rigor
+  weaknesses:
+    - speed
+    - cost
+  recommended_temperature:
+    classification: 0.0
+    synthesis: 0.2
+    planning: 0.1
+
+mixtral-8x22b:
+  context_window: 65536
+  max_output_tokens: 4096
+  supports_tool_calling: false
+  supports_thinking: false
+  supports_json_mode: false
+  architecture: moe
+  active_params: "39B"
+  strengths:
+    - multilingual
+    - instruction_following
+  weaknesses:
+    - very_long_contexts
+    - strict_json
+  recommended_temperature:
+    classification: 0.1
+    synthesis: 0.3
+    planning: 0.2
+
+qwen2.5-32b:
+  context_window: 131072
+  max_output_tokens: 8192
+  supports_tool_calling: true
+  supports_thinking: false
+  supports_json_mode: true
+  architecture: dense
+  strengths:
+    - multilingual
+    - code
+    - instruction_following
+  weaknesses:
+    - deep_reasoning
+  recommended_temperature:
+    classification: 0.1
+    synthesis: 0.3
+    planning: 0.2
+
+gpt-4o-mini:
+  context_window: 131072
+  max_output_tokens: 16384
+  supports_tool_calling: true
+  supports_thinking: false
+  supports_json_mode: true
+  architecture: dense
+  strengths:
+    - speed
+    - cost
+    - tool_calling
+  weaknesses:
+    - deep_reasoning
+    - academic_rigor
+  recommended_temperature:
+    classification: 0.0
+    synthesis: 0.3
+    planning: 0.2
+
+claude-haiku-3-5:
+  context_window: 200000
+  max_output_tokens: 8192
+  supports_tool_calling: true
+  supports_thinking: false
+  supports_json_mode: true
+  architecture: dense
+  strengths:
+    - speed
+    - cost
+    - instruction_following
+  weaknesses:
+    - deep_reasoning
+  recommended_temperature:
+    classification: 0.0
+    synthesis: 0.3
+    planning: 0.2
+
+claude-sonnet-4:
+  context_window: 200000
+  max_output_tokens: 16000
+  supports_tool_calling: true
+  supports_thinking: true
+  supports_json_mode: true
+  architecture: dense
+  strengths:
+    - reasoning
+    - academic_rigor
+    - long_context
+    - structured_output
+  weaknesses:
+    - cost
+  recommended_temperature:
+    classification: 0.0
+    synthesis: 0.3
+    planning: 0.2
