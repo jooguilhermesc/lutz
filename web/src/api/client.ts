@@ -186,7 +186,7 @@ export const deleteContextFile = (name: string) =>
   request<{ ok: boolean }>('DELETE', `/context/${encodeURIComponent(name)}`)
 
 // ── Chat ──────────────────────────────────────────────────────────────────────
-export interface ChatFile { name: string; chunks: number }
+export interface ChatFile { name: string; chunks: number; id?: number; active?: boolean }
 export interface ChatMessage { role: 'user' | 'assistant'; content: string }
 export interface ChatOptions {
   use_rag: boolean
@@ -300,6 +300,9 @@ export const deleteChatFile = (name: string) =>
   request<{ ok: boolean }>('DELETE', `/chat/files/${encodeURIComponent(name)}`)
 
 export const resetChatStore = () => request<{ ok: boolean }>('DELETE', '/chat/store')
+
+export const patchChatFile = (sessionId: string, fileId: number, active: boolean) =>
+  request<{ id: number; active: boolean }>('PATCH', `/chat/sessions/${sessionId}/files/${fileId}`, { active })
 
 export const sendChatMessage = (messages: ChatMessage[], options: ChatOptions, language: string) =>
   request<ChatResponse>('POST', '/chat/message', { messages, options, language })
