@@ -239,6 +239,10 @@ const T: Record<Lang, Record<string, string>> = {
     'chat.memory.hint': 'Injetada automaticamente em todas as conversas.',
     'chat.memory.empty': 'Nenhuma memória salva.',
     'chat.memory.add': 'Adicionar memória...',
+    'chat.memory.counter': '{{count}} memórias · ~{{tokens}} tokens',
+    'chat.memory.edit': 'Editar',
+    'chat.memory.save': 'Salvar',
+    'chat.memory.cancel': 'Cancelar',
     // Agent
     'nav.agent': 'Agente',
     'agent.title': 'Agente de Pesquisa',
@@ -561,6 +565,10 @@ const T: Record<Lang, Record<string, string>> = {
     'chat.memory.hint': 'Injected automatically into all conversations.',
     'chat.memory.empty': 'No saved memories.',
     'chat.memory.add': 'Add memory...',
+    'chat.memory.counter': '{{count}} memories · ~{{tokens}} tokens',
+    'chat.memory.edit': 'Edit',
+    'chat.memory.save': 'Save',
+    'chat.memory.cancel': 'Cancel',
     // Agent
     'nav.agent': 'Agent',
     'agent.title': 'Research Agent',
@@ -883,6 +891,10 @@ const T: Record<Lang, Record<string, string>> = {
     'chat.memory.hint': 'Se inyecta automáticamente en todas las conversaciones.',
     'chat.memory.empty': 'Sin memorias guardadas.',
     'chat.memory.add': 'Agregar memoria...',
+    'chat.memory.counter': '{{count}} memorias · ~{{tokens}} tokens',
+    'chat.memory.edit': 'Editar',
+    'chat.memory.save': 'Guardar',
+    'chat.memory.cancel': 'Cancelar',
     // Agent
     'nav.agent': 'Agente',
     'agent.title': 'Agente de Investigación',

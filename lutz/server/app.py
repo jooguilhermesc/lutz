@@ -1235,12 +1235,101 @@ async def add_chat_memory(body: dict) -> dict:
     return {"memory": entry}
 
 
+@api.put("/chat/memory/{memory_id}")
+async def update_chat_memory(memory_id: str, body: dict) -> dict:
+    from lutz.server import db as _db
+    root = _get_root()
+    content = (body.get("content") or "").strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="content required")
+    try:
+        updated = _db.update_memory(root, memory_id, content)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    return updated
+
+
 @api.delete("/chat/memory/{memory_id}")
 async def delete_chat_memory(memory_id: str) -> dict:
     from lutz.server import db as _db
     root = _get_root()
     _db.delete_memory(root, memory_id)
     return {"ok": True}
+
+
+@api.get("/chat/sessions/{session_id}/memory")
+async def get_session_memory(session_id: str) -> dict:
+    from lutz.server import db as _db
+    root = _get_root()
+    memories = _db.get_memories(root, session_id=session_id)
+    estimated_tokens = int(sum(len(m["content"].split()) * 1.3 for m in memories))
+    return {
+        "memories": memories,
+        "count": len(memories),
+        "estimated_tokens": estimated_tokens,
+    }
+
+
+def _get_llm_for_compaction(root: Path):
+    """Return an LLMClient for memory compaction. Extracted for testability."""
+    from lutz.core.llm_client import LLMClient
+    from lutz.utils.project import load_env
+    env = load_env(root)
+    return LLMClient.from_env(env)
+
+
+def _compact_memories(root: Path, session_id: str) -> bool:
+    """Compact session memories when total token count exceeds 1500 tokens.
+
+    Returns True if compaction was performed, False if skipped.
+    """
+    from lutz.server import db as _db
+
+    memories = _db.get_memories(root, session_id=session_id)
+    if not memories:
+        return False
+
+    estimated_tokens = sum(len(m["content"].split()) * 1.3 for m in memories)
+    if estimated_tokens <= 1500:
+        return False
+
+    try:
+        llm = _get_llm_for_compaction(root)
+        all_text = "\n".join(f"- {m['content']}" for m in memories)
+        system = (
+            "You are a memory compactor for a research assistant. "
+            "Summarize the following memory entries into at most 5 concise bullet points. "
+            "Preserve the most important facts. Return ONLY bullet points, one per line, "
+            "starting each with '- '."
+        )
+        user_msg = f"Memory entries to summarize:\n\n{all_text}\n\nSummarized bullets:"
+        raw, _ = llm.complete(system, user_msg)
+
+        bullets = [
+            line.lstrip("- ").strip()
+            for line in raw.splitlines()
+            if line.strip().startswith("-")
+        ]
+        if not bullets:
+            bullets = [raw.strip()[:500]]
+
+        # Replace all session memories with compacted ones
+        now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
+        with _db.get_db(root) as conn:
+            conn.execute(
+                "DELETE FROM chat_memory WHERE session_id=?",
+                (session_id,),
+            )
+            for bullet in bullets:
+                conn.execute(
+                    "INSERT INTO chat_memory "
+                    "(id, text, session_id, source, extracted_at_count, created_at, content, updated_at) "
+                    "VALUES (?, ?, ?, 'auto', NULL, ?, ?, ?)",
+                    (str(uuid.uuid4()), bullet, session_id, now, bullet, now),
+                )
+        return True
+    except Exception:
+        return False
 
 
 # ── Chat LLM core ─────────────────────────────────────────────────────────────

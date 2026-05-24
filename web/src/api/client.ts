@@ -278,6 +278,10 @@ export const addChatMemory = (text: string, session_id?: string) =>
   request<{ memory: ChatMemory }>('POST', '/chat/memory', { text, session_id })
 export const deleteChatMemory = (id: string) =>
   request<{ ok: boolean }>('DELETE', `/chat/memory/${id}`)
+export const updateChatMemory = (_sessionId: string, memoryId: string, content: string) =>
+  request<{ id: string; content: string; updated_at: string }>('PUT', `/chat/memory/${memoryId}`, { content })
+export const getSessionMemory = (sessionId: string) =>
+  request<{ memories: ChatMemory[]; count: number; estimated_tokens: number }>('GET', `/chat/sessions/${sessionId}/memory`)
 
 export const listChatFiles = () => request<{ files: ChatFile[] }>('GET', '/chat/files')
 

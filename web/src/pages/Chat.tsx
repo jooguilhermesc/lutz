@@ -4,7 +4,7 @@ import remarkGfm from 'remark-gfm'
 import {
   listChatSessions, createChatSession, getChatSession,
   renameChatSession, deleteChatSession, streamSessionMessage,
-  listChatMemory, addChatMemory, deleteChatMemory,
+  listChatMemory, addChatMemory, deleteChatMemory, updateChatMemory,
   listChatFiles, uploadChatFiles, deleteChatFile, resetChatStore,
   listContextFiles, uploadContextFiles, deleteContextFile,
   listChatReports,
@@ -384,20 +384,47 @@ function SessionsSidebar({
 // ── Memory panel (side panel content) ────────────────────────────────────────
 
 function MemoryPanelContent({
-  memories, onDelete, onAdd,
+  memories, onDelete, onAdd, onUpdate,
 }: {
   memories: ChatMemory[]
   onDelete: (id: string) => void
   onAdd: (text: string) => void
+  onUpdate: (id: string, content: string) => void
 }) {
   const { t } = useLanguage()
   const [text, setText] = useState('')
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editingText, setEditingText] = useState('')
 
   function handleAdd() {
     if (!text.trim()) return
     onAdd(text.trim())
     setText('')
   }
+
+  function startEdit(m: ChatMemory) {
+    setEditingId(m.id)
+    setEditingText(m.text ?? (m as unknown as { content?: string }).content ?? '')
+  }
+
+  function cancelEdit() {
+    setEditingId(null)
+    setEditingText('')
+  }
+
+  function saveEdit(id: string) {
+    if (!editingText.trim()) return
+    onUpdate(id, editingText.trim())
+    setEditingId(null)
+    setEditingText('')
+  }
+
+  const estimatedTokens = Math.round(
+    memories.reduce((acc, m) => {
+      const c = (m as unknown as { content?: string }).content ?? m.text ?? ''
+      return acc + c.split(' ').length * 1.3
+    }, 0)
+  )
 
   return (
     <>
@@ -410,11 +437,40 @@ function MemoryPanelContent({
             <span className={`memory-badge ${m.source === 'auto' ? 'auto' : 'manual'}`}>
               {m.source === 'auto' ? 'auto' : '📌'}
             </span>
-            <p className="memory-text">{m.text}</p>
+            {editingId === m.id ? (
+              <div className="memory-edit-row">
+                <input
+                  className="memory-edit-input"
+                  value={editingText}
+                  onChange={(e) => setEditingText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') saveEdit(m.id)
+                    if (e.key === 'Escape') cancelEdit()
+                  }}
+                  autoFocus
+                />
+                <button className="memory-save-btn" onClick={() => saveEdit(m.id)}>{t('chat.memory.save')}</button>
+                <button className="memory-cancel-btn" onClick={cancelEdit}>{t('chat.memory.cancel')}</button>
+              </div>
+            ) : (
+              <>
+                <p className="memory-text" onClick={() => startEdit(m)} title={t('chat.memory.edit')}>
+                  {(m as unknown as { content?: string }).content ?? m.text}
+                </p>
+                <button className="memory-edit-btn" onClick={() => startEdit(m)} title={t('chat.memory.edit')}>✎</button>
+              </>
+            )}
             <button className="memory-delete" onClick={() => onDelete(m.id)}>✕</button>
           </div>
         ))}
       </div>
+      {memories.length > 0 && (
+        <p className="memory-counter">
+          {t('chat.memory.counter')
+            .replace('{{count}}', String(memories.length))
+            .replace('{{tokens}}', String(estimatedTokens))}
+        </p>
+      )}
       <div className="memory-add-row">
         <input
           className="memory-add-input"
@@ -657,6 +713,15 @@ export default function Chat() {
   async function handleDeleteMemory(id: string) {
     await deleteChatMemory(id)
     setMemories((prev) => prev.filter((m) => m.id !== id))
+  }
+
+  async function handleUpdateMemory(id: string, content: string) {
+    const updated = await updateChatMemory(activeId ?? '', id, content)
+    setMemories((prev) =>
+      prev.map((m) =>
+        m.id === id ? { ...m, text: updated.content, ...(updated as unknown as object) } : m
+      )
+    )
   }
 
   // ── Send message ──
@@ -1019,6 +1084,7 @@ export default function Chat() {
                 memories={memories}
                 onDelete={handleDeleteMemory}
                 onAdd={(text) => handleAddMemory(text, activeId ?? undefined)}
+                onUpdate={handleUpdateMemory}
               />
             </div>
           </div>
