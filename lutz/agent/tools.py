@@ -82,21 +82,21 @@ def _handle_analyze_corpus(arguments: dict, vector_store=None, job_manager=None)
     if job_manager is None:
         return {"status": "queued", "job_id": str(uuid.uuid4()), "note": "no job_manager"}
 
-    prompt = arguments.get("prompt", "")
+    prompt_text = arguments.get("prompt", "")
     mode = arguments.get("mode", "rag")
     top_k = int(arguments.get("top_k", 5))
     workers = int(arguments.get("workers", 2))
     language = arguments.get("language", "pt")
 
     body = {
-        "prompt": prompt,
+        "inline_prompt": prompt_text,
         "mode": mode,
         "top_k": top_k,
         "workers": workers,
         "language": language,
         "output_name": f"agent_{uuid.uuid4().hex[:8]}",
     }
-    job = job_manager.create("analysis", f"Análise: {prompt[:40]}", body)
+    job = job_manager.create("analysis", f"Análise: {prompt_text[:40]}", body)
     return {"status": "queued", "job_id": job.id, "job_type": "analysis"}
 
 

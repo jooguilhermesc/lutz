@@ -1336,15 +1336,22 @@ def _build_report_context(root: Path, report_ids: list[str]) -> tuple[str, list[
     return "\n\n---\n\n".join(lines), sources
 
 
-def _run_chat(
+def _build_chat_context(
     root: Path,
     messages: list[dict],
     options: dict,
     language: str,
     memories: list[dict],
 ) -> dict:
+    """Build system prompt, retrieve RAG chunks, and return context dict.
+
+    Returns a dict with keys:
+        system: str — the system prompt
+        temperature: float
+        sources: list[dict] — all RAG/library/report source chunks
+        thinking_config: dict | None
+    """
     from lutz.core.embedding_client import EmbeddingClient
-    from lutz.core.llm_client import LLMClient
 
     use_rag: bool = options.get("use_rag", True)
     use_model_knowledge: bool = options.get("use_model_knowledge", True)
@@ -1399,7 +1406,6 @@ def _run_chat(
         mem_text = "\n".join(f"- {m['text']}" for m in memories)
         parts.append(f"## Persistent memory (facts from previous conversations)\n\n{mem_text}")
 
-    # Injetar relatórios selecionados antes dos chunks de RAG
     report_sources: list[dict] = []
     if selected_report_ids:
         report_context, report_sources = _build_report_context(root, selected_report_ids)
@@ -1430,11 +1436,35 @@ def _run_chat(
     system = "\n\n".join(parts)
     temperature: float = reasoning["temperature"]
 
-    llm = LLMClient.from_env(env)
-
     thinking_config: dict | None = None
     if env.get("LLM_PROVIDER", "").lower() == "anthropic" and reasoning_level == "deep":
         thinking_config = {"type": "enabled", "budget_tokens": 8000}
+
+    return {
+        "system": system,
+        "temperature": temperature,
+        "sources": rag_chunks + library_chunks + report_sources,
+        "thinking_config": thinking_config,
+    }
+
+
+def _run_chat(
+    root: Path,
+    messages: list[dict],
+    options: dict,
+    language: str,
+    memories: list[dict],
+) -> dict:
+    from lutz.core.llm_client import LLMClient
+
+    context = _build_chat_context(root, messages, options, language, memories)
+    system: str = context["system"]
+    temperature: float = context["temperature"]
+    all_sources: list[dict] = context["sources"]
+    thinking_config: dict | None = context.get("thinking_config")
+
+    env = load_env(root)
+    llm = LLMClient.from_env(env)
 
     text, usage = llm.complete_messages(
         system=system,
@@ -1445,7 +1475,6 @@ def _run_chat(
 
     thinking_content: str | None = usage.pop("thinking_content", None)
 
-    all_sources = rag_chunks + library_chunks + report_sources
     result = {
         "response": text,
         "usage": usage,
@@ -1504,6 +1533,101 @@ async def chat_session_message(session_id: str, body: dict) -> dict:
     )
 
     return {**result, "title": current_title}
+
+
+@api.post("/chat/sessions/{session_id}/message/stream")
+async def chat_session_message_stream(session_id: str, body: dict) -> StreamingResponse:
+    """Send a message in a session and stream the LLM response via SSE."""
+    from lutz.server import db as _db
+
+    root = _get_root()
+    session = _db.get_session(root, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    user_content: str = (body.get("message") or body.get("content") or "").strip()
+    if not user_content:
+        raise HTTPException(status_code=400, detail="message required")
+
+    options: dict = body.get("options", {})
+    language: str = body.get("language", "pt")
+
+    _db.add_message(root, session_id, "user", user_content)
+
+    current_title: str = session["title"]
+    if current_title in ("Nova conversa", "New conversation", "Nueva conversación", ""):
+        current_title = user_content[:60] + ("\u2026" if len(user_content) > 60 else "")
+        _db.update_session_title(root, session_id, current_title)
+
+    chat_messages = _db.get_messages(root, session_id)
+    llm_messages = [{"role": m["role"], "content": m["content"]} for m in chat_messages]
+    memories = _db.list_memory(root)
+
+    async def _generate():
+        import json as _json
+
+        # Run context-building (RAG, embedding) in executor — it's blocking
+        loop = asyncio.get_event_loop()
+        context = await loop.run_in_executor(
+            None, _build_chat_context, root, llm_messages, options, language, memories
+        )
+
+        system: str = context["system"]
+        temperature: float = context["temperature"]
+        all_sources: list[dict] = context["sources"]
+        thinking_config: dict | None = context.get("thinking_config")
+
+        from lutz.core.llm_client import LLMClient
+        env = load_env(root)
+        llm = LLMClient.from_env(env)
+
+        accumulated = ""
+        try:
+            for chunk in llm.stream_messages(system, llm_messages, temperature=temperature):
+                accumulated += chunk
+                event = _json.dumps({"type": "token", "content": chunk})
+                yield f"data: {event}\n\n"
+        except Exception:
+            # Fallback: call complete_messages if streaming fails
+            text, _ = await loop.run_in_executor(
+                None,
+                lambda: llm.complete_messages(
+                    system=system,
+                    messages=llm_messages,
+                    temperature=temperature,
+                    thinking=thinking_config,
+                ),
+            )
+            accumulated = text
+            event = _json.dumps({"type": "token", "content": text})
+            yield f"data: {event}\n\n"
+
+        # Persist assistant message with sources
+        sources_simple = [{"filename": c["filename"], "page": c["page"]} for c in all_sources]
+        _db.add_message(root, session_id, "assistant", accumulated, sources=sources_simple)
+        _db.update_session_updated_at(root, session_id)
+
+        # Emit sources event
+        if sources_simple:
+            event = _json.dumps({"type": "sources", "sources": sources_simple})
+            yield f"data: {event}\n\n"
+
+        # Emit done event
+        event = _json.dumps({"type": "done", "title": current_title})
+        yield f"data: {event}\n\n"
+
+        # Background: extract memories
+        final_messages = _db.get_messages(root, session_id)
+        plain_messages = [{"role": m["role"], "content": m["content"]} for m in final_messages]
+        asyncio.get_event_loop().run_in_executor(
+            None, _auto_extract_memories, root, session_id, plain_messages
+        )
+
+    return StreamingResponse(
+        _generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @api.post("/chat/message")

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections.abc import Generator
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -163,6 +164,30 @@ class LLMClient:
             case _:
                 raise RuntimeError(f"Unsupported provider: {self.provider}")
 
+    def stream_messages(
+        self,
+        system: str,
+        messages: list[dict],
+        temperature: float | None = None,
+    ) -> Generator[str, None, None]:
+        """Stream a multi-turn conversation, yielding text chunks as they arrive.
+
+        Yields non-empty string chunks of the assistant response.
+        Falls back to a single yield of the full response for unsupported providers.
+        """
+        if temperature is not None:
+            temperature = max(0.0, min(2.0, float(temperature)))
+        match self.provider:
+            case "docker_model_runner" | "openai":
+                yield from self._stream_messages_openai(system, messages, temperature=temperature)
+            case "anthropic":
+                yield from self._stream_messages_anthropic(system, messages, temperature=temperature)
+            case _:
+                # Fallback: call complete_messages and emit full text as one chunk
+                text, _ = self.complete_messages(system, messages, temperature=temperature)
+                if text:
+                    yield text
+
     def complete(self, system: str, user: str) -> tuple[str, dict]:
         """Send a system + user prompt and return (text, usage).
 
@@ -286,3 +311,43 @@ class LLMClient:
             "total_tokens": (u.input_tokens + u.output_tokens) if u else 0,
         }
         return text, usage
+
+    def _stream_messages_openai(
+        self,
+        system: str,
+        messages: list[dict],
+        temperature: float | None = None,
+    ) -> Generator[str, None, None]:
+        api_messages = [{"role": "system", "content": system}] + messages
+        temp = temperature if temperature is not None else self._kwargs.get("temperature", 0.2)
+        stream = self._get_client().chat.completions.create(
+            model=self.model_id,
+            messages=api_messages,
+            max_tokens=self._kwargs.get("max_tokens", _DEFAULT_MAX_TOKENS),
+            temperature=temp,
+            stream=True,
+        )
+        for chunk in stream:
+            delta = chunk.choices[0].delta if chunk.choices else None
+            content = getattr(delta, "content", None) if delta else None
+            if content:
+                yield content
+
+    def _stream_messages_anthropic(
+        self,
+        system: str,
+        messages: list[dict],
+        temperature: float | None = None,
+    ) -> Generator[str, None, None]:
+        temp = temperature if temperature is not None else self._kwargs.get("temperature", 0.2)
+        client = self._get_client()
+        with client.messages.stream(
+            model=self.model_id,
+            max_tokens=self._kwargs.get("max_tokens", _DEFAULT_MAX_TOKENS),
+            system=system,
+            messages=messages,
+            temperature=temp,
+        ) as stream:
+            for text in stream.text_stream:
+                if text:
+                    yield text

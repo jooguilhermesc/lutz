@@ -244,6 +244,35 @@ export const sendSessionMessage = (
 ) => request<ChatResponse & { title: string }>('POST', `/chat/sessions/${sessionId}/message`,
   { content, options, language })
 
+export async function* streamSessionMessage(
+  sessionId: string,
+  message: string,
+  options: ChatOptions,
+  lang: string,
+): AsyncGenerator<{ type: string; [key: string]: unknown }> {
+  const res = await fetch(`${BASE}/chat/sessions/${sessionId}/message/stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message, options, language: lang }),
+  })
+  if (!res.ok || !res.body) return
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n\n')
+    buffer = lines.pop() ?? ''
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        try { yield JSON.parse(line.slice(6)) } catch { /* skip */ }
+      }
+    }
+  }
+}
+
 export const listChatMemory = () => request<{ memories: ChatMemory[] }>('GET', '/chat/memory')
 export const addChatMemory = (text: string, session_id?: string) =>
   request<{ memory: ChatMemory }>('POST', '/chat/memory', { text, session_id })
