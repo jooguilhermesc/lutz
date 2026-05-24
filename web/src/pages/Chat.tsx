@@ -654,6 +654,26 @@ export default function Chat() {
   const bottomRef = useRef<HTMLDivElement>(null)
   const chatFileInputRef = useRef<HTMLInputElement>(null)
 
+  // Restore options from localStorage when session changes
+  useEffect(() => {
+    if (!activeId) return
+    try {
+      const stored = localStorage.getItem(`lutz_chat_options_${activeId}`)
+      if (stored) {
+        const parsed = JSON.parse(stored) as Partial<ChatOptions>
+        setOptions((prev) => ({ ...prev, ...parsed }))
+      }
+    } catch {
+      // ignore parse errors
+    }
+  }, [activeId])
+
+  // Persist options to localStorage whenever they change
+  useEffect(() => {
+    if (!activeId) return
+    localStorage.setItem(`lutz_chat_options_${activeId}`, JSON.stringify(options))
+  }, [options, activeId])
+
   // Load initial data
   useEffect(() => {
     listChatSessions().then((r) => setSessions(r.sessions ?? []))
