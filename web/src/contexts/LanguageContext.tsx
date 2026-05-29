@@ -10,8 +10,6 @@ interface LangCtx {
   t: (key: string) => string
   showVectorStore: boolean
   setShowVectorStore: (v: boolean) => void
-  showChat: boolean
-  setShowChat: (v: boolean) => void
   showAnalytics: boolean
   setShowAnalytics: (v: boolean) => void
   showCitations: boolean
@@ -30,8 +28,6 @@ const LanguageContext = createContext<LangCtx>({
   t: (key) => key,
   showVectorStore: false,
   setShowVectorStore: () => {},
-  showChat: true,
-  setShowChat: () => {},
   showAnalytics: true,
   setShowAnalytics: () => {},
   showCitations: true,
@@ -50,10 +46,6 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   const [reportLang, setReportLangState] = useState<string>('pt')
   const [showVectorStore, setShowVectorStoreState] = useState<boolean>(() => {
     return localStorage.getItem('lutz_show_vector_store') === 'true'
-  })
-  const [showChat, setShowChatState] = useState<boolean>(() => {
-    const v = localStorage.getItem('lutz_show_chat')
-    return v === null ? true : v === 'true'
   })
   const [showAnalytics, setShowAnalyticsState] = useState<boolean>(() => {
     const v = localStorage.getItem('lutz_show_analytics')
@@ -94,11 +86,6 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem('lutz_show_vector_store', String(v))
   }, [])
 
-  const setShowChat = useCallback((v: boolean) => {
-    setShowChatState(v)
-    localStorage.setItem('lutz_show_chat', String(v))
-  }, [])
-
   const setShowAnalytics = useCallback((v: boolean) => {
     setShowAnalyticsState(v)
     localStorage.setItem('lutz_show_analytics', String(v))
@@ -127,7 +114,6 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
       reportLang, setReportLang,
       t,
       showVectorStore, setShowVectorStore,
-      showChat, setShowChat,
       showAnalytics, setShowAnalytics,
       showCitations, setShowCitations,
       showRoadmap, setShowRoadmap,

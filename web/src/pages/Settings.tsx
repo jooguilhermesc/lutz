@@ -52,7 +52,6 @@ export default function Settings() {
   const {
     t, lang, setLang, reportLang, setReportLang,
     showVectorStore, setShowVectorStore,
-    showChat, setShowChat,
     showAnalytics, setShowAnalytics,
     showCitations, setShowCitations,
     showRoadmap, setShowRoadmap,
@@ -211,7 +210,6 @@ export default function Settings() {
       <CollapsibleSection title={t('settings.section.ui')} storageKey="settings_ui">
         <div className="card space-y-3">
           {([
-            { key: 'showChat',       checked: showChat,       set: setShowChat,       label: t('settings.showChat'),       hint: t('settings.showChat.hint') },
             { key: 'showAnalytics',  checked: showAnalytics,  set: setShowAnalytics,  label: t('settings.showAnalytics'),  hint: t('settings.showAnalytics.hint') },
             { key: 'showCitations',  checked: showCitations,  set: setShowCitations,  label: t('settings.showCitations'),  hint: t('settings.showCitations.hint') },
             { key: 'showRoadmap',    checked: showRoadmap,    set: setShowRoadmap,    label: t('settings.showRoadmap'),    hint: t('settings.showRoadmap.hint') },
