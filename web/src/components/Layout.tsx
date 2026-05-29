@@ -1,16 +1,12 @@
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { NavLink, Outlet } from 'react-router-dom'
 import { useLanguage } from '../contexts/LanguageContext'
 import { NotificationsPanel } from './NotificationsPanel'
 
 export default function Layout() {
-  const { t, showVectorStore, showChat, showAnalytics, showCitations, showRoadmap, showProjects } = useLanguage()
-  const location = useLocation()
-  const isChatPage = location.pathname === '/chat' || location.pathname === '/agent'
+  const { t, showVectorStore, showAnalytics, showCitations, showRoadmap, showProjects } = useLanguage()
 
   const NAV = [
     { to: '/',          label: t('nav.home'),      icon: '⌂' },
-    ...(showChat      ? [{ to: '/chat',      label: t('nav.chat'),      icon: '💬' }] : []),
-    { to: '/agent',     label: t('nav.agent'),     icon: '🤖' },
     { to: '/vectorize', label: t('nav.vectorize'),  icon: '' },
     ...(showVectorStore ? [{ to: '/store',    label: t('nav.store'),     icon: '' }] : []),
     ...(showAnalytics ? [{ to: '/analytics', label: t('nav.analytics'), icon: '' }] : []),
@@ -84,30 +80,14 @@ export default function Layout() {
       </header>
 
       {/* ── Content ──────────────────────────────────────────────────────── */}
-      <main className={isChatPage ? 'flex-1 overflow-hidden' : 'flex-1 max-w-7xl mx-auto w-full px-4 py-8'}>
+      <main className="flex-1 max-w-7xl mx-auto w-full px-4 py-8">
         <Outlet />
       </main>
 
-      {!isChatPage && (
-        <footer className="text-center py-4 text-xs text-slate-400 border-t border-slate-200">
-          <span className="text-lutz-500 font-medium">lutz</span>
-          {' '}—{' '}triagem de artigos acadêmicos com IA
-        </footer>
-      )}
-
-      {/* ── Floating chat button (hidden on chat page or when chat is disabled) ── */}
-      {!isChatPage && showChat && (
-        <NavLink
-          to="/chat"
-          className="fixed bottom-6 right-6 z-50 flex items-center gap-2 bg-lutz-500 hover:bg-lutz-600 text-white px-4 py-3 rounded-full shadow-lg hover:shadow-xl transition-all group"
-          title={t('nav.chat')}
-        >
-          <span className="text-lg leading-none">💬</span>
-          <span className="text-sm font-medium max-w-0 overflow-hidden group-hover:max-w-xs transition-all duration-300 whitespace-nowrap">
-            {t('nav.chat')}
-          </span>
-        </NavLink>
-      )}
+      <footer className="text-center py-4 text-xs text-slate-400 border-t border-slate-200">
+        <span className="text-lutz-500 font-medium">lutz</span>
+        {' '}—{' '}triagem de artigos acadêmicos com IA
+      </footer>
     </div>
   )
 }

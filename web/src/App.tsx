@@ -6,11 +6,9 @@ import VectorStore from './pages/VectorStore'
 import Analysis from './pages/Analysis'
 import Citations from './pages/Citations'
 import Roadmap from './pages/Roadmap'
-import Chat from './pages/Chat'
 import Reports from './pages/Reports'
 import Settings from './pages/Settings'
 import Analytics from './pages/Analytics'
-import AgentChat from './pages/AgentChat'
 
 export default function App() {
   return (
@@ -24,8 +22,6 @@ export default function App() {
           <Route path="analysis" element={<Analysis />} />
           <Route path="citations" element={<Citations />} />
           <Route path="roadmap" element={<Roadmap />} />
-          <Route path="chat" element={<Chat />} />
-          <Route path="agent" element={<AgentChat />} />
           <Route path="reports" element={<Reports />} />
           <Route path="settings" element={<Settings />} />
           <Route path="*" element={<Navigate to="/" replace />} />
