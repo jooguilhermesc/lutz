@@ -34,7 +34,7 @@ features:
     details: Detecta JavaScript embutido, ações automáticas, XFA e padrões de prompt injection antes de processar os PDFs.
   - icon: 🌐
     title: Interface Web
-    details: Dashboard visual completo em Streamlit — vetorize, analise e gerencie relatórios sem sair do navegador.
+    details: Dashboard React completo com FastAPI — vetorize, analise, converse via Chat, gerencie relatórios e configure modelos sem sair do navegador.
   - icon: 🔬
     title: Open Science
     details: Projeto de código aberto, nomeado em homenagem a Bertha Lutz, cientista e pesquisadora brasileira.

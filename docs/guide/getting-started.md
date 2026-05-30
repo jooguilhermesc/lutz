@@ -103,6 +103,18 @@ lutz load --f "C:\Users\Ana\Downloads\artigos" --so windows
 
 :::
 
+Você também pode usar a aba **Biblioteca → + Adicionar PDFs** na interface web para fazer upload diretamente pelo navegador.
+
+::: tip Exemplo com artigos reais
+```bash
+lutz load --f ~/Downloads/AI-cyber --so linux
+# Found 18 PDF candidate(s)...
+# Copying articles... ████████████████████ 100%
+# Done. Copied: 18 | Skipped: 0 | Invalid: 0
+```
+:::
+
+
 ---
 
 ## Vetorizando os artigos
@@ -147,7 +159,13 @@ lutz analysis --p prompts/screening.md --per-article --workers 4
 lutz web
 ```
 
-Isso inicia o servidor Streamlit em `http://localhost:8501` e abre o navegador automaticamente.
+Isso inicia o servidor FastAPI + React em `http://localhost:8765` e abre o navegador automaticamente.
+
+Para escolher outra porta:
+
+```bash
+lutz web --port 8080
+```
 
 Veja a seção [Interface Web](/guide/interface/home) para uma descrição completa de cada página.
 

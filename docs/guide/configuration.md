@@ -73,6 +73,33 @@ LLM_MODEL=gpt-4o-mini
 
 ### OpenRouter
 
+O [OpenRouter](https://openrouter.ai) é um gateway que dá acesso a centenas de modelos (Google, Meta, Mistral, OpenAI, etc.) por uma única API compatível com o padrão OpenAI.
+
+**Configuração recomendada com Gemini e embeddings OpenAI:**
+
+```dotenv
+EMBEDDING_PROVIDER=openai
+EMBEDDING_MODEL=openai/text-embedding-3-small
+OPENAI_BASE_URL=https://openrouter.ai/api/v1
+OPENAI_API_KEY=sk-or-...
+
+LLM_PROVIDER=openai
+LLM_MODEL=google/gemini-flash-1.5-8b
+
+LLM_MAX_TOKENS=4096
+LLM_TEMPERATURE=0.2
+```
+
+::: tip Modelos recomendados no OpenRouter
+| Uso | Modelo | Custo |
+|---|---|---|
+| LLM rápido | `google/gemini-flash-1.5-8b` | baixo |
+| LLM potente | `google/gemini-2.0-flash-001` | médio |
+| Embedding | `openai/text-embedding-3-small` | baixo |
+:::
+
+**Configuração com modelo gratuito:**
+
 ```dotenv
 EMBEDDING_PROVIDER=sentence_transformers
 EMBEDDING_MODEL=all-MiniLM-L6-v2

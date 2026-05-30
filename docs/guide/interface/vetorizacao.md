@@ -1,8 +1,8 @@
-# Vetorização
+# Biblioteca (Vetorização)
 
-A página de Vetorização é onde você adiciona PDFs ao projeto e os indexa no banco vetorial. É o primeiro passo obrigatório antes de qualquer análise.
+A página **Biblioteca** (`/vectorize`) é onde você adiciona PDFs ao projeto e os indexa no banco vetorial. É o primeiro passo obrigatório antes de qualquer análise.
 
-![Página de Vetorização](/screenshots/vetorizacao.png)
+![Página de Biblioteca](/screenshots/vetorizacao.png)
 
 ---
 
@@ -12,19 +12,21 @@ Lista todos os arquivos `.pdf` presentes em `articles/`. Para cada arquivo, exib
 
 ### Upload de PDFs
 
-O botão de upload permite selecionar múltiplos arquivos PDF de uma vez. Ao confirmar com **Salvar arquivos em articles/**, o Lutz:
+Clique em **+ Adicionar PDFs** para selecionar múltiplos arquivos de uma vez. O Lutz:
 
 1. Valida que cada arquivo é um PDF legítimo (verifica assinatura binária).
 2. Sanitiza o nome do arquivo para evitar caracteres inválidos.
 3. Salva o arquivo em `articles/`.
 
+Você também pode renomear arquivos com a sugestão de nome inteligente (**Sugerir nomes**), que lê o conteúdo do PDF e propõe um nome limpo sem precisar vetorizar.
+
 ::: tip
-Você também pode copiar os arquivos manualmente para a pasta `articles/` do seu projeto.
+Você também pode copiar os arquivos manualmente para a pasta `articles/` do seu projeto usando `lutz load`.
 :::
 
 ---
 
-## Aba Vetorizar
+## Aba Processar
 
 ### Parâmetros de vetorização
 
