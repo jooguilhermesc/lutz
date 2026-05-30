@@ -1,6 +1,6 @@
 ---
 name: revisor-critico
-description: Validates LLM output quality and security: citation hallucination check, PII leakage detection, confidence scoring, and overreliance detection. Blocks if confidence < 70% or PII found. Maps to OWASP LLM06 (Sensitive Info), LLM09 (Overreliance), and ATLAS AML.T0057.
+description: "Validates LLM output quality and security: citation hallucination check, PII leakage detection, confidence scoring, and overreliance detection. Blocks if confidence < 70% or PII found. Maps to OWASP LLM06 (Sensitive Info), LLM09 (Overreliance), and ATLAS AML.T0057."
 tools: Read, Bash, Grep, Glob
 ---
 

@@ -36,7 +36,7 @@ subprocess.run(["grep", user_input, "file.txt"], check=True)
 ### Hardcoded credentials
 ```python
 # ERRADO
-API_KEY = "sk-abc123..."
+API_KEY = "sk-abc123..."  # pragma: allowlist secret
 
 # CORRETO — ler do ambiente via load_env()
 from lutz.utils.project import load_env
