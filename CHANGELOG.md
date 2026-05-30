@@ -2,6 +2,36 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.1] - 2026-05-30
+
+### Added
+
+#### Analytics para revisão sistemática
+
+- `lutz dedup` — deduplicação semântica de artigos por distância de cosseno no nível de artigo; agrupa pares com distância < threshold usando Union-Find; nunca apaga arquivos, apenas reporta grupos para revisão do pesquisador. Saída em `table`, `json` ou `html`.
+- `lutz rank` — ranking de relevância dos artigos contra uma pergunta de pesquisa; embedding da pergunta + similaridade de cosseno por artigo (agregação `mean` ou `max`); suporta `--filter-sections`; sem chamada a LLM. Saída em `table`, `json` ou `csv`.
+- `lutz model fit kmeans --k N` — treina KMeans uma única vez sobre o corpus inteiro e persiste em `.lutz/models/`; labels reprodutíveis independentemente do tamanho do corpus e do batching do DuckDB.
+- `lutz model fit pca --n N` — treina PCA fit-once sobre o corpus inteiro.
+- `lutz model fit centroid` — persiste o centroide médio do corpus; substitui o cálculo batch-fitted de `corpus_centroid_distance`.
+- `lutz model explore kmeans --k-range 2..15` — varre uma faixa de valores de k calculando silhouette e inércia; sugere o melhor k sem fixá-lo automaticamente; suporta `--sample N` para corpus grande.
+- `lutz model cluster-report --model kmeans_N` — síntese temática por cluster: artigos pertencentes a cada grupo e chunks mais representativos (mais próximos do centroide). Saída em `table`, `json` ou `html`.
+- `lutz model list` — lista modelos persistidos com metadados e indicador de validade do corpus (hash).
+- `lutz model rm <model_id>` — remove modelo salvo.
+- UDFs SQL fit-once: `predict_cluster(embedding, model_id)`, `predict_coords(embedding, model_id)`, `predict_centroid_distance(embedding, model_id)` e variantes `_checked` com validação de `embedding_model`.
+- `VectorStore.get_all_embeddings()` — lê todos os embeddings em uma passada usando `to_numpy(zero_copy_only=False)`.
+- `VectorStore.get_all_embeddings_with_metadata()` — embeddings alinhados com metadados por índice.
+- `VectorStore.get_chunk_embeddings_by_article()` — embeddings agrupados por artigo com filtro de seção.
+- `FittedModelStore` em `lutz/analytics/model_store.py` — persiste/carrega objetos sklearn como `.joblib` + `.meta.json`; valida `corpus_hash` para detectar corpus desatualizado.
+- `docs/adr/ADR-001` — override documentado do Gate G3 para déficit de cobertura pré-existente em módulos fora do escopo analítico.
+- Documentação wiki: nova página `/guide/analytics` com fluxo completo, exemplos de saída e tabela de UDFs.
+
+### Deprecated
+
+- `kmeans_label(embedding, k)` — use `lutz model fit kmeans` + `predict_cluster()` para labels estáveis.
+- `pca_project(embedding, n)` — use `lutz model fit pca` + `predict_coords()`.
+- `corpus_centroid_distance(embedding)` — use `lutz model fit centroid` + `predict_centroid_distance()`.
+- `batch_centroid(embedding)` — substituído por centroide fit-once.
+
 ## [0.3.1] - 2026-05-29
 
 ### Removed

@@ -34,11 +34,19 @@ from lutz.analytics.distances import _to_matrix, _LIST_DBL
     parameters=[_LIST_DBL],
     return_type=duckdb.type("DOUBLE"),
     description=(
+        "DEPRECATED: batch-computed — use 'lutz model fit centroid' + "
+        "predict_centroid_distance() for corpus-wide stable results. "
         "Cosine distance from each embedding to the batch centroid. "
         "Higher values = more unlike the rest of the corpus."
     ),
 )
 def corpus_centroid_distance(v: pa.Array) -> pa.Array:
+    """DEPRECATED: batch-computed — use 'lutz model fit centroid' + predict_centroid_distance().
+
+    With corpora > 2048 chunks DuckDB splits data into multiple batches; this
+    function recomputes the centroid per batch, producing inconsistent scores.
+    Use ``predict_centroid_distance(embedding, 'corpus_centroid')`` instead.
+    """
     mat = _to_matrix(v)
     centroid = mat.mean(axis=0, keepdims=True)  # (1, D)
 
@@ -57,11 +65,14 @@ def corpus_centroid_distance(v: pa.Array) -> pa.Array:
     parameters=[_LIST_DBL],
     return_type=_LIST_DBL,
     description=(
+        "DEPRECATED: batch-computed — use 'lutz model fit centroid' + "
+        "predict_centroid_distance() for corpus-wide stable results. "
         "Mean (centroid) embedding of all vectors in the batch. "
         "Every row receives the same centroid vector."
     ),
 )
 def batch_centroid(v: pa.Array) -> pa.Array:
+    """DEPRECATED: batch-computed — see corpus_centroid_distance for details."""
     mat = _to_matrix(v)
     centroid = mat.mean(axis=0)  # (D,)
     return pa.array([centroid.tolist()] * mat.shape[0])

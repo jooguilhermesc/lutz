@@ -2,7 +2,7 @@
 ; Docs: https://jrsoftware.org/ishelp/
 
 #define AppName      "Lutz Research"
-#define AppVersion   "0.3.1"
+#define AppVersion   "0.4.1"
 #define AppPublisher "João Guilherme"
 #define AppURL       "https://github.com/jooguilhermesc/lutz"
 #define AppSupportURL "https://github.com/jooguilhermesc/lutz/issues"

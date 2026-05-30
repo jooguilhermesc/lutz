@@ -226,6 +226,118 @@ class VectorStore:
             )
         return grouped
 
+    def get_all_embeddings(self) -> tuple[np.ndarray, dict]:
+        """Return all chunk embeddings as a 2-D float32 array plus corpus metadata.
+
+        Returns
+        -------
+        embeddings : np.ndarray of shape (N, D), dtype float32
+            All chunk embeddings in table order.
+        meta : dict with keys:
+            embedding_model  — most frequent embedding model in the store
+            n_rows           — total number of chunk rows
+            corpus_hash      — sha256(f"{last_updated}:{n_rows}")
+
+        When the store is empty, returns ``(np.empty((0, 0), dtype=np.float32), {})`` .
+        """
+        import hashlib
+
+        if _TABLE_NAME not in self._db.list_tables().tables:
+            return np.empty((0, 0), dtype=np.float32), {}
+
+        tbl = self._db.open_table(_TABLE_NAME)
+        n_rows = tbl.count_rows()
+        if n_rows == 0:
+            return np.empty((0, 0), dtype=np.float32), {}
+
+        arrow_tbl = _project(tbl.to_arrow(), ["embedding", "embedding_model", "vectorized_at"])
+        if "embedding" not in arrow_tbl.schema.names:
+            return np.empty((0, 0), dtype=np.float32), {}
+
+        # Efficiently convert list<float32> column to 2-D numpy array
+        emb_col = arrow_tbl.column("embedding")
+        if isinstance(emb_col, pa.ChunkedArray):
+            emb_col = emb_col.combine_chunks()
+        matrix = np.array(
+            emb_col.to_pylist(), dtype=np.float32
+        )
+
+        # Determine dominant embedding_model
+        all_models: list[str] = []
+        if "embedding_model" in arrow_tbl.schema.names:
+            all_models = [
+                v for v in arrow_tbl.column("embedding_model").to_pylist() if v
+            ]
+        embedding_model = (
+            max(set(all_models), key=all_models.count) if all_models else ""
+        )
+
+        # Corpus hash for invalidation
+        timestamps: list[str] = []
+        if "vectorized_at" in arrow_tbl.schema.names:
+            timestamps = [v for v in arrow_tbl.column("vectorized_at").to_pylist() if v]
+        last_updated = max(timestamps) if timestamps else ""
+        raw = f"{last_updated}:{n_rows}".encode()
+        corpus_hash = hashlib.sha256(raw).hexdigest()
+
+        meta = {
+            "embedding_model": embedding_model,
+            "n_rows": n_rows,
+            "corpus_hash": corpus_hash,
+        }
+        return matrix, meta
+
+    def get_all_embeddings_with_metadata(self) -> tuple[np.ndarray, list[dict]]:
+        """Return all chunk embeddings aligned with their metadata rows.
+
+        This method pairs each embedding with its corresponding metadata so
+        that callers can assign cluster labels and map them back to the
+        originating article and chunk without a secondary lookup.
+
+        Returns
+        -------
+        matrix : np.ndarray of shape (N, D), dtype float32
+            All chunk embeddings in table order (same order as *rows*).
+        rows : list[dict]
+            One dict per chunk with keys:
+            ``filename``, ``chunk_index``, ``section``, ``text``.
+            Index *i* in *rows* corresponds to row *i* in *matrix*.
+
+        When the store is empty, returns ``(np.empty((0, 0), dtype=np.float32), [])``.
+        """
+        if _TABLE_NAME not in self._db.list_tables().tables:
+            return np.empty((0, 0), dtype=np.float32), []
+
+        tbl = self._db.open_table(_TABLE_NAME)
+        n_rows = tbl.count_rows()
+        if n_rows == 0:
+            return np.empty((0, 0), dtype=np.float32), []
+
+        cols = ["filename", "chunk_index", "section", "text", "embedding"]
+        arrow_tbl = _project(tbl.to_arrow(), cols)
+
+        if "embedding" not in arrow_tbl.schema.names:
+            return np.empty((0, 0), dtype=np.float32), []
+
+        emb_col = arrow_tbl.column("embedding")
+        if isinstance(emb_col, pa.ChunkedArray):
+            emb_col = emb_col.combine_chunks()
+        matrix = np.array(emb_col.to_pylist(), dtype=np.float32)
+
+        has_section = "section" in arrow_tbl.schema.names
+        rows_out: list[dict] = []
+        for row in arrow_tbl.to_pylist():
+            rows_out.append(
+                {
+                    "filename": row["filename"],
+                    "chunk_index": int(row.get("chunk_index", 0)),
+                    "section": row.get("section", "") if has_section else "",
+                    "text": row["text"],
+                }
+            )
+
+        return matrix, rows_out
+
     def get_embeddings_by_article(self) -> "dict[str, np.ndarray]":
         """Return mean embedding per article (average of all chunk embeddings).
 
@@ -248,6 +360,54 @@ class VectorStore:
         for filename, vecs in grouped.items():
             result[str(filename)] = np.array(vecs, dtype=np.float32).mean(axis=0)
         return result
+
+    def get_chunk_embeddings_by_article(
+        self,
+        sections: list[str] | None = None,
+    ) -> dict[str, list[np.ndarray]]:
+        """Return chunk embeddings grouped by article filename.
+
+        Each article maps to an ordered list of its chunk embedding vectors.
+        Unlike :meth:`get_embeddings_by_article`, this method preserves
+        individual chunk vectors so callers can apply their own aggregation
+        (mean, max, etc.).
+
+        Parameters
+        ----------
+        sections:
+            When provided, only chunks whose ``section`` field is in this list
+            are included. Articles that end up with zero chunks after filtering
+            are still present as empty lists.
+        """
+        if _TABLE_NAME not in self._db.list_tables().tables:
+            return {}
+
+        tbl = self._db.open_table(_TABLE_NAME)
+        cols = ["filename", "chunk_index", "section", "embedding"]
+        arrow_tbl = _project(tbl.to_arrow(), cols)
+
+        if "embedding" not in arrow_tbl.schema.names:
+            return {}
+
+        # Apply section filter when requested
+        if sections and "section" in arrow_tbl.schema.names:
+            mask = pa.compute.is_in(
+                arrow_tbl.column("section"),
+                value_set=pa.array(sections, type=pa.string()),
+            )
+            arrow_tbl = arrow_tbl.filter(mask)
+
+        # Sort by filename then chunk_index for stable ordering
+        arrow_tbl = arrow_tbl.sort_by(
+            [("filename", "ascending"), ("chunk_index", "ascending")]
+        )
+
+        grouped: dict[str, list[np.ndarray]] = {}
+        for row in arrow_tbl.to_pylist():
+            fn = row["filename"]
+            emb = np.array(row["embedding"], dtype=np.float32)
+            grouped.setdefault(fn, []).append(emb)
+        return grouped
 
     def list_filenames(self) -> list[str]:
         """Return sorted list of unique article filenames in the store."""

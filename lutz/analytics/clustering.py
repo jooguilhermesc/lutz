@@ -31,6 +31,7 @@ from lutz.analytics.distances import _to_matrix, _LIST_DBL
     parameters=[_LIST_DBL, duckdb.type("INTEGER")],
     return_type=duckdb.type("INTEGER"),
     description=(
+        "DEPRECATED: batch-fitted — use 'lutz model fit' + predict_cluster() for stable labels. "
         "K-Means cluster label for each embedding. "
         "The model is fitted on the current batch. "
         "k = number of clusters."

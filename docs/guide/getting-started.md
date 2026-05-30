@@ -186,16 +186,29 @@ lutz vectorize --section-parse
 # 4. Conferir seções detectadas
 lutz vector-store --sections
 
-# 5. Triagem por abstract (rápido e econômico)
+# 5. Remover duplicatas entre bases (PubMed, Scopus, WoS)
+lutz dedup --threshold 0.05
+
+# 6. Priorizar triagem por relevância semântica
+lutz rank --question "sua pergunta PICO aqui" --filter-sections abstract
+
+# 7. Triagem por abstract (rápido e econômico)
 lutz analysis --p prompts/screening.md --per-article --workers 4 \
   --filter-sections abstract
 
-# 6. Análise de metodologia e resultados
+# 8. Análise de metodologia e resultados
 lutz analysis --p prompts/methodology_analysis.md \
   --filter-sections methodology,results
 
-# 7. Extrair citações dos artigos relevantes
+# 9. Extrair citações dos artigos relevantes
 lutz citations \
   --analysis analysis/execution_reports/screening_<timestamp>.json \
   --workers 4 --only-relevant
+
+# 10. Síntese temática por clustering
+lutz model explore kmeans --k-range 2..12   # escolhe k
+lutz model fit kmeans --k 5                 # treina uma vez
+lutz model cluster-report --model kmeans_5  # síntese por cluster
 ```
+
+Veja a seção [Análise Semântica](/guide/analytics) para detalhes sobre deduplicação, ranking, clustering e detecção de outliers.
