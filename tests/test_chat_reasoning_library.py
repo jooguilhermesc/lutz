@@ -18,9 +18,9 @@ def _make_env(provider: str = "openai") -> dict:
         "EMBEDDING_MODEL": "text-embedding-3-small",
     }
     if provider == "openai":
-        base["OPENAI_API_KEY"] = "test-key"
+        base["OPENAI_API_KEY"] = "test-key"  # pragma: allowlist secret
     elif provider == "anthropic":
-        base["ANTHROPIC_API_KEY"] = "test-key"
+        base["ANTHROPIC_API_KEY"] = "test-key"  # pragma: allowlist secret
     return base
 
 
@@ -463,7 +463,7 @@ class TestLLMClientTemperature:
         client = LLMClient(
             provider="openai",
             model_id="gpt-4o-mini",
-            api_key="dummy",
+            api_key="dummy",  # pragma: allowlist secret
             max_tokens=100,
             temperature=0.5,
         )

@@ -25,7 +25,7 @@ class TestEmbeddingClientFromEnv:
         """from_env returns an openai-provider EmbeddingClient."""
         from lutz.core.embedding_client import EmbeddingClient
 
-        env = {"EMBEDDING_PROVIDER": "openai", "OPENAI_API_KEY": "sk-test"}
+        env = {"EMBEDDING_PROVIDER": "openai", "OPENAI_API_KEY": "sk-test"}  # pragma: allowlist secret
         client = EmbeddingClient.from_env(env)
         assert client.provider == "openai"
         assert client.model_id == "text-embedding-3-small"
@@ -36,7 +36,7 @@ class TestEmbeddingClientFromEnv:
 
         env = {
             "EMBEDDING_PROVIDER": "openai",
-            "OPENAI_API_KEY": "sk-test",
+            "OPENAI_API_KEY": "sk-test",  # pragma: allowlist secret
             "EMBEDDING_MODEL": "text-embedding-ada-002",
         }
         client = EmbeddingClient.from_env(env)
@@ -110,7 +110,7 @@ class TestEmbeddingClientEmbedOpenai:
         from lutz.core.embedding_client import EmbeddingClient
 
         client = EmbeddingClient(provider="openai", model_id="text-embedding-3-small",
-                                 api_key="sk-test")
+                                 api_key="sk-test")  # pragma: allowlist secret
 
         openai_mock = MagicMock()
         item = MagicMock()
@@ -132,7 +132,7 @@ class TestEmbeddingClientEmbedOpenai:
         from lutz.core.embedding_client import EmbeddingClient
 
         client = EmbeddingClient(provider="openai", model_id="text-embedding-3-small",
-                                 api_key="sk-test")
+                                 api_key="sk-test")  # pragma: allowlist secret
 
         openai_mock = MagicMock()
 
@@ -156,7 +156,7 @@ class TestEmbeddingClientEmbedOpenai:
         from lutz.core.embedding_client import EmbeddingClient
 
         client = EmbeddingClient(provider="docker_model_runner", model_id="nomic",
-                                 api_key="dummy", base_url="http://localhost/engines/v1")
+                                 api_key="dummy", base_url="http://localhost/engines/v1")  # pragma: allowlist secret
 
         openai_mock = MagicMock()
         item = MagicMock()

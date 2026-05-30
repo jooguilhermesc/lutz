@@ -32,8 +32,8 @@ def project_root(tmp_path: Path) -> Path:
     lutz_dir.mkdir(parents=True)
     # Write a minimal .env so load_env() doesn't fail
     (tmp_path / ".env").write_text(
-        "LLM_PROVIDER=openai\nLLM_MODEL=gpt-4o-mini\nOPENAI_API_KEY=test-key\n"
-        "EMBEDDING_PROVIDER=openai\nEMBEDDING_MODEL=text-embedding-3-small\n",
+        "LLM_PROVIDER=openai\nLLM_MODEL=gpt-4o-mini\nOPENAI_API_KEY=test-key\n"  # pragma: allowlist secret
+        "EMBEDDING_PROVIDER=openai\nEMBEDDING_MODEL=text-embedding-3-small\n",  # pragma: allowlist secret
         encoding="utf-8",
     )
     # Initialise the DB schema
@@ -302,7 +302,7 @@ class TestLLMClientTemperatureFallback:
         client = LLMClient(
             provider="openai",
             model_id="gpt-4o-mini",
-            api_key="dummy",
+            api_key="dummy",  # pragma: allowlist secret
             max_tokens=100,
             temperature=0.7,
         )
@@ -334,7 +334,7 @@ class TestLLMClientTemperatureFallback:
         client = LLMClient(
             provider="openai",
             model_id="gpt-4o-mini",
-            api_key="dummy",
+            api_key="dummy",  # pragma: allowlist secret
             max_tokens=100,
             temperature=0.9,
         )
@@ -369,7 +369,7 @@ class TestLLMClientFromEnv:
         env = {
             "LLM_PROVIDER": "openai",
             "LLM_MODEL": "gpt-4o",
-            "OPENAI_API_KEY": "sk-test",
+            "OPENAI_API_KEY": "sk-test",  # pragma: allowlist secret
         }
         client = LLMClient.from_env(env)
         assert client.provider == "openai"
@@ -403,7 +403,7 @@ class TestLLMClientFromEnv:
         env = {
             "LLM_PROVIDER": "anthropic",
             "LLM_MODEL": "claude-haiku-4-5-20251001",
-            "ANTHROPIC_API_KEY": "test-key",
+            "ANTHROPIC_API_KEY": "test-key",  # pragma: allowlist secret
         }
         client = LLMClient.from_env(env)
         assert client.provider == "anthropic"
@@ -429,7 +429,7 @@ class TestLLMClientFromEnv:
         env = {
             "LLM_PROVIDER": "openai",
             "LLM_MODEL": "gpt-4o-mini",
-            "OPENAI_API_KEY": "sk-test",
+            "OPENAI_API_KEY": "sk-test",  # pragma: allowlist secret
         }
         client = LLMClient.from_env(env)
         assert client._kwargs["temperature"] == 0.2
@@ -450,7 +450,7 @@ class TestLLMClientAnthropic:
         return LLMClient(
             provider="anthropic",
             model_id="claude-haiku-4-5-20251001",
-            api_key="dummy",
+            api_key="dummy",  # pragma: allowlist secret
             max_tokens=100,
             temperature=0.2,
         )
@@ -462,7 +462,7 @@ class TestLLMClientAnthropic:
         client = LLMClient(
             provider="anthropic",
             model_id="claude-haiku",
-            api_key="dummy",
+            api_key="dummy",  # pragma: allowlist secret
             max_tokens=100,
             temperature=0.2,
         )
@@ -494,7 +494,7 @@ class TestLLMClientAnthropic:
         client = LLMClient(
             provider="anthropic",
             model_id="claude-haiku",
-            api_key="dummy",
+            api_key="dummy",  # pragma: allowlist secret
             max_tokens=100,
             temperature=0.2,
         )
