@@ -47,12 +47,15 @@ Ideal para triagem sistemática com inclusão/exclusão por artigo.
 
 | Campo | Descrição |
 |---|---|
-| **Prompt** | Texto Markdown do prompt ou upload de arquivo `.md` |
-| **Modo** | RAG ou por artigo |
-| **top_k** | Chunks recuperados no modo RAG (use `*` para todos) |
-| **Paralelismo** | Workers paralelos no modo por artigo |
-| **Filtro de seções** | Restringe a busca a seções específicas (ex: `abstract,results`) |
-| **Nome do output** | Nome base do arquivo de saída |
+| **Prompt** | Selecione um arquivo `.md` dos `prompts/` ou escreva diretamente |
+| **Modo de análise** | **Por artigo** (individual) ou **Biblioteca completa** (RAG) |
+| **Arquivos de contexto** | Arquivos adicionais enviados como contexto junto ao prompt |
+| **Opções avançadas** | top_k, paralelismo, filtro de seções, nome do output |
+
+### Modos de análise
+
+- **Por artigo** — LLM analisa cada artigo individualmente (recomendado para triagem sistemática com veredicto INCLUDE/EXCLUDE)
+- **Biblioteca completa** — busca semântica recupera os chunks mais relevantes do corpus e faz uma única chamada ao LLM (ideal para síntese geral)
 
 ---
 

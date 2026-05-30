@@ -31,7 +31,7 @@ export default defineConfig({
         text: 'Interface Web',
         items: [
           { text: 'Dashboard (Home)', link: '/guide/interface/home' },
-          { text: 'Vetorização', link: '/guide/interface/vetorizacao' },
+          { text: 'Biblioteca (Vetorização)', link: '/guide/interface/vetorizacao' },
           { text: 'Vector Store', link: '/guide/interface/vector-store' },
           { text: 'Análise', link: '/guide/interface/analise' },
           { text: 'Relatórios', link: '/guide/interface/relatorios' },

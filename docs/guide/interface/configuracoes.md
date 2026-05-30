@@ -12,15 +12,17 @@ A página de Configurações permite ajustar provedores de LLM e embedding, chav
 
 | Campo | Descrição |
 |---|---|
-| **LLM_PROVIDER** | `openai`, `anthropic` ou `docker_model_runner` |
-| **LLM_MODEL** | Nome do modelo (ex: `gpt-4o-mini`, `claude-haiku-4-5-20251001`) |
+| **LLM PROVIDER** | `OpenAI / OpenRouter`, `Anthropic` ou `Docker Model Runner` |
+| **LLM MODEL** | Nome do modelo (ex: `google/gemini-flash-1.5-8b`, `gpt-4o-mini`) |
+| **TEMPERATURE** | Variação da resposta (padrão: `0.2`) |
+| **MAX OUTPUT TOKENS** | Limite de tokens na resposta (padrão: `4096`) |
 
 ### Provedor de Embeddings
 
 | Campo | Descrição |
 |---|---|
-| **EMBEDDING_PROVIDER** | `openai`, `sentence_transformers` ou `docker_model_runner` |
-| **EMBEDDING_MODEL** | Nome do modelo (ex: `text-embedding-3-small`, `all-MiniLM-L6-v2`) |
+| **EMBEDDING PROVIDER** | `OpenAI`, `sentence_transformers` ou `Docker Model Runner` |
+| **EMBEDDING MODEL** | Nome do modelo (ex: `openai/text-embedding-3-small`, `all-MiniLM-L6-v2`) |
 
 ### Chaves de API
 
@@ -28,14 +30,30 @@ As chaves são inseridas em campos mascarados (tipo password). Deixe em branco p
 
 | Campo | Quando usar |
 |---|---|
-| **OPENAI_API_KEY** | OpenAI, OpenRouter, Ollama e outros compatíveis |
-| **ANTHROPIC_API_KEY** | Anthropic Claude |
+| **OPENAI / OPENROUTER API KEY** | OpenAI, OpenRouter, Ollama e outros compatíveis |
+| **ANTHROPIC API KEY** | Anthropic Claude |
 
 ### Configurações avançadas
 
 | Campo | Descrição |
 |---|---|
-| **OPENAI_BASE_URL** | URL base para APIs compatíveis com OpenAI (ex: `https://openrouter.ai/api/v1`, `http://localhost:11434/v1`) |
+| **OPENAI BASE URL** | URL base para APIs compatíveis com OpenAI. Exemplos: `https://openrouter.ai/api/v1` (OpenRouter), `http://localhost:11434/v1` (Ollama) |
+| **DOCKER MODEL HOST** | Endereço do Docker Model Runner (padrão: `http://localhost:11434`) |
+
+---
+
+## Exemplo: OpenRouter com Gemini e embeddings OpenAI
+
+Esta é a configuração usada no exemplo desta documentação:
+
+| Campo | Valor |
+|---|---|
+| **LLM PROVIDER** | `OpenAI / OpenRouter` |
+| **LLM MODEL** | `google/gemini-flash-1.5-8b` |
+| **EMBEDDING PROVIDER** | `OpenAI` |
+| **EMBEDDING MODEL** | `openai/text-embedding-3-small` |
+| **OPENAI BASE URL** | `https://openrouter.ai/api/v1` |
+| **OPENAI API KEY** | `sk-or-...` (sua chave do OpenRouter) |
 
 ---
 

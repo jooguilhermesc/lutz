@@ -8,7 +8,7 @@ O dashboard é a página inicial da interface web do Lutz. Ele oferece uma visã
 
 ## Como acessar
 
-Inicie a interface web e acesse `http://localhost:8501`:
+Inicie a interface web e acesse `http://localhost:8765`:
 
 ```bash
 lutz web
@@ -24,29 +24,28 @@ Se o dashboard exibir um aviso de "Nenhum projeto Lutz encontrado", execute `lut
 
 ## Métricas do projeto
 
-O dashboard exibe quatro métricas em tempo real:
+O dashboard exibe métricas em tempo real:
 
 | Métrica | O que representa |
 |---|---|
-| **PDFs em articles/** | Número de arquivos `.pdf` prontos para vetorização |
-| **Artigos vetorizados** | Documentos únicos indexados no banco vetorial |
-| **Chunks no índice** | Total de fragmentos de texto armazenados com embedding |
-| **Análises executadas** | Relatórios JSON gerados em `analysis/execution_reports/` |
+| **Artigos PDF** | Número de arquivos `.pdf` na pasta `articles/` |
+| **Análises** | Relatórios JSON gerados em `analysis/execution_reports/` |
 
 ---
 
 ## Fluxo de trabalho
 
-Os cartões de navegação mostram as seis etapas principais:
+Os cartões de navegação mostram as etapas principais:
 
-| Página | Função |
-|---|---|
-| **Vetorização** | Upload de PDFs e indexação no banco vetorial |
-| **Vector Store** | Inspecionar artigos, chunks e distribuição de seções |
-| **Análise** | Executar análises com prompt em modo RAG ou por artigo |
-| **Relatórios** | Visualizar e baixar resultados com veredictos INCLUDE/EXCLUDE |
-| **Citações** | Extrair passagens relevantes com justificativa |
-| **Configurações** | Configurar provedores de LLM/embedding e chaves de API |
+| Cartão | Rota | Função |
+|---|---|---|
+| **Vetorização** | `/vectorize` | Upload de PDFs e indexação no banco vetorial |
+| **Vector Store** | `/store` | Inspecionar artigos, chunks e distribuição de seções |
+| **Análise** | `/analysis` | Executar análises com prompt em modo RAG ou por artigo |
+| **Citações** | `/citations` | Extrair passagens relevantes com justificativa |
+| **Roteiro de leitura** | `/roadmap` | Plano de leitura gerado por LLM com ordem de dependências |
+| **Relatórios** | `/reports` | Visualizar e baixar resultados com veredictos INCLUDE/EXCLUDE |
+| **Configurações** | `/settings` | Configurar provedores de LLM/embedding e chaves de API |
 
 ---
 

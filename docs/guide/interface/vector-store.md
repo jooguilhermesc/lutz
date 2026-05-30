@@ -37,12 +37,30 @@ Quando você faz uma análise, o prompt é convertido no mesmo espaço vetorial 
 
 ## Informações exibidas
 
-### Resumo do banco
+### Cards de resumo
 
-- Total de chunks indexados
-- Número de artigos únicos
-- Modelo de embedding utilizado
-- Tamanho médio dos chunks
+O topo da página exibe quatro métricas principais:
+
+| Métrica | Descrição |
+|---|---|
+| **Chunks totais** | Total de fragmentos de texto indexados |
+| **Artigos indexados** | Número de documentos únicos no banco |
+| **Modelo** | Nome do modelo de embedding utilizado |
+| **Atualizado em** | Data/hora da última vetorização |
+
+### Tabela de artigos indexados
+
+Para cada artigo mostra: nome do arquivo, número de chunks, data de vetorização e modelo utilizado.
+
+### Consulta SQL
+
+A seção **Consulta SQL** permite inspecionar o banco vetorial diretamente com abas rápidas:
+
+- **Contar chunks por arquivo** — distribuição de chunks entre artigos
+- **Ver schema** — estrutura da tabela LanceDB
+- **Buscar texto** — busca por substring no conteúdo dos chunks
+- **Arquivos únicos** — lista de artigos distintos
+- **Chunks recentes** — últimos chunks adicionados
 
 ### Distribuição por seções
 
