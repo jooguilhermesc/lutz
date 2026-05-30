@@ -47,8 +47,8 @@ def project_root(tmp_path: Path) -> Path:
     lutz_dir = tmp_path / ".lutz"
     lutz_dir.mkdir(parents=True)
     (tmp_path / ".env").write_text(
-        "LLM_PROVIDER=openai\nLLM_MODEL=gpt-4o-mini\nOPENAI_API_KEY=test-key\n"
-        "EMBEDDING_PROVIDER=openai\nEMBEDDING_MODEL=text-embedding-3-small\n",
+        "LLM_PROVIDER=openai\nLLM_MODEL=gpt-4o-mini\nOPENAI_API_KEY=test-key\n"  # pragma: allowlist secret
+        "EMBEDDING_PROVIDER=openai\nEMBEDDING_MODEL=text-embedding-3-small\n",  # pragma: allowlist secret
         encoding="utf-8",
     )
     from lutz.server import db as _db
@@ -230,7 +230,7 @@ class TestLLMClientStreamMessagesOpenAI:
         llm = LLMClient(
             provider="openai",
             model_id="gpt-4o-mini",
-            api_key="test-key",
+            api_key="test-key",  # pragma: allowlist secret
             max_tokens=100,
             temperature=0.2,
         )
@@ -275,7 +275,7 @@ class TestLLMClientStreamMessagesFallback:
         llm = LLMClient(
             provider="openai",  # valid provider so _get_client doesn't fail
             model_id="gpt-4o-mini",
-            api_key="test-key",
+            api_key="test-key",  # pragma: allowlist secret
         )
 
         with patch.object(llm, "complete_messages", return_value=("full response text", {})):
