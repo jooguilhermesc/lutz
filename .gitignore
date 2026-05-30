@@ -55,3 +55,4 @@ build/
 
 # Dev prototypes / scratch files
 chat-ai-prototype.html
+.secrets.baseline
