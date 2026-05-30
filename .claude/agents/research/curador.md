@@ -1,6 +1,6 @@
 ---
 name: curador
-description: Validates PDF integrity before ingestion: magic bytes, file size, SHA-256 deduplication, and suspicious metadata. Moves rejected files to articles/_quarantine/ with a rejection reason. Maps to OWASP LLM05 (Supply Chain) and ATLAS AML.T0010.
+description: "Validates PDF integrity before ingestion: magic bytes, file size, SHA-256 deduplication, and suspicious metadata. Moves rejected files to articles/_quarantine/ with a rejection reason. Maps to OWASP LLM05 (Supply Chain) and ATLAS AML.T0010."
 tools: Read, Bash, Grep, Glob
 ---
 

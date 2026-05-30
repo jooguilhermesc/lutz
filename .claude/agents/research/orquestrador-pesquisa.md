@@ -1,6 +1,6 @@
 ---
 name: orquestrador-pesquisa
-description: Coordinates the Lutz research pipeline end-to-end: PDF curation → security scan → vectorization → RAG analysis → critical review → privacy check → report. Does not execute technical actions directly. Call this agent to run or orchestrate the full research workflow.
+description: "Coordinates the Lutz research pipeline end-to-end: PDF curation → security scan → vectorization → RAG analysis → critical review → privacy check → report. Does not execute technical actions directly. Call this agent to run or orchestrate the full research workflow."
 tools: Read, Bash, Grep, Glob
 ---
 

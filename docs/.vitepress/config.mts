@@ -28,6 +28,12 @@ export default defineConfig({
         ],
       },
       {
+        text: 'Análise Semântica',
+        items: [
+          { text: 'Visão geral', link: '/guide/analytics' },
+        ],
+      },
+      {
         text: 'Interface Web',
         items: [
           { text: 'Dashboard (Home)', link: '/guide/interface/home' },

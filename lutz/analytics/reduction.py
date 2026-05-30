@@ -31,6 +31,7 @@ from lutz.analytics.distances import _to_matrix, _LIST_DBL
     parameters=[_LIST_DBL, duckdb.type("INTEGER")],
     return_type=_LIST_DBL,
     description=(
+        "DEPRECATED: batch-fitted — use 'lutz model fit pca' + predict_coords() for stable projections. "
         "Project embeddings to n dimensions using PCA (batch-fitted). "
         "Returns a list of n floats."
     ),

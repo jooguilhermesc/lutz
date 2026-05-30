@@ -35,6 +35,9 @@ features:
   - icon: 🌐
     title: Interface Web
     details: Dashboard React completo com FastAPI — vetorize, analise, converse via Chat, gerencie relatórios e configure modelos sem sair do navegador.
+  - icon: 📊
+    title: Analytics para Revisão Sistemática
+    details: Deduplicação por similaridade semântica, ranking de relevância, clustering temático reprodutível e detecção de outliers — sem depender de LLM no caminho crítico.
   - icon: 🔬
     title: Open Science
     details: Projeto de código aberto, nomeado em homenagem a Bertha Lutz, cientista e pesquisadora brasileira.
