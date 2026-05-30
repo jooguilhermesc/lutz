@@ -49,8 +49,9 @@ dist/
 build/
 *.spec.bak
 
-# Claude Code local config (agents, settings — stays local)
-.claude/
+# Claude Code — apenas arquivos locais ficam ignorados
+.claude/settings.local.json
+.claude/worktrees/
 
 # Dev prototypes / scratch files
 chat-ai-prototype.html
