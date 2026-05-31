@@ -791,6 +791,325 @@ async def list_vector_store_udfs() -> dict:
     return {"udfs": list_udfs()}
 
 
+# ── Analytics ─────────────────────────────────────────────────────────────────
+
+
+def _corpus_hash(store: VectorStore) -> str:
+    """Compute the corpus hash used to validate fitted models.
+
+    Mirrors the logic in VectorStore.get_all_embeddings():
+    sha256(f"{last_updated}:{total_records}").
+    """
+    import hashlib
+
+    info = store.info()
+    last_updated = info.get("last_updated") or ""
+    total_records = info.get("total_records", 0)
+    raw = f"{last_updated}:{total_records}".encode()
+    return hashlib.sha256(raw).hexdigest()
+
+
+@api.post("/analytics/dedup")
+async def analytics_dedup(body: dict) -> dict:
+    """Detect near-duplicate articles using mean embedding cosine distance."""
+    import time
+
+    threshold: float = float(body.get("threshold", 0.05))
+    root = _get_root()
+    db_path = root / ".lutz" / "vector_store"
+
+    t0 = time.perf_counter()
+    store = VectorStore(db_path)
+    article_embeddings = store.get_embeddings_by_article()
+
+    if not article_embeddings:
+        return {"groups": [], "total_articles": 0, "elapsed_ms": 0}
+
+    from lutz.utils.dedup import find_duplicate_groups
+
+    raw_groups = find_duplicate_groups(article_embeddings, threshold)
+    groups = [
+        {"group_id": idx, **g}
+        for idx, g in enumerate(raw_groups)
+    ]
+    elapsed_ms = round((time.perf_counter() - t0) * 1000)
+    return {
+        "groups": groups,
+        "total_articles": len(article_embeddings),
+        "elapsed_ms": elapsed_ms,
+    }
+
+
+@api.post("/analytics/rank")
+async def analytics_rank(body: dict) -> dict:
+    """Rank articles by semantic relevance to a research question."""
+    import time
+
+    question: str = (body.get("question") or "").strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="question is required")
+
+    aggregation: str = body.get("aggregation", "mean")
+    if aggregation not in ("mean", "max"):
+        raise HTTPException(status_code=400, detail="aggregation must be 'mean' or 'max'")
+
+    filter_sections: list[str] | None = body.get("filter_sections") or None
+    top: int | None = body.get("top")
+    if top is not None:
+        top = int(top)
+
+    root = _get_root()
+    db_path = root / ".lutz" / "vector_store"
+
+    t0 = time.perf_counter()
+
+    def _run() -> dict:
+        from lutz.core.embedding_client import EmbeddingClient
+        from lutz.utils.ranking import rank_articles_by_relevance
+        import numpy as np
+
+        env = load_env(root)
+        embeddings, _tokens = EmbeddingClient.from_env(env).embed([question])
+        question_embedding = np.array(embeddings[0], dtype=np.float32)
+
+        store = VectorStore(db_path)
+        chunk_embeddings = store.get_chunk_embeddings_by_article(sections=filter_sections)
+
+        ranked = rank_articles_by_relevance(chunk_embeddings, question_embedding, aggregation)
+        if top is not None:
+            ranked = ranked[:top]
+
+        articles = [
+            {"rank": idx + 1, **r}
+            for idx, r in enumerate(ranked)
+        ]
+        return articles
+
+    articles = await asyncio.get_event_loop().run_in_executor(None, _run)
+    elapsed_ms = round((time.perf_counter() - t0) * 1000)
+    return {"articles": articles, "elapsed_ms": elapsed_ms}
+
+
+@api.get("/analytics/models")
+async def analytics_list_models() -> dict:
+    """List all fitted models and their corpus validity status."""
+    root = _get_root()
+    models_dir = root / ".lutz" / "models"
+    models_dir.mkdir(parents=True, exist_ok=True)
+
+    from lutz.analytics.model_store import FittedModelStore
+
+    store = VectorStore(root / ".lutz" / "vector_store")
+    current_hash = _corpus_hash(store)
+
+    raw_models = FittedModelStore(models_dir).list_models()
+    models = [
+        {
+            "model_id": m.get("model_id", ""),
+            "algorithm": m.get("algorithm", ""),
+            "params": m.get("params", {}),
+            "n_rows": m.get("n_rows", 0),
+            "trained_at": m.get("trained_at", ""),
+            "corpus_valid": m.get("corpus_hash", "") == current_hash,
+        }
+        for m in raw_models
+    ]
+    return {"models": models}
+
+
+@api.post("/analytics/models/fit")
+async def analytics_fit_model(body: dict) -> dict:
+    """Fit and persist a sklearn model on the corpus embeddings."""
+    import time
+
+    algorithm: str = (body.get("algorithm") or "").strip()
+    if algorithm not in ("kmeans", "pca", "centroid"):
+        raise HTTPException(status_code=400, detail="algorithm must be 'kmeans', 'pca', or 'centroid'")
+
+    params: dict = body.get("params") or {}
+    random_state: int = int(body.get("random_state", 42))
+    root = _get_root()
+    models_dir = root / ".lutz" / "models"
+    models_dir.mkdir(parents=True, exist_ok=True)
+
+    t0 = time.perf_counter()
+
+    def _run() -> dict:
+        from lutz.analytics.model_store import FittedModelStore
+
+        store = VectorStore(root / ".lutz" / "vector_store")
+        mat, meta = store.get_all_embeddings()
+
+        if mat.shape[0] == 0:
+            raise HTTPException(status_code=422, detail="Vector store is empty — vectorize articles first.")
+
+        n_rows = mat.shape[0]
+        corpus_hash = meta.get("corpus_hash", "")
+        embedding_model = meta.get("embedding_model", "")
+        trained_at = datetime.now(timezone.utc).isoformat()
+
+        if algorithm == "kmeans":
+            from sklearn.cluster import KMeans
+
+            k: int = int(params.get("k", 8))
+            model = KMeans(n_clusters=k, random_state=random_state, n_init="auto")
+            model.fit(mat)
+            model_id = f"kmeans_{k}"
+            metadata = {
+                "model_id": model_id,
+                "algorithm": "kmeans",
+                "params": {"k": k},
+                "n_rows": n_rows,
+                "corpus_hash": corpus_hash,
+                "embedding_model": embedding_model,
+                "trained_at": trained_at,
+            }
+
+        elif algorithm == "pca":
+            from sklearn.decomposition import PCA
+
+            n: int = int(params.get("n", 2))
+            model = PCA(n_components=n)
+            model.fit(mat)
+            model_id = f"pca_{n}"
+            metadata = {
+                "model_id": model_id,
+                "algorithm": "pca",
+                "params": {"n": n},
+                "n_rows": n_rows,
+                "corpus_hash": corpus_hash,
+                "embedding_model": embedding_model,
+                "trained_at": trained_at,
+            }
+
+        else:  # centroid
+            import numpy as np
+
+            centroid = mat.mean(axis=0)
+            model_id = "corpus_centroid"
+            model = centroid
+            metadata = {
+                "model_id": model_id,
+                "algorithm": "centroid",
+                "params": {},
+                "n_rows": n_rows,
+                "corpus_hash": corpus_hash,
+                "embedding_model": embedding_model,
+                "trained_at": trained_at,
+            }
+
+        FittedModelStore(models_dir).save(model_id, model, metadata)
+        return {"model_id": model_id, "n_rows": n_rows}
+
+    result = await asyncio.get_event_loop().run_in_executor(None, _run)
+    elapsed_ms = round((time.perf_counter() - t0) * 1000)
+    return {**result, "elapsed_ms": elapsed_ms}
+
+
+@api.post("/analytics/models/explore")
+async def analytics_explore_kmeans(body: dict) -> dict:
+    """Sweep k-means over a range of k values and return silhouette + inertia metrics."""
+    import time
+
+    k_range_str: str = (body.get("k_range") or "").strip()
+    if not k_range_str:
+        raise HTTPException(status_code=400, detail="k_range is required (e.g. '2..10')")
+
+    from lutz.utils.kmeans_explore import parse_k_range
+
+    try:
+        k_range = parse_k_range(k_range_str)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    random_state: int = int(body.get("random_state", 42))
+    sample: int | None = body.get("sample")
+    if sample is not None:
+        sample = int(sample)
+
+    root = _get_root()
+    t0 = time.perf_counter()
+
+    def _run() -> dict:
+        import numpy as np
+        from lutz.utils.kmeans_explore import explore_kmeans
+
+        store = VectorStore(root / ".lutz" / "vector_store")
+        mat, _ = store.get_all_embeddings()
+
+        if mat.shape[0] == 0:
+            raise HTTPException(status_code=422, detail="Vector store is empty — vectorize articles first.")
+
+        if sample is not None and sample < mat.shape[0]:
+            rng = np.random.default_rng(random_state)
+            indices = rng.choice(mat.shape[0], size=min(sample, mat.shape[0]), replace=False)
+            mat = mat[indices]
+
+        metrics = explore_kmeans(mat, k_range, random_state)
+
+        # Suggest the k with the highest silhouette score
+        suggested_k = max(metrics, key=lambda m: m["silhouette"])["k"]
+        return {"metrics": metrics, "suggested_k": suggested_k}
+
+    result = await asyncio.get_event_loop().run_in_executor(None, _run)
+    elapsed_ms = round((time.perf_counter() - t0) * 1000)
+    return {**result, "elapsed_ms": elapsed_ms}
+
+
+@api.delete("/analytics/models/{model_id}")
+async def analytics_delete_model(model_id: str) -> dict:
+    """Delete a fitted model by its model_id."""
+    root = _get_root()
+    models_dir = root / ".lutz" / "models"
+
+    from lutz.analytics.model_store import FittedModelStore
+
+    model_store = FittedModelStore(models_dir)
+    if not model_store.exists(model_id):
+        raise HTTPException(status_code=404, detail=f"Model '{model_id}' not found.")
+
+    model_store.remove(model_id)
+    return {"ok": True}
+
+
+@api.post("/analytics/models/{model_id}/cluster-report")
+async def analytics_cluster_report(model_id: str, body: dict) -> dict:
+    """Build a cluster synthesis report for a fitted KMeans model."""
+    top_chunks: int = int(body.get("top_chunks", 5))
+    root = _get_root()
+    models_dir = root / ".lutz" / "models"
+
+    from lutz.analytics.model_store import FittedModelStore
+
+    model_store = FittedModelStore(models_dir)
+    if not model_store.exists(model_id):
+        raise HTTPException(status_code=404, detail=f"Model '{model_id}' not found.")
+
+    model, meta = model_store.load(model_id)
+
+    if meta.get("algorithm") != "kmeans":
+        raise HTTPException(
+            status_code=422,
+            detail=f"Model '{model_id}' is not a KMeans model (algorithm={meta.get('algorithm')!r}).",
+        )
+
+    def _run() -> list[dict]:
+        import numpy as np
+        from lutz.utils.cluster_report import build_cluster_report
+
+        store = VectorStore(root / ".lutz" / "vector_store")
+        mat, rows = store.get_all_embeddings_with_metadata()
+
+        if mat.shape[0] == 0:
+            return []
+
+        labels = model.predict(mat)
+        return build_cluster_report(mat, rows, model.cluster_centers_, labels, top_chunks)
+
+    clusters = await asyncio.get_event_loop().run_in_executor(None, _run)
+    return {"model_id": model_id, "clusters": clusters}
+
+
 # ── Prompts ───────────────────────────────────────────────────────────────────
 
 

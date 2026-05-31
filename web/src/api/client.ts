@@ -203,6 +203,41 @@ export interface CatalogTable {
 export const fetchStoreCatalog = () =>
   request<{ tables: CatalogTable[] }>('GET', '/store/catalog')
 
+// ── Analytics ─────────────────────────────────────────────────────────────────
+export interface DedupGroup {
+  group_id: number
+  keep: string
+  duplicates: Array<{ filename: string; distance: number }>
+}
+export interface DedupResult { groups: DedupGroup[]; total_articles: number; elapsed_ms: number }
+export const runDedup = (threshold: number) =>
+  request<DedupResult>('POST', '/analytics/dedup', { threshold })
+
+export interface RankedArticle { rank: number; filename: string; score: number; chunks_used: number }
+export interface RankResult { articles: RankedArticle[]; elapsed_ms: number }
+export const runRank = (body: { question: string; aggregation: string; filter_sections?: string[]; top?: number }) =>
+  request<RankResult>('POST', '/analytics/rank', body)
+
+export interface FittedModel {
+  model_id: string; algorithm: string; params: Record<string, unknown>
+  n_rows: number; trained_at: string; corpus_valid: boolean
+}
+export const listModels = () => request<{ models: FittedModel[] }>('GET', '/analytics/models')
+
+export const fitModel = (body: { algorithm: string; params: Record<string, unknown>; random_state?: number }) =>
+  request<{ model_id: string; n_rows: number; elapsed_ms: number }>('POST', '/analytics/models/fit', body)
+
+export const exploreKmeans = (body: { k_range: string; random_state?: number; sample?: number }) =>
+  request<{ metrics: Array<{k: number; silhouette: number; inertia: number}>; suggested_k: number; elapsed_ms: number }>(
+    'POST', '/analytics/models/explore', body)
+
+export const deleteModel = (model_id: string) =>
+  request<{ ok: boolean }>('DELETE', `/analytics/models/${encodeURIComponent(model_id)}`)
+
+export const clusterReport = (model_id: string, top_chunks = 5) =>
+  request<{ model_id: string; clusters: Array<{cluster_id: number; n_articles: number; article_filenames: string[]; representative_chunks: Array<{filename: string; section: string; text: string; distance_to_centroid: number}>}> }>(
+    'POST', `/analytics/models/${encodeURIComponent(model_id)}/cluster-report`, { top_chunks })
+
 // ── SSE stream helper ─────────────────────────────────────────────────────────
 export interface StreamCallbacks {
   onLine: (line: string) => void
