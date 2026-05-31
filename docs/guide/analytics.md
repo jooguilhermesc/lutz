@@ -2,7 +2,9 @@
 
 O módulo de analytics do Lutz oferece ferramentas para **revisão sistemática assistida por IA**: deduplicação, ranking de relevância, clustering temático reprodutível e detecção de outliers — tudo sem depender de chamadas a LLM no caminho crítico.
 
-Todas as operações rodam via `lutz query` (SQL + UDFs) ou por comandos dedicados (`lutz model`, `lutz dedup`, `lutz rank`).
+Todas as operações estão disponíveis na **interface web** (aba Analytics) e na CLI (`lutz model`, `lutz dedup`, `lutz rank`, `lutz query`).
+
+![Aba SQL — paleta de UDFs e editor de consultas](/screenshots/analytics-sql.png)
 
 ---
 
@@ -32,6 +34,12 @@ lutz vectorize --section-parse
 ## `lutz dedup` — Deduplicação por similaridade
 
 Identifica artigos quase-duplicados entre bases de dados usando distância de cosseno no nível de artigo (não de chunk). Útil como primeira etapa PRISMA antes da triagem manual.
+
+Na interface web, acesse a aba **Analytics → Dedup**:
+
+![Dedup — grupos de artigos similares detectados](/screenshots/analytics-dedup-result.png)
+
+Na CLI:
 
 ```bash
 lutz dedup --threshold 0.05
@@ -86,6 +94,12 @@ lutz dedup --threshold 0.05 --format json --output duplicatas.json
 
 Ordena artigos pela similaridade semântica com a sua pergunta de pesquisa. Útil para priorizar a ordem de triagem e documentar um corte auditável.
 
+Na interface web, acesse a aba **Analytics → Ranking**:
+
+![Ranking — formulário com pergunta de pesquisa e opções de agregação](/screenshots/analytics-rank.png)
+
+Na CLI:
+
 ```bash
 lutz rank --question "machine learning para diagnóstico de doenças cardiovasculares"
 ```
@@ -135,9 +149,13 @@ lutz rank \
 
 Treina modelos uma única vez sobre o corpus inteiro e os persiste em `.lutz/models/`. As UDFs SQL `predict_cluster` e `predict_centroid_distance` carregam esses modelos — garantindo labels **idênticos entre queries e entre execuções**, independentemente do tamanho do corpus.
 
+Na interface web, acesse a aba **Analytics → Modelos**. A aba tem três seções:
+
 ### Explorar o número de clusters (`explore kmeans`)
 
 Antes de treinar, use `explore` para escolher `k` com base em evidência:
+
+![Explorar k — gráfico de silhouette e tabela com k=7 sugerido](/screenshots/analytics-models-explore.png)
 
 ```bash
 lutz model explore kmeans --k-range 2..12
@@ -190,6 +208,10 @@ Centroid saved: corpus_centroid (computed over 3412 chunks, embedding_model=text
 
 ### Listar modelos treinados (`list`)
 
+Na interface, a lista fica em **Modelos → Modelos treinados** com status de validade em tempo real:
+
+![Modelos treinados com status ✓ válido e botão de relatório](/screenshots/analytics-models-loaded.png)
+
 ```bash
 lutz model list
 ```
@@ -217,6 +239,10 @@ lutz model rm kmeans_3
 ## `lutz model cluster-report` — Síntese temática
 
 Gera um relatório de síntese por cluster: quais artigos pertencem a cada tema e quais trechos são os mais representativos (mais próximos do centroide do cluster).
+
+Na interface, clique em **Relatório** ao lado do modelo na lista e expanda os clusters:
+
+![Relatório de cluster — accordion com clusters e chunks representativos](/screenshots/analytics-cluster-report-open.png)
 
 ```bash
 lutz model cluster-report --model kmeans_5 --top-chunks 3
@@ -272,7 +298,9 @@ lutz model cluster-report --model kmeans_5 --format json > clusters.json
 
 ## `lutz query` com UDFs analíticas
 
-O comando `lutz query` expõe SQL diretamente sobre o vector store. Com `--include-embeddings` (`-e`), as UDFs de distância, clustering e redução ficam disponíveis.
+O editor SQL da interface web e o comando `lutz query` expõem SQL diretamente sobre o vector store. Com `--include-embeddings` (`-e`) / checkbox "Incluir embeddings", as UDFs de distância, clustering e redução ficam disponíveis.
+
+![Editor SQL com scatter plot PCA + KMeans colorido por cluster](/screenshots/analytics-sql-scatter.png)
 
 ### Rotular chunks com cluster estável
 
