@@ -8,7 +8,6 @@ import Citations from './pages/Citations'
 import Roadmap from './pages/Roadmap'
 import Reports from './pages/Reports'
 import Settings from './pages/Settings'
-import Analytics from './pages/Analytics'
 
 export default function App() {
   return (
@@ -18,7 +17,6 @@ export default function App() {
           <Route index element={<Home />} />
           <Route path="vectorize" element={<Vectorize />} />
           <Route path="store" element={<VectorStore />} />
-          <Route path="analytics" element={<Analytics />} />
           <Route path="analysis" element={<Analysis />} />
           <Route path="citations" element={<Citations />} />
           <Route path="roadmap" element={<Roadmap />} />

@@ -1,4 +1,4 @@
-"""CLI command: lutz query — execute SQL analytics against the vector store."""
+"""CLI command: lutz query — execute SQL queries against the vector store."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ _VS_COLUMNS = [
     "--include-embeddings", "-e",
     is_flag=True,
     default=False,
-    help="Expose the embedding column so lutz UDFs (cosine_distance, pca_project, …) can be used.",
+    help="Expose the embedding column in the query.",
 )
 @click.option(
     "--format", "-f", "fmt",
@@ -43,14 +43,11 @@ _VS_COLUMNS = [
     help="Append LIMIT N to the query (convenience shortcut).",
 )
 def query(sql: str, include_embeddings: bool, fmt: str, db: str | None, limit: int | None) -> None:
-    """Execute SQL analytics against the vector store.
+    """Execute a SQL query against the vector store.
 
-    The table is always named ``vectors``.  All lutz analytical UDFs are
-    available without any extra setup (cosine_distance, kmeans_label,
-    pca_project, corpus_centroid_distance, …).
+    The table is always named ``vectors``.
 
-    Pass --include-embeddings (-e) to expose the raw embedding column so you
-    can use the distance/clustering/reduction UDFs.
+    Pass --include-embeddings (-e) to expose the raw embedding column.
 
     \b
     Examples:
@@ -58,18 +55,12 @@ def query(sql: str, include_embeddings: bool, fmt: str, db: str | None, limit: i
       # Count chunks per section
       lutz query "SELECT section, COUNT(*) AS n FROM vectors GROUP BY section"
 
-      # Similarity search (needs --include-embeddings)
-      lutz query -e "SELECT filename, cosine_distance(embedding, \\
-          (SELECT embedding FROM vectors WHERE filename='ref.pdf' LIMIT 1)) AS d \\
-        FROM vectors ORDER BY d LIMIT 10"
-
-      # K-Means clustering overview
-      lutz query -e -f json \\
-          "SELECT filename, section, kmeans_label(embedding, 5) AS cluster FROM vectors"
+      # Inspect embeddings
+      lutz query -e "SELECT filename, embedding FROM vectors LIMIT 5"
     """
+    import duckdb
     from pathlib import Path
     import pyarrow as pa
-    from lutz.analytics import create_connection
     from lutz.core.vector_store import VectorStore
     from lutz.utils.project import require_project_root
 
@@ -105,7 +96,7 @@ def query(sql: str, include_embeddings: bool, fmt: str, db: str | None, limit: i
     if limit is not None:
         effective_sql = f"SELECT * FROM ({effective_sql}) __q LIMIT {limit}"
 
-    con = create_connection()
+    con = duckdb.connect()
     con.register("vectors", arrow_tbl)
 
     try:
