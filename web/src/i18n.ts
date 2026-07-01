@@ -17,12 +17,12 @@ const T: Record<Lang, Record<string, string>> = {
     // Nav
     'nav.home': 'Início',
     'nav.vectorize': 'Biblioteca',
+    'nav.process': 'Processar',
     'nav.store': 'Vector Store',
     'nav.analysis': 'Análise',
     'nav.citations': 'Citações',
     'nav.roadmap': 'Roteiro',
     'nav.reports': 'Relatórios',
-    'nav.projects': 'Projetos',
     'nav.settings': 'Configurações',
     // Home
     'home.subtitle': 'Triagem de artigos acadêmicos com IA — revisão sistemática de literatura',
@@ -47,6 +47,9 @@ const T: Record<Lang, Record<string, string>> = {
     'home.projects.articles': 'artigos',
     'home.projects.empty': 'Nenhum projeto criado ainda.',
     'home.projects.viewAll': 'Ver todos os projetos',
+    // Process
+    'process.title': 'Processar',
+    'process.noArticles': 'Nenhum artigo na biblioteca. Adicione PDFs primeiro.',
     // Vectorize
     'vectorize.title': 'Biblioteca',
     'vectorize.tab.articles': 'Artigos',
@@ -137,6 +140,7 @@ const T: Record<Lang, Record<string, string>> = {
     'analysis.prompt.inline.placeholder': 'Escreva as instruções de triagem aqui...',
     'analysis.prompt.saving': 'Salvando...',
     'analysis.prompt.save': '💾 Salvar alterações',
+    'analysis.prompt.saveName.placeholder': 'Nome do prompt...',
     'analysis.mode.label': 'Modo de análise',
     'analysis.mode.per_article': 'Por artigo',
     'analysis.mode.rag': 'Biblioteca completa',
@@ -255,12 +259,12 @@ const T: Record<Lang, Record<string, string>> = {
     // Nav
     'nav.home': 'Home',
     'nav.vectorize': 'Library',
+    'nav.process': 'Process',
     'nav.store': 'Vector Store',
     'nav.analysis': 'Analysis',
     'nav.citations': 'Citations',
     'nav.roadmap': 'Reading Guide',
     'nav.reports': 'Reports',
-    'nav.projects': 'Projects',
     'nav.settings': 'Settings',
     // Home
     'home.subtitle': 'AI-powered academic article screening — systematic literature review',
@@ -285,6 +289,9 @@ const T: Record<Lang, Record<string, string>> = {
     'home.projects.articles': 'articles',
     'home.projects.empty': 'No projects created yet.',
     'home.projects.viewAll': 'View all projects',
+    // Process
+    'process.title': 'Process',
+    'process.noArticles': 'No articles in library. Add PDFs first.',
     // Vectorize
     'vectorize.title': 'Library',
     'vectorize.tab.articles': 'Articles',
@@ -375,6 +382,7 @@ const T: Record<Lang, Record<string, string>> = {
     'analysis.prompt.inline.placeholder': 'Write the screening instructions here...',
     'analysis.prompt.saving': 'Saving...',
     'analysis.prompt.save': '💾 Save changes',
+    'analysis.prompt.saveName.placeholder': 'Prompt name...',
     'analysis.mode.label': 'Analysis mode',
     'analysis.mode.per_article': 'Per article',
     'analysis.mode.rag': 'Full library',
@@ -493,12 +501,12 @@ const T: Record<Lang, Record<string, string>> = {
     // Nav
     'nav.home': 'Inicio',
     'nav.vectorize': 'Biblioteca',
+    'nav.process': 'Procesar',
     'nav.store': 'Vector Store',
     'nav.analysis': 'Análisis',
     'nav.citations': 'Citas',
     'nav.roadmap': 'Guía de lectura',
     'nav.reports': 'Informes',
-    'nav.projects': 'Proyectos',
     'nav.settings': 'Configuración',
     // Home
     'home.subtitle': 'Cribado de artículos académicos con IA — revisión sistemática de literatura',
@@ -523,6 +531,9 @@ const T: Record<Lang, Record<string, string>> = {
     'home.projects.articles': 'artículos',
     'home.projects.empty': 'Aún no hay proyectos creados.',
     'home.projects.viewAll': 'Ver todos los proyectos',
+    // Process
+    'process.title': 'Procesar',
+    'process.noArticles': 'Sin artículos en la biblioteca. Agregue PDFs primero.',
     // Vectorize
     'vectorize.title': 'Biblioteca',
     'vectorize.tab.articles': 'Artículos',
@@ -613,6 +624,7 @@ const T: Record<Lang, Record<string, string>> = {
     'analysis.prompt.inline.placeholder': 'Escriba las instrucciones de cribado aquí...',
     'analysis.prompt.saving': 'Guardando...',
     'analysis.prompt.save': '💾 Guardar cambios',
+    'analysis.prompt.saveName.placeholder': 'Nombre del prompt...',
     'analysis.mode.label': 'Modo de análisis',
     'analysis.mode.per_article': 'Por artículo',
     'analysis.mode.rag': 'Biblioteca completa',

@@ -3,10 +3,8 @@ import { Document, Page, pdfjs } from 'react-pdf'
 import 'react-pdf/dist/Page/AnnotationLayer.css'
 import 'react-pdf/dist/Page/TextLayer.css'
 import { listArticles, uploadArticles, deleteArticle, deleteAllArticles, getArticleFileUrl, suggestArticleRename, renameArticle, type Article } from '../api/client'
-import StreamLog from '../components/StreamLog'
 import { useLanguage } from '../contexts/LanguageContext'
 import ConfirmDialog from '../components/ConfirmDialog'
-import { useNotifications } from '../contexts/NotificationsContext'
 import ActiveJobPanel from '../components/ActiveJobPanel'
 
 // Configure PDF.js worker (CDN matching the installed pdfjs-dist version)
@@ -383,28 +381,15 @@ function RenameSuggestModal({
 
 export default function Vectorize() {
   const { t } = useLanguage()
-  const { dispatchJob } = useNotifications()
-  const [tab, setTab] = useState<'articles' | 'vectorize'>('articles')
   const [articles, setArticles] = useState<Article[]>([])
   const [uploading, setUploading] = useState(false)
-  const [running, setRunning] = useState(false)
-  const [logs, setLogs] = useState<string[]>([])
-  const [done, setDone] = useState<boolean | null>(null)
-  const [dispatched, setDispatched] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
-  const ctrlRef = useRef<AbortController | null>(null)
 
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list')
   const [openArticle, setOpenArticle] = useState<Article | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<Article | null>(null)
   const [confirmDeleteAll, setConfirmDeleteAll] = useState(false)
   const [showRenameSuggest, setShowRenameSuggest] = useState(false)
-
-  const [chunkSize, setChunkSize] = useState(512)
-  const [chunkOverlap, setChunkOverlap] = useState(64)
-  const [skipSecurity, setSkipSecurity] = useState(false)
-  const [sectionParse, setSectionParse] = useState(false)
-  const [quarantine, setQuarantine] = useState(false)
 
   const load = () => {
     listArticles().then((r) => setArticles(r.articles ?? []))
@@ -431,66 +416,18 @@ export default function Vectorize() {
     await load()
   }
 
-  async function startVectorize() {
-    setLogs([])
-    setDone(null)
-    setRunning(true)
-    setDispatched(false)
-    try {
-      const job = await dispatchJob('vectorize', {
-        chunk_size: chunkSize,
-        chunk_overlap: chunkOverlap,
-        skip_security: skipSecurity,
-        section_parse: sectionParse,
-        quarantine,
-      })
-      setDispatched(true)
-      // Subscribe to live log stream while on this page
-      const ctrl = new AbortController()
-      ctrlRef.current = ctrl
-      const res = await fetch(`/api/jobs/${job.id}/stream`, { signal: ctrl.signal })
-      if (!res.body) return
-      const reader = res.body.getReader()
-      const dec = new TextDecoder()
-      let buf = ''
-      while (true) {
-        const { done: rdDone, value } = await reader.read()
-        if (rdDone) break
-        buf += dec.decode(value, { stream: true })
-        const parts = buf.split('\n\n')
-        buf = parts.pop() ?? ''
-        for (const part of parts) {
-          const line = part.replace(/^data: /, '').trim()
-          if (!line) continue
-          if (line === '__done__') { setRunning(false); setDone(true); load() }
-          else if (line.startsWith('__error__')) { setRunning(false); setDone(false) }
-          else setLogs((p) => [...p, line])
-        }
-      }
-    } catch (e: unknown) {
-      if (e instanceof Error && e.name !== 'AbortError') {
-        setRunning(false); setDone(false)
-      }
-    }
-  }
-
   const handleClose = useCallback(() => setOpenArticle(null), [])
 
   return (
     <div className="space-y-6">
       <h2 className="text-xl font-bold text-slate-800">{t('vectorize.title')}</h2>
 
-      {/* Background job banner */}
-      {!running && (
-        <ActiveJobPanel jobType="vectorize" onDone={load} />
-      )}
+      <ActiveJobPanel jobType="vectorize" onDone={load} />
 
-      {/* PDF Reader Modal */}
       {openArticle && (
         <PdfReaderModal article={openArticle} onClose={handleClose} />
       )}
 
-      {/* Confirm delete single article */}
       {confirmDelete && (
         <ConfirmDialog
           title={t('vectorize.removeConfirm')}
@@ -502,7 +439,6 @@ export default function Vectorize() {
         />
       )}
 
-      {/* Confirm delete all articles */}
       {confirmDeleteAll && (
         <ConfirmDialog
           title={t('vectorize.removeAllConfirm')}
@@ -514,7 +450,6 @@ export default function Vectorize() {
         />
       )}
 
-      {/* Rename suggestions modal */}
       {showRenameSuggest && (
         <RenameSuggestModal
           articles={articles}
@@ -523,183 +458,108 @@ export default function Vectorize() {
         />
       )}
 
-      {/* Tabs */}
-      <div className="flex gap-2 border-b border-slate-200">
-        {(['articles', 'vectorize'] as const).map((tab_) => (
-          <button
-            key={tab_}
-            onClick={() => setTab(tab_)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${
-              tab === tab_
-                ? 'border-lutz-500 text-lutz-600'
-                : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            {tab_ === 'articles'
-              ? `${t('vectorize.tab.articles')} (${articles.length})`
-              : t('vectorize.tab.vectorize')}
-          </button>
-        ))}
-      </div>
+      <div className="space-y-4">
+        <div className="flex items-center gap-3">
+          <label className="btn-primary cursor-pointer">
+            {uploading ? t('vectorize.uploading') : t('vectorize.upload')}
+            <input ref={fileRef} type="file" accept=".pdf" multiple className="hidden" onChange={handleUpload} disabled={uploading} />
+          </label>
+          <span className="text-xs text-slate-400">{articles.length} arquivo(s)</span>
 
-      {tab === 'articles' && (
-        <div className="space-y-4">
-          <div className="flex items-center gap-3">
-            <label className="btn-primary cursor-pointer">
-              {uploading ? t('vectorize.uploading') : t('vectorize.upload')}
-              <input ref={fileRef} type="file" accept=".pdf" multiple className="hidden" onChange={handleUpload} disabled={uploading} />
-            </label>
-            <span className="text-xs text-slate-400">{articles.length} arquivo(s)</span>
-
-            {articles.length > 0 && (
-              <button
-                className="text-xs text-red-400 hover:text-red-600 transition-colors"
-                onClick={() => setConfirmDeleteAll(true)}
-              >
-                {t('vectorize.removeAll')}
-              </button>
-            )}
-
-            {articles.length > 0 && (
-              <button
-                className="text-xs text-lutz-600 hover:text-lutz-700 font-medium transition-colors"
-                onClick={() => setShowRenameSuggest(true)}
-              >
-                {t('vectorize.suggestRename')}
-              </button>
-            )}
-
-            {/* View toggle */}
-            {articles.length > 0 && (
-              <div className="ml-auto flex items-center gap-1 border border-slate-200 rounded-lg p-0.5">
-                <button
-                  onClick={() => setViewMode('list')}
-                  className={`px-2 py-1 rounded text-xs transition-colors ${
-                    viewMode === 'list'
-                      ? 'bg-lutz-500 text-white'
-                      : 'text-slate-500 hover:text-slate-700'
-                  }`}
-                  title="Visualização em lista"
-                >
-                  ☰ Lista
-                </button>
-                <button
-                  onClick={() => setViewMode('grid')}
-                  className={`px-2 py-1 rounded text-xs transition-colors ${
-                    viewMode === 'grid'
-                      ? 'bg-lutz-500 text-white'
-                      : 'text-slate-500 hover:text-slate-700'
-                  }`}
-                  title="Visualização em miniaturas"
-                >
-                  ⊞ Miniaturas
-                </button>
-              </div>
-            )}
-          </div>
-
-          {articles.length === 0 ? (
-            <div className="text-slate-400 text-sm py-8 text-center">
-              {t('vectorize.empty')}
-            </div>
-          ) : viewMode === 'list' ? (
-            <div className="card p-0 overflow-hidden">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 text-xs text-slate-500 uppercase tracking-wide">
-                  <tr>
-                    <th className="text-left px-4 py-2">{t('vectorize.col.file')}</th>
-                    <th className="text-right px-4 py-2">{t('vectorize.col.size')}</th>
-                    <th className="px-4 py-2" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {articles.map((a) => (
-                    <tr
-                      key={a.name}
-                      className="border-t border-slate-100 hover:bg-slate-50 cursor-pointer"
-                      onClick={() => setOpenArticle(a)}
-                    >
-                      <td className="px-4 py-2 font-medium text-slate-700 break-all">
-                        <span className="text-lutz-600 hover:underline">{a.name}</span>
-                      </td>
-                      <td className="px-4 py-2 text-right text-slate-400 whitespace-nowrap">{fmt(a.size)}</td>
-                      <td className="px-4 py-2 text-right" onClick={(e) => e.stopPropagation()}>
-                        <button onClick={() => setConfirmDelete(a)} className="text-red-400 hover:text-red-600 text-xs">
-                          {t('vectorize.remove')}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-              {articles.map((a) => (
-                <ArticleCard
-                  key={a.name}
-                  article={a}
-                  onOpen={() => setOpenArticle(a)}
-                  onDelete={() => setConfirmDelete(a)}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {tab === 'vectorize' && (
-        <div className="space-y-6">
-          <div className="card grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="label">{t('vectorize.opt.chunkSize')}</label>
-              <input type="number" className="input" value={chunkSize} onChange={(e) => setChunkSize(+e.target.value)} min={64} max={2048} />
-            </div>
-            <div>
-              <label className="label">{t('vectorize.opt.chunkOverlap')}</label>
-              <input type="number" className="input" value={chunkOverlap} onChange={(e) => setChunkOverlap(+e.target.value)} min={0} max={512} />
-            </div>
-            <div className="flex flex-col gap-2">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" className="rounded" checked={skipSecurity} onChange={(e) => setSkipSecurity(e.target.checked)} />
-                <span className="text-sm">{t('vectorize.opt.skipSecurity')}</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" className="rounded" checked={sectionParse} onChange={(e) => setSectionParse(e.target.checked)} />
-                <span className="text-sm">{t('vectorize.opt.sectionParse')}</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" className="rounded" checked={quarantine} onChange={(e) => setQuarantine(e.target.checked)} />
-                <span className="text-sm">{t('vectorize.opt.quarantine')}</span>
-              </label>
-            </div>
-          </div>
-
-          <div className="flex gap-3 items-center">
-            <button className="btn-primary" onClick={startVectorize} disabled={running || articles.length === 0}>
-              {running ? t('vectorize.running') : t('vectorize.run')}
+          {articles.length > 0 && (
+            <button
+              className="text-xs text-red-400 hover:text-red-600 transition-colors"
+              onClick={() => setConfirmDeleteAll(true)}
+            >
+              {t('vectorize.removeAll')}
             </button>
-            {running && (
-              <button className="btn-ghost" onClick={() => { ctrlRef.current?.abort(); setRunning(false) }}>
-                ✕ Cancelar
-              </button>
-            )}
-            {dispatched && running && (
-              <span className="text-xs text-lutz-600 bg-lutz-50 px-2.5 py-1 rounded-full border border-lutz-200">
-                Rodando em segundo plano — você pode navegar livremente
-              </span>
-            )}
-          </div>
-
-          {done !== null && (
-            <div className={`text-sm font-medium ${done ? 'text-green-600' : 'text-red-600'}`}>
-              {done ? t('vectorize.done') : t('vectorize.error')}
-            </div>
           )}
 
-          <StreamLog lines={logs} running={running} />
+          {articles.length > 0 && (
+            <button
+              className="text-xs text-lutz-600 hover:text-lutz-700 font-medium transition-colors"
+              onClick={() => setShowRenameSuggest(true)}
+            >
+              {t('vectorize.suggestRename')}
+            </button>
+          )}
+
+          {articles.length > 0 && (
+            <div className="ml-auto flex items-center gap-1 border border-slate-200 rounded-lg p-0.5">
+              <button
+                onClick={() => setViewMode('list')}
+                className={`px-2 py-1 rounded text-xs transition-colors ${
+                  viewMode === 'list'
+                    ? 'bg-lutz-500 text-white'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+                title="Visualização em lista"
+              >
+                ☰ Lista
+              </button>
+              <button
+                onClick={() => setViewMode('grid')}
+                className={`px-2 py-1 rounded text-xs transition-colors ${
+                  viewMode === 'grid'
+                    ? 'bg-lutz-500 text-white'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+                title="Visualização em miniaturas"
+              >
+                ⊞ Miniaturas
+              </button>
+            </div>
+          )}
         </div>
-      )}
+
+        {articles.length === 0 ? (
+          <div className="text-slate-400 text-sm py-8 text-center">
+            {t('vectorize.empty')}
+          </div>
+        ) : viewMode === 'list' ? (
+          <div className="card p-0 overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-xs text-slate-500 uppercase tracking-wide">
+                <tr>
+                  <th className="text-left px-4 py-2">{t('vectorize.col.file')}</th>
+                  <th className="text-right px-4 py-2">{t('vectorize.col.size')}</th>
+                  <th className="px-4 py-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {articles.map((a) => (
+                  <tr
+                    key={a.name}
+                    className="border-t border-slate-100 hover:bg-slate-50 cursor-pointer"
+                    onClick={() => setOpenArticle(a)}
+                  >
+                    <td className="px-4 py-2 font-medium text-slate-700 break-all">
+                      <span className="text-lutz-600 hover:underline">{a.name}</span>
+                    </td>
+                    <td className="px-4 py-2 text-right text-slate-400 whitespace-nowrap">{fmt(a.size)}</td>
+                    <td className="px-4 py-2 text-right" onClick={(e) => e.stopPropagation()}>
+                      <button onClick={() => setConfirmDelete(a)} className="text-red-400 hover:text-red-600 text-xs">
+                        {t('vectorize.remove')}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+            {articles.map((a) => (
+              <ArticleCard
+                key={a.name}
+                article={a}
+                onOpen={() => setOpenArticle(a)}
+                onDelete={() => setConfirmDelete(a)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

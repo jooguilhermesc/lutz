@@ -14,8 +14,6 @@ interface LangCtx {
   setShowCitations: (v: boolean) => void
   showRoadmap: boolean
   setShowRoadmap: (v: boolean) => void
-  showProjects: boolean
-  setShowProjects: (v: boolean) => void
 }
 
 const LanguageContext = createContext<LangCtx>({
@@ -30,8 +28,6 @@ const LanguageContext = createContext<LangCtx>({
   setShowCitations: () => {},
   showRoadmap: true,
   setShowRoadmap: () => {},
-  showProjects: true,
-  setShowProjects: () => {},
 })
 
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
@@ -49,10 +45,6 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   })
   const [showRoadmap, setShowRoadmapState] = useState<boolean>(() => {
     const v = localStorage.getItem('lutz_show_roadmap')
-    return v === null ? true : v === 'true'
-  })
-  const [showProjects, setShowProjectsState] = useState<boolean>(() => {
-    const v = localStorage.getItem('lutz_show_projects')
     return v === null ? true : v === 'true'
   })
 
@@ -88,10 +80,6 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem('lutz_show_roadmap', String(v))
   }, [])
 
-  const setShowProjects = useCallback((v: boolean) => {
-    setShowProjectsState(v)
-    localStorage.setItem('lutz_show_projects', String(v))
-  }, [])
 
   const t = useCallback((key: string) => translate(lang, key), [lang])
 
@@ -103,7 +91,6 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
       showVectorStore, setShowVectorStore,
       showCitations, setShowCitations,
       showRoadmap, setShowRoadmap,
-      showProjects, setShowProjects,
     }}>
       {children}
     </LanguageContext.Provider>

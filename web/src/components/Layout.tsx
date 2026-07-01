@@ -3,17 +3,17 @@ import { useLanguage } from '../contexts/LanguageContext'
 import { NotificationsPanel } from './NotificationsPanel'
 
 export default function Layout() {
-  const { t, showVectorStore, showCitations, showRoadmap, showProjects } = useLanguage()
+  const { t, showVectorStore, showCitations, showRoadmap } = useLanguage()
 
   const NAV = [
     { to: '/',          label: t('nav.home'),      icon: '⌂' },
     { to: '/vectorize', label: t('nav.vectorize'),  icon: '' },
+    { to: '/process',   label: t('nav.process'),    icon: '' },
     ...(showVectorStore ? [{ to: '/store',    label: t('nav.store'),     icon: '' }] : []),
     { to: '/analysis',  label: t('nav.analysis'),   icon: '' },
     ...(showCitations ? [{ to: '/citations', label: t('nav.citations'), icon: '' }] : []),
     ...(showRoadmap   ? [{ to: '/roadmap',   label: t('nav.roadmap'),   icon: '' }] : []),
     { to: '/reports',   label: t('nav.reports'),    icon: '' },
-    ...(showProjects  ? [{ to: '/projects',  label: t('nav.projects'),  icon: '' }] : []),
     { to: '/settings',  label: t('nav.settings'),   icon: '' },
   ]
 
