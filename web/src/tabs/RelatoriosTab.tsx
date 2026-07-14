@@ -228,14 +228,18 @@ function ReportDetail({ meta, onBack }: { meta: ReportMeta; onBack: () => void }
     </div>
   )
 
-  const metaBar = (llmModel: string, tokens: number, elapsed: number, extra?: string) => (
+  const fmtCost = (v: number | null | undefined) =>
+    v == null ? null : v < 0.000001 ? '$0' : `$${v.toFixed(v < 0.01 ? 6 : 4)}`
+
+  const metaBar = (llmModel: string, tokens: number, elapsed: number, extra?: string, cost?: number | null) => (
     <div style={{ flexShrink: 0, margin: '0 24px 16px', background: '#0f1117', color: '#e8eaf0', borderRadius: 11, padding: 16 }}>
       <p style={{ fontWeight: 700, color: '#1A9494', fontFamily: 'IBM Plex Mono, monospace', fontSize: 13.5, marginBottom: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{meta.name}</p>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, fontSize: 12, color: '#9ca3af', fontFamily: 'IBM Plex Mono, monospace' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 12, fontSize: 12, color: '#9ca3af', fontFamily: 'IBM Plex Mono, monospace' }}>
         {extra && <span>Tipo: <strong style={{ color: '#e8eaf0' }}>{extra}</strong></span>}
         <span>Modelo: <strong style={{ color: '#e8eaf0' }}>{llmModel}</strong></span>
         <span>Tokens: <strong style={{ color: '#e8eaf0' }}>{fmtNum(tokens)}</strong></span>
         <span>Duração: <strong style={{ color: '#e8eaf0' }}>{elapsed.toFixed(1)}s</strong></span>
+        {fmtCost(cost) && <span>Custo est.: <strong style={{ color: '#e8eaf0' }}>{fmtCost(cost)}</strong></span>}
       </div>
     </div>
   )
@@ -246,7 +250,7 @@ function ReportDetail({ meta, onBack }: { meta: ReportMeta; onBack: () => void }
     return (
       <>
         {headerBar}
-        {metaBar(rm.metadata?.llm?.model ?? meta.model, rm.metadata?.llm?.total_tokens ?? meta.tokens, rm.metadata?.elapsed_seconds ?? meta.elapsed, 'Roteiro')}
+        {metaBar(rm.metadata?.llm?.model ?? meta.model, rm.metadata?.llm?.total_tokens ?? meta.tokens, rm.metadata?.elapsed_seconds ?? meta.elapsed, 'Roteiro', meta.estimated_cost_usd)}
         <div style={{ flex: 1, overflowY: 'auto', padding: '0 24px 24px' }}>
           <RoadmapDetail data={rm} />
         </div>
@@ -260,7 +264,7 @@ function ReportDetail({ meta, onBack }: { meta: ReportMeta; onBack: () => void }
     return (
       <>
         {headerBar}
-        {metaBar(cit.metadata?.llm?.model ?? meta.model, cit.metadata?.llm?.total_tokens ?? meta.tokens, cit.metadata?.elapsed_seconds ?? meta.elapsed, 'Citações')}
+        {metaBar(cit.metadata?.llm?.model ?? meta.model, cit.metadata?.llm?.total_tokens ?? meta.tokens, cit.metadata?.elapsed_seconds ?? meta.elapsed, 'Citações', meta.estimated_cost_usd)}
         <div style={{ flex: 1, overflowY: 'auto', padding: '0 24px 24px' }}>
           <CitationsDetail data={cit} />
         </div>
@@ -281,7 +285,7 @@ function ReportDetail({ meta, onBack }: { meta: ReportMeta; onBack: () => void }
   return (
     <>
       {headerBar}
-      {metaBar(report.metadata.llm?.model, report.metadata.llm?.total_tokens ?? 0, report.metadata.elapsed_seconds ?? 0)}
+      {metaBar(report.metadata.llm?.model, report.metadata.llm?.total_tokens ?? 0, report.metadata.elapsed_seconds ?? 0, undefined, meta.estimated_cost_usd)}
       <div style={{ flexShrink: 0, display: 'flex', gap: 8, flexWrap: 'wrap', padding: '0 24px 16px' }}>
         {['all', ...Object.keys(counts)].map(k => (
           <button key={k}

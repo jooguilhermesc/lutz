@@ -96,6 +96,8 @@ export interface ReportMeta {
   tokens: number
   elapsed: number
   model: string
+  provider?: string
+  estimated_cost_usd?: number | null
 }
 export interface ReportArticle {
   filename: string
@@ -218,6 +220,27 @@ export interface CatalogTable {
 
 export const fetchStoreCatalog = () =>
   request<{ tables: CatalogTable[] }>('GET', '/store/catalog')
+
+// ── Usage / cost tracking ─────────────────────────────────────────────────────
+export interface UsageRecord {
+  name: string
+  report_type: string
+  started_at: string
+  provider: string
+  model: string
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+  elapsed_seconds: number
+  estimated_cost_usd: number | null
+}
+export interface UsageSummary {
+  records: UsageRecord[]
+  totals: { total_tokens: number; total_cost_usd: number | null }
+}
+export const getUsage = () => request<UsageSummary>('GET', '/usage')
+export const getUsageExportUrl = (fmt: 'csv' | 'parquet' = 'csv') =>
+  `${BASE}/usage/export?format=${fmt}`
 
 // ── Jobs ──────────────────────────────────────────────────────────────────────
 export const getJobLogs = (id: string) =>

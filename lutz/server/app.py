@@ -22,7 +22,7 @@ from contextlib import asynccontextmanager
 from typing import AsyncIterator, Literal
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.routing import APIRouter
 from fastapi.staticfiles import StaticFiles
 
@@ -1774,6 +1774,9 @@ def _parse_report_meta(f: Path) -> dict:
         report_type = meta.get("report_type", "")
         # Use generated_at for roadmap/citations reports (no started_at)
         started_at = meta.get("started_at", "") or meta.get("generated_at", "")
+        provider = llm.get("provider", "")
+        prompt_t = int(llm.get("prompt_tokens") or 0)
+        completion_t = int(llm.get("completion_tokens") or 0)
         return {
             "name": f.stem,
             "mode": meta.get("mode", ""),
@@ -1783,6 +1786,8 @@ def _parse_report_meta(f: Path) -> dict:
             "tokens": llm.get("total_tokens", 0),
             "elapsed": meta.get("elapsed_seconds", 0.0),
             "model": llm.get("model", ""),
+            "provider": provider,
+            "estimated_cost_usd": _lookup_cost_cached(provider, llm.get("model", ""), prompt_t, completion_t),
         }
     except Exception:
         return {
@@ -1794,6 +1799,8 @@ def _parse_report_meta(f: Path) -> dict:
             "tokens": 0,
             "elapsed": 0.0,
             "model": "",
+            "provider": "",
+            "estimated_cost_usd": None,
         }
 
 
@@ -1861,6 +1868,180 @@ async def list_reports(mode: str = "") -> dict:
     # Default: only analysis reports (per_article / rag)
     analysis_reports = [r for r in all_reports if r["mode"] in ("per_article", "rag")]
     return {"reports": analysis_reports}
+
+
+# ---------------------------------------------------------------------------
+# Usage / cost tracking
+# ---------------------------------------------------------------------------
+
+# Static input/output prices ($/M tokens) for common models.
+# Kept separate so they can be updated independently of OpenRouter fetches.
+_STATIC_PRICES: dict[str, tuple[float, float]] = {
+    # Anthropic
+    "claude-haiku-4-5-20251001": (0.80, 4.00),
+    "claude-haiku-4-5": (0.80, 4.00),
+    "claude-sonnet-4-6": (3.00, 15.00),
+    "claude-opus-4-8": (15.00, 75.00),
+    "claude-3-5-haiku-20241022": (0.80, 4.00),
+    "claude-3-5-sonnet-20241022": (3.00, 15.00),
+    "claude-3-opus-20240229": (15.00, 75.00),
+    # OpenAI
+    "gpt-4o": (2.50, 10.00),
+    "gpt-4o-mini": (0.15, 0.60),
+    "gpt-4-turbo": (10.00, 30.00),
+    "gpt-4": (30.00, 60.00),
+    "gpt-3.5-turbo": (0.50, 1.50),
+    "o1": (15.00, 60.00),
+    "o1-mini": (3.00, 12.00),
+    "o3-mini": (1.10, 4.40),
+}
+
+# Cache: {"provider:model": (price_input_per_m, price_output_per_m), ...}
+# Populated on first usage call. Refreshed when the entry is older than 1h.
+_price_cache: dict[str, tuple[float, float]] = {}
+_price_cache_ts: float = 0.0  # unix timestamp of last OpenRouter fetch
+
+
+def _lookup_cost_cached(
+    provider: str, model: str, prompt_tokens: int, completion_tokens: int
+) -> float | None:
+    """Cost estimate using only the in-memory cache — no API calls.
+
+    Returns None if the model price is not yet cached (e.g. OpenRouter models
+    before the first /api/usage call). Safe to call in sync contexts.
+    """
+    if not _price_cache:
+        for m_id, prices in _STATIC_PRICES.items():
+            for p in ("anthropic", "openai"):
+                _price_cache[f"{p}:{m_id}"] = prices
+    prices = _price_cache.get(f"{provider}:{model}")
+    if prices is None:
+        return None
+    price_in, price_out = prices
+    return round((prompt_tokens / 1_000_000 * price_in) + (completion_tokens / 1_000_000 * price_out), 6)
+
+
+def _estimate_cost(
+    provider: str, model: str, prompt_tokens: int, completion_tokens: int
+) -> float | None:
+    """Return estimated cost in USD, fetching OpenRouter pricing if needed."""
+    import time
+
+    key = f"{provider}:{model}"
+
+    # Ensure static prices are seeded
+    _lookup_cost_cached(provider, model, 0, 0)
+
+    # For OpenRouter: fetch model list if this model is not yet cached
+    if provider == "openrouter" and key not in _price_cache:
+        global _price_cache_ts  # noqa: PLW0603
+        now = time.time()
+        if now - _price_cache_ts > 3600:
+            try:
+                import urllib.request as _urlreq
+                root = _get_root()
+                env = load_env(root)
+                api_key = env.get("OPENROUTER_API_KEY", "")
+                req = _urlreq.Request(
+                    "https://openrouter.ai/api/v1/models",
+                    headers={"Authorization": f"Bearer {api_key}"} if api_key else {},
+                )
+                with _urlreq.urlopen(req, timeout=8) as resp:  # noqa: S310
+                    data = json.loads(resp.read())
+                _price_cache_ts = now
+                for m in data.get("data", []):
+                    pricing = m.get("pricing", {})
+                    p_in = pricing.get("prompt")
+                    p_out = pricing.get("completion")
+                    if p_in is not None and p_out is not None:
+                        _price_cache[f"openrouter:{m['id']}"] = (
+                            float(p_in) * 1_000_000,
+                            float(p_out) * 1_000_000,
+                        )
+            except Exception:
+                pass
+
+    return _lookup_cost_cached(provider, model, prompt_tokens, completion_tokens)
+
+
+def _build_usage_records(root: Path) -> list[dict]:
+    reports_dir = root / "analysis" / "execution_reports"
+    if not reports_dir.exists():
+        return []
+    records = []
+    for f in sorted(reports_dir.glob("*.json"), reverse=True):
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        meta = data.get("metadata", {})
+        llm = meta.get("llm", {})
+        provider = llm.get("provider", "")
+        model = llm.get("model", "")
+        prompt_t = int(llm.get("prompt_tokens") or 0)
+        completion_t = int(llm.get("completion_tokens") or 0)
+        records.append({
+            "name": f.stem,
+            "report_type": meta.get("report_type") or "analysis",
+            "started_at": meta.get("started_at") or meta.get("generated_at") or "",
+            "provider": provider,
+            "model": model,
+            "prompt_tokens": prompt_t,
+            "completion_tokens": completion_t,
+            "total_tokens": int(llm.get("total_tokens") or 0),
+            "elapsed_seconds": float(meta.get("elapsed_seconds") or 0.0),
+            "estimated_cost_usd": _estimate_cost(provider, model, prompt_t, completion_t),
+        })
+    return records
+
+
+@api.get("/usage")
+async def list_usage() -> dict:
+    root = _get_root()
+    records = _build_usage_records(root)
+    known_costs = [r["estimated_cost_usd"] for r in records if r["estimated_cost_usd"] is not None]
+    return {
+        "records": records,
+        "totals": {
+            "total_tokens": sum(r["total_tokens"] for r in records),
+            "total_cost_usd": round(sum(known_costs), 6) if known_costs else None,
+        },
+    }
+
+
+@api.get("/usage/export")
+async def export_usage(format: str = "csv") -> Response:  # noqa: A002
+    import io
+    import duckdb
+    import pandas as pd
+
+    root = _get_root()
+    records = _build_usage_records(root)
+
+    df = pd.DataFrame(records) if records else pd.DataFrame(columns=[
+        "name", "report_type", "started_at", "provider", "model",
+        "prompt_tokens", "completion_tokens", "total_tokens",
+        "elapsed_seconds", "estimated_cost_usd",
+    ])
+
+    if format == "parquet":
+        buf = io.BytesIO()
+        df.to_parquet(buf, index=False)
+        return Response(
+            content=buf.getvalue(),
+            media_type="application/octet-stream",
+            headers={"Content-Disposition": 'attachment; filename="lutz_usage.parquet"'},
+        )
+
+    # Default: CSV via DuckDB (handles type coercion and quoting correctly)
+    con = duckdb.connect()
+    con.register("df", df)
+    csv_str: str = con.execute("SELECT * FROM df").df().to_csv(index=False)
+    return Response(
+        content=csv_str,
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="lutz_usage.csv"'},
+    )
 
 
 @api.get("/reports/{name}")

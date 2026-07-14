@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { getConfig, saveConfig, getProviderModels, type Config, type ModelInfo } from '../api/client'
+import { getConfig, saveConfig, getProviderModels, getUsage, getUsageExportUrl, type Config, type ModelInfo, type UsageSummary } from '../api/client'
 import { useLanguage } from '../contexts/LanguageContext'
 import { LANG_NAMES, type Lang } from '../i18n'
 
@@ -47,7 +47,9 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
-  const [activeSection, setActiveSection] = useState<'llm' | 'keys' | 'language' | 'roadmap'>('llm')
+  const [activeSection, setActiveSection] = useState<'llm' | 'keys' | 'language' | 'roadmap' | 'consumo'>('llm')
+  const [usageData, setUsageData] = useState<UsageSummary | null>(null)
+  const [usageLoading, setUsageLoading] = useState(false)
   const [roadmapStages, setRoadmapStages] = useState<Array<{ name: string; criteria: string }>>(() => {
     try {
       const stored = localStorage.getItem('lutz_roadmap_stages')
@@ -100,6 +102,15 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
       setEmbModelsLoading(false)
     }).catch(() => setEmbModelsLoading(false))
   }, [llmProvider])
+
+  useEffect(() => {
+    if (activeSection !== 'consumo' || usageData !== null || usageLoading) return
+    setUsageLoading(true)
+    getUsage().then(d => { setUsageData(d); setUsageLoading(false) }).catch(() => {
+      setUsageData({ records: [], totals: { total_tokens: 0, total_cost_usd: null } })
+      setUsageLoading(false)
+    })
+  }, [activeSection])
 
   async function handleSave() {
     setSaving(true); setSaved(false); setError('')
@@ -175,6 +186,7 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
           {sectionTab('keys', 'Chaves de API')}
           {sectionTab('language', 'Idioma')}
           {sectionTab('roadmap', 'Roteiro')}
+          {sectionTab('consumo', 'Consumo')}
         </div>
 
         {/* Body */}
@@ -454,6 +466,126 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
               </button>
             </div>
           )}
+
+          {/* ── Consumo ── */}
+          {activeSection === 'consumo' && (() => {
+            const fmtTokens = (n: number) => n >= 1_000_000 ? `${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `${Math.round(n/1_000)}k` : String(n)
+            const fmtCost = (v: number | null) => v === null ? '—' : v < 0.000001 ? '$0' : `$${v.toFixed(v < 0.01 ? 6 : 2)}`
+            const fmtDate = (s: string) => {
+              try { const d = new Date(s); return `${d.toLocaleDateString('pt-BR')} ${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` } catch { return s }
+            }
+            const TYPE_CHIP: Record<string, { label: string; bg: string; color: string }> = {
+              analysis:       { label: 'ANÁLISE',  bg: '#e8f0fe', color: '#1a56db' },
+              citations:      { label: 'CITAÇÕES', bg: '#e6f5ee', color: '#0f6b47' },
+              reading_roadmap:{ label: 'ROTEIRO',  bg: '#e8f8f8', color: '#1A9494' },
+            }
+            const records = usageData?.records ?? []
+            const totals = usageData?.totals
+            return (
+              <div style={{ padding: '0 24px 20px' }}>
+                {/* Summary chips */}
+                <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+                  {[
+                    { label: 'Análises', value: usageLoading ? '…' : String(records.length) },
+                    { label: 'Total de tokens', value: usageLoading ? '…' : fmtTokens(totals?.total_tokens ?? 0) },
+                    { label: 'Custo estimado', value: usageLoading ? '…' : fmtCost(totals?.total_cost_usd ?? null) },
+                  ].map(({ label, value }) => (
+                    <div key={label} style={{
+                      flex: 1, minWidth: 120, padding: '10px 14px', borderRadius: 10,
+                      background: 'var(--surface-2)', border: '1px solid var(--border)',
+                    }}>
+                      <div style={{ fontSize: 11, color: 'var(--text-faint)', marginBottom: 4 }}>{label}</div>
+                      <div style={{ fontSize: 18, fontWeight: 700, fontFamily: 'IBM Plex Mono, monospace', color: 'var(--text)' }}>{value}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Table */}
+                {usageLoading ? (
+                  <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-faint)', fontSize: 13 }}>Carregando…</div>
+                ) : records.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-faint)', fontSize: 13 }}>Nenhuma análise realizada ainda.</div>
+                ) : (
+                  <div style={{ overflowX: 'auto', borderRadius: 10, border: '1px solid var(--border)', marginBottom: 16 }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                      <thead>
+                        <tr style={{ background: 'var(--surface-2)', borderBottom: '1px solid var(--border)' }}>
+                          {['Data/hora', 'Tipo', 'Modelo', 'Provedor', 'Tokens', 'Custo est.'].map(h => (
+                            <th key={h} style={{ padding: '9px 12px', textAlign: 'left', fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {records.map((r, i) => {
+                          const chip = TYPE_CHIP[r.report_type] ?? { label: r.report_type.toUpperCase(), bg: 'var(--surface-2)', color: 'var(--text-muted)' }
+                          return (
+                            <tr key={r.name} style={{ borderBottom: i < records.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                              <td style={{ padding: '8px 12px', color: 'var(--text-muted)', whiteSpace: 'nowrap', fontFamily: 'IBM Plex Mono, monospace', fontSize: 11.5 }}>
+                                {fmtDate(r.started_at)}
+                              </td>
+                              <td style={{ padding: '8px 12px' }}>
+                                <span style={{ fontSize: 10.5, fontWeight: 700, padding: '2px 7px', borderRadius: 6, background: chip.bg, color: chip.color, letterSpacing: '.3px' }}>
+                                  {chip.label}
+                                </span>
+                              </td>
+                              <td style={{ padding: '8px 12px', color: 'var(--text)', fontFamily: 'IBM Plex Mono, monospace', fontSize: 11.5, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {r.model || '—'}
+                              </td>
+                              <td style={{ padding: '8px 12px', color: 'var(--text-muted)', fontSize: 12 }}>
+                                {r.provider || '—'}
+                              </td>
+                              <td style={{ padding: '8px 12px', color: 'var(--text)', fontFamily: 'IBM Plex Mono, monospace', fontSize: 11.5, whiteSpace: 'nowrap' }}>
+                                {fmtTokens(r.total_tokens)}
+                                {r.prompt_tokens > 0 && (
+                                  <span style={{ color: 'var(--text-faint)', fontSize: 10.5, marginLeft: 4 }}>
+                                    ({fmtTokens(r.prompt_tokens)}↑ {fmtTokens(r.completion_tokens)}↓)
+                                  </span>
+                                )}
+                              </td>
+                              <td style={{ padding: '8px 12px', color: r.estimated_cost_usd !== null ? 'var(--text)' : 'var(--text-faint)', fontFamily: 'IBM Plex Mono, monospace', fontSize: 12 }}>
+                                {fmtCost(r.estimated_cost_usd)}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* Export buttons */}
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <a href={getUsageExportUrl('csv')} download="lutz_usage.csv" style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 7,
+                    padding: '8px 16px', borderRadius: 8, border: '1px solid #1A9494',
+                    background: '#1A9494', color: '#fff', fontSize: 13, fontWeight: 600,
+                    textDecoration: 'none',
+                  }}>
+                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                      <path d="M13.5 10v1.5A1.5 1.5 0 0 1 12 13H4a1.5 1.5 0 0 1-1.5-1.5V10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                      <path d="M8 2v7M5.5 11.5 8 14l2.5-2.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                    Exportar CSV
+                  </a>
+                  <a href={getUsageExportUrl('parquet')} download="lutz_usage.parquet" style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 7,
+                    padding: '8px 16px', borderRadius: 8, border: '1px solid var(--border-2)',
+                    background: 'var(--surface)', color: 'var(--text)', fontSize: 13, fontWeight: 600,
+                    textDecoration: 'none',
+                  }}>
+                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                      <path d="M13.5 10v1.5A1.5 1.5 0 0 1 12 13H4a1.5 1.5 0 0 1-1.5-1.5V10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                      <path d="M8 2v7M5.5 11.5 8 14l2.5-2.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                    Exportar Parquet
+                  </a>
+                  <span style={{ alignSelf: 'center', fontSize: 11.5, color: 'var(--text-faint)', marginLeft: 4 }}>
+                    Parquet pode ser consultado com DuckDB
+                  </span>
+                </div>
+              </div>
+            )
+          })()}
         </div>
 
         {/* Footer */}
