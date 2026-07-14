@@ -71,12 +71,6 @@ export interface QueryResult {
 export const queryVectorStore = (sql: string) =>
   request<QueryResult>('POST', '/vector-store/query', { sql })
 
-export const queryVectorStoreAnalytics = (sql: string, includeEmbeddings = false) =>
-  request<QueryResult>('POST', '/vector-store/query', {
-    sql,
-    include_embeddings: includeEmbeddings,
-  })
-
 export interface UDFInfo {
   name: string
   description: string

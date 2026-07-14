@@ -10,14 +10,10 @@ interface LangCtx {
   t: (key: string) => string
   showVectorStore: boolean
   setShowVectorStore: (v: boolean) => void
-  showAnalytics: boolean
-  setShowAnalytics: (v: boolean) => void
   showCitations: boolean
   setShowCitations: (v: boolean) => void
   showRoadmap: boolean
   setShowRoadmap: (v: boolean) => void
-  showProjects: boolean
-  setShowProjects: (v: boolean) => void
 }
 
 const LanguageContext = createContext<LangCtx>({
@@ -28,14 +24,10 @@ const LanguageContext = createContext<LangCtx>({
   t: (key) => key,
   showVectorStore: false,
   setShowVectorStore: () => {},
-  showAnalytics: true,
-  setShowAnalytics: () => {},
   showCitations: true,
   setShowCitations: () => {},
   showRoadmap: true,
   setShowRoadmap: () => {},
-  showProjects: true,
-  setShowProjects: () => {},
 })
 
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
@@ -47,20 +39,12 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   const [showVectorStore, setShowVectorStoreState] = useState<boolean>(() => {
     return localStorage.getItem('lutz_show_vector_store') === 'true'
   })
-  const [showAnalytics, setShowAnalyticsState] = useState<boolean>(() => {
-    const v = localStorage.getItem('lutz_show_analytics')
-    return v === null ? true : v === 'true'
-  })
   const [showCitations, setShowCitationsState] = useState<boolean>(() => {
     const v = localStorage.getItem('lutz_show_citations')
     return v === null ? true : v === 'true'
   })
   const [showRoadmap, setShowRoadmapState] = useState<boolean>(() => {
     const v = localStorage.getItem('lutz_show_roadmap')
-    return v === null ? true : v === 'true'
-  })
-  const [showProjects, setShowProjectsState] = useState<boolean>(() => {
-    const v = localStorage.getItem('lutz_show_projects')
     return v === null ? true : v === 'true'
   })
 
@@ -86,11 +70,6 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem('lutz_show_vector_store', String(v))
   }, [])
 
-  const setShowAnalytics = useCallback((v: boolean) => {
-    setShowAnalyticsState(v)
-    localStorage.setItem('lutz_show_analytics', String(v))
-  }, [])
-
   const setShowCitations = useCallback((v: boolean) => {
     setShowCitationsState(v)
     localStorage.setItem('lutz_show_citations', String(v))
@@ -101,10 +80,6 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem('lutz_show_roadmap', String(v))
   }, [])
 
-  const setShowProjects = useCallback((v: boolean) => {
-    setShowProjectsState(v)
-    localStorage.setItem('lutz_show_projects', String(v))
-  }, [])
 
   const t = useCallback((key: string) => translate(lang, key), [lang])
 
@@ -114,10 +89,8 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
       reportLang, setReportLang,
       t,
       showVectorStore, setShowVectorStore,
-      showAnalytics, setShowAnalytics,
       showCitations, setShowCitations,
       showRoadmap, setShowRoadmap,
-      showProjects, setShowProjects,
     }}>
       {children}
     </LanguageContext.Provider>

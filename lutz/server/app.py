@@ -705,8 +705,7 @@ async def query_vector_store(body: dict) -> dict:
 
     The table is named ``vectors``.  By default the ``embedding`` column is
     excluded for performance; pass ``"include_embeddings": true`` in the
-    request body to expose it and unlock the lutz analytical UDFs
-    (``cosine_distance``, ``kmeans_label``, ``pca_project``, …).
+    request body to expose it.
 
     Returns columns, rows, count and elapsed time in ms.
     """
@@ -726,8 +725,8 @@ async def query_vector_store(body: dict) -> dict:
 
     def _run() -> dict:
         import time
+        import duckdb
         import pyarrow as pa
-        from lutz.analytics import create_connection
         from lutz.core.vector_store import VectorStore
 
         vs = VectorStore(root / ".lutz" / "vector_store")
@@ -757,8 +756,7 @@ async def query_vector_store(body: dict) -> dict:
 
         arrow_tbl = arrow_tbl.select(cols)
 
-        # create_connection() returns a DuckDB connection with all lutz UDFs.
-        con = create_connection()
+        con = duckdb.connect()
         con.register("vectors", arrow_tbl)
 
         t0 = time.perf_counter()
@@ -782,13 +780,6 @@ async def query_vector_store(body: dict) -> dict:
 
     result = await asyncio.get_event_loop().run_in_executor(None, _run)
     return result
-
-
-@api.get("/vector-store/udfs")
-async def list_vector_store_udfs() -> dict:
-    """Return the list of lutz analytical UDFs available in SQL queries."""
-    from lutz.analytics.registry import list_udfs
-    return {"udfs": list_udfs()}
 
 
 # ── Prompts ───────────────────────────────────────────────────────────────────

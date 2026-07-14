@@ -9,7 +9,6 @@ from lutz.commands.citations import citations
 from lutz.commands.dedup import dedup
 from lutz.commands.init import init
 from lutz.commands.load import load
-from lutz.commands.model_cmd import model
 from lutz.commands.query import query
 from lutz.commands.rank import rank
 from lutz.commands.vector_store import vector_store
@@ -40,4 +39,3 @@ cli.add_command(web)
 cli.add_command(query)
 cli.add_command(rank)
 cli.add_command(agent)
-cli.add_command(model)
