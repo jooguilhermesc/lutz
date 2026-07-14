@@ -1,8 +1,9 @@
 """Embedding client — unified interface for multiple providers.
 
 Supported providers (configured via .env):
-    docker_model_runner — Docker Model Runner (OpenAI-compatible, local)
-    openai              — OpenAI API or any OpenAI-compatible endpoint
+    docker_model_runner   — Docker Model Runner (OpenAI-compatible, local)
+    openai                — OpenAI API or any OpenAI-compatible endpoint
+    openrouter            — OpenRouter (openrouter.ai) multi-provider gateway
     sentence_transformers — local model via sentence-transformers (no API key)
 """
 
@@ -69,10 +70,11 @@ class EmbeddingClient:
         """Instantiate the right client based on environment variables.
 
         Reads:
-            EMBEDDING_PROVIDER  — docker_model_runner | openai | sentence_transformers
+            EMBEDDING_PROVIDER  — docker_model_runner | openai | openrouter | sentence_transformers
             EMBEDDING_MODEL     — model identifier
             OPENAI_API_KEY      — required when provider=openai
             OPENAI_BASE_URL     — optional custom base URL for openai-compatible APIs
+            OPENROUTER_API_KEY  — required when provider=openrouter
             DOCKER_MODEL_HOST   — base URL for Docker Model Runner (default: auto-detect)
         """
         provider = env.get("EMBEDDING_PROVIDER", "sentence_transformers").lower()
@@ -97,13 +99,27 @@ class EmbeddingClient:
                     )
                 return cls(provider=provider, model_id=model_id, api_key=api_key, base_url=base_url)
 
+            case "openrouter":
+                api_key = env.get("OPENROUTER_API_KEY", "")
+                if not api_key:
+                    raise ValueError(
+                        "OPENROUTER_API_KEY is required when EMBEDDING_PROVIDER=openrouter. "
+                        "Set it in your .env file."
+                    )
+                return cls(
+                    provider=provider,
+                    model_id=model_id,
+                    api_key=api_key,
+                    base_url="https://openrouter.ai/api/v1",
+                )
+
             case "sentence_transformers":
                 return cls(provider=provider, model_id=model_id)
 
             case _:
                 raise ValueError(
                     f"Unknown EMBEDDING_PROVIDER '{provider}'. "
-                    "Valid options: docker_model_runner, openai, sentence_transformers."
+                    "Valid options: docker_model_runner, openai, openrouter, sentence_transformers."
                 )
 
     # ------------------------------------------------------------------
@@ -117,7 +133,7 @@ class EmbeddingClient:
         For sentence_transformers (local), it is estimated (~4 chars per token).
         """
         match self.provider:
-            case "docker_model_runner" | "openai":
+            case "docker_model_runner" | "openai" | "openrouter":
                 return self._embed_openai(texts)
             case "sentence_transformers":
                 return self._embed_sentence_transformers(texts)
@@ -162,7 +178,7 @@ class EmbeddingClient:
 
 def _default_embedding_model(provider: str) -> str:
     match provider:
-        case "openai":
+        case "openai" | "openrouter":
             return "text-embedding-3-small"
         case "docker_model_runner":
             return "nomic-embed-text"

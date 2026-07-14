@@ -1,19 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNotifications, type JobInfo } from '../contexts/NotificationsContext'
 import { useLanguage } from '../contexts/LanguageContext'
+import { getJobLogs } from '../api/client'
 
 const TYPE_ICON: Record<string, string> = {
   vectorize: '📄',
   analysis: '🔬',
   citations: '📚',
   roadmap: '🗺️',
-}
-
-const TYPE_ROUTE: Record<string, string> = {
-  vectorize: '/vectorize',
-  analysis: '/analysis',
-  citations: '/reports',
-  roadmap: '/reports',
 }
 
 function relativeTime(iso: string | null, t: (k: string) => string): string {
@@ -40,50 +34,103 @@ function StatusDot({ status }: { status: JobInfo['status'] }) {
   return <span className="text-slate-400 flex-shrink-0">—</span>
 }
 
+function isErrorLine(line: string) {
+  return /error|traceback|exception|failed|critical/i.test(line)
+}
+
 function JobRow({ job, onRemove }: { job: JobInfo; onRemove: (id: string) => void }) {
   const { t } = useLanguage()
   const isTerminal = job.status === 'done' || job.status === 'error' || job.status === 'cancelled'
+  const [showLogs, setShowLogs] = useState(false)
+  const [logs, setLogs] = useState<string[] | null>(null)
+  const [logsLoading, setLogsLoading] = useState(false)
+  const logRef = useRef<HTMLDivElement>(null)
 
-  const handleClick = () => {
-    if (!isTerminal) {
-      window.location.hash = TYPE_ROUTE[job.type] ?? '/'
+  async function toggleLogs(e: React.MouseEvent) {
+    e.stopPropagation()
+    if (showLogs) { setShowLogs(false); return }
+    setShowLogs(true)
+    if (logs !== null) return
+    setLogsLoading(true)
+    try {
+      const { job: data } = await getJobLogs(job.id)
+      setLogs(data.logs ?? [])
+    } catch {
+      setLogs(['(não foi possível carregar os logs)'])
+    } finally {
+      setLogsLoading(false)
     }
   }
 
+  // Scroll to bottom of logs when opened
+  useEffect(() => {
+    if (showLogs && logRef.current) {
+      logRef.current.scrollTop = logRef.current.scrollHeight
+    }
+  }, [showLogs, logs])
+
   return (
-    <li
-      className={`flex items-start gap-2.5 px-3 py-2.5 group ${!isTerminal ? 'cursor-pointer hover:bg-slate-50' : ''}`}
-      onClick={handleClick}
-    >
-      <span className="text-base mt-0.5 flex-shrink-0">{TYPE_ICON[job.type] ?? '⚙️'}</span>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-slate-800 truncate">{job.title}</p>
-        <div className="flex items-center gap-1.5 mt-0.5">
-          <StatusDot status={job.status} />
-          <span className="text-xs text-slate-500">
-            {job.status === 'running' || job.status === 'queued'
-              ? t('notif.running')
-              : job.status === 'done'
-              ? t('notif.done')
-              : job.status === 'error'
-              ? t('notif.error')
-              : t('notif.cancelled')}
-          </span>
-          {(job.ended_at || job.started_at) && (
-            <span className="text-xs text-slate-400">
-              · {relativeTime(job.ended_at ?? job.started_at, t)}
+    <li className="border-b border-slate-50 last:border-0">
+      <div className="flex items-start gap-2.5 px-3 py-2.5 group">
+        <span className="text-base mt-0.5 flex-shrink-0">{TYPE_ICON[job.type] ?? '⚙️'}</span>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-slate-800 truncate">{job.title}</p>
+          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+            <StatusDot status={job.status} />
+            <span className="text-xs text-slate-500">
+              {job.status === 'running' || job.status === 'queued'
+                ? t('notif.running')
+                : job.status === 'done'
+                ? t('notif.done')
+                : job.status === 'error'
+                ? t('notif.error')
+                : t('notif.cancelled')}
             </span>
-          )}
+            {(job.ended_at || job.started_at) && (
+              <span className="text-xs text-slate-400">
+                · {relativeTime(job.ended_at ?? job.started_at, t)}
+              </span>
+            )}
+            {isTerminal && (
+              <button
+                onClick={toggleLogs}
+                className="text-xs text-lutz-600 hover:text-lutz-800 font-medium ml-1"
+              >
+                {showLogs ? 'Ocultar logs' : 'Ver logs'}
+              </button>
+            )}
+          </div>
         </div>
+        {isTerminal && (
+          <button
+            className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-600 transition-opacity text-xs px-1 flex-shrink-0"
+            onClick={(e) => { e.stopPropagation(); onRemove(job.id) }}
+            title={t('notif.remove')}
+          >
+            ✕
+          </button>
+        )}
       </div>
-      {isTerminal && (
-        <button
-          className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-600 transition-opacity text-xs px-1"
-          onClick={(e) => { e.stopPropagation(); onRemove(job.id) }}
-          title={t('notif.remove')}
+
+      {showLogs && (
+        <div
+          ref={logRef}
+          style={{
+            maxHeight: 220, overflowY: 'auto', margin: '0 8px 8px',
+            background: '#0f1117', borderRadius: 8, padding: '8px 10px',
+            fontFamily: 'IBM Plex Mono, monospace', fontSize: 11, lineHeight: 1.6,
+          }}
         >
-          ✕
-        </button>
+          {logsLoading ? (
+            <span style={{ color: '#6b7280' }}>Carregando…</span>
+          ) : !logs || logs.length === 0 ? (
+            <span style={{ color: '#6b7280' }}>Sem logs disponíveis.</span>
+          ) : logs.map((line, i) => (
+            <div key={i} style={{ color: isErrorLine(line) ? '#f87171' : '#9ca3af', wordBreak: 'break-all' }}>
+              {line}
+            </div>
+          ))}
+        </div>
       )}
     </li>
   )
@@ -95,7 +142,6 @@ export function NotificationsPanel() {
   const [open, setOpen] = useState(false)
   const panelRef = useRef<HTMLDivElement>(null)
 
-  // Close on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
@@ -106,7 +152,6 @@ export function NotificationsPanel() {
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  // Close on Escape
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setOpen(false)
@@ -151,7 +196,7 @@ export function NotificationsPanel() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-xl shadow-lg border border-slate-200 z-50 overflow-hidden">
+        <div className="absolute right-0 top-full mt-2 w-96 bg-white rounded-xl shadow-lg border border-slate-200 z-50 overflow-hidden">
           {/* Header */}
           <div className="flex items-center justify-between px-3 py-2 border-b border-slate-100 bg-slate-50">
             <span className="text-sm font-semibold text-slate-700">{t('notif.title')}</span>
@@ -179,7 +224,7 @@ export function NotificationsPanel() {
           {jobs.length === 0 ? (
             <p className="text-sm text-slate-400 text-center py-8">{t('notif.empty')}</p>
           ) : (
-            <ul className="max-h-80 overflow-y-auto divide-y divide-slate-50">
+            <ul className="max-h-[480px] overflow-y-auto divide-y divide-slate-50">
               {jobs.map((job) => (
                 <JobRow key={job.id} job={job} onRemove={removeJob} />
               ))}

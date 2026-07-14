@@ -131,27 +131,27 @@ function RenameSuggestModal({ articles, onClose, onRenamed }: {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-3xl flex flex-col max-h-[85vh]">
-        <div className="flex items-start justify-between p-6 pb-3">
+      <div style={{ position: 'relative', background: 'var(--surface)', borderRadius: 16, boxShadow: '0 24px 60px rgba(20,25,40,.4)', width: '100%', maxWidth: 768, display: 'flex', flexDirection: 'column', maxHeight: '85vh' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', padding: '24px 24px 12px' }}>
           <div>
-            <h3 className="text-base font-semibold text-[#1a1d23]">{t('vectorize.rename.title')}</h3>
-            <p className="text-xs text-[#8a92a0] mt-0.5">{t('vectorize.rename.hint')}</p>
+            <h3 style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', margin: 0 }}>{t('vectorize.rename.title')}</h3>
+            <p style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 3 }}>{t('vectorize.rename.hint')}</p>
           </div>
-          <button className="text-[#8a92a0] hover:text-[#1a1d23] text-lg ml-4" onClick={onClose}>✕</button>
+          <button style={{ color: 'var(--text-faint)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, marginLeft: 16 }} onClick={onClose}>✕</button>
         </div>
-        <div className="flex-1 overflow-y-auto px-6">
+        <div style={{ flex: 1, overflowY: 'auto', padding: '0 24px' }}>
           <table className="w-full text-sm">
-            <thead className="sticky top-0 bg-white">
-              <tr className="border-b border-[#eef0f3] text-xs text-[#8a92a0] uppercase tracking-wide">
-                <th className="text-left py-2 pr-3 w-[35%]">{t('vectorize.rename.colOriginal')}</th>
-                <th className="text-left py-2 pr-3">{t('vectorize.rename.colSuggested')}</th>
-                <th className="text-right py-2 w-28">{t('vectorize.rename.colStatus')}</th>
+            <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)' }}>
+              <tr style={{ borderBottom: '1px solid var(--border)' }} className="text-xs uppercase tracking-wide" data-color="faint">
+                <th className="text-left py-2 pr-3 w-[35%]" style={{ color: 'var(--text-faint)' }}>{t('vectorize.rename.colOriginal')}</th>
+                <th className="text-left py-2 pr-3" style={{ color: 'var(--text-faint)' }}>{t('vectorize.rename.colSuggested')}</th>
+                <th className="text-right py-2 w-28" style={{ color: 'var(--text-faint)' }}>{t('vectorize.rename.colStatus')}</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#f4f5f7]">
+            <tbody>
               {rows.map(row => (
-                <tr key={row.article.name} className="align-middle">
-                  <td className="py-2 pr-3 text-[#5b6472] text-xs break-all font-mono">{row.article.name}</td>
+                <tr key={row.article.name} style={{ borderTop: '1px solid var(--border)', verticalAlign: 'middle' }}>
+                  <td className="py-2 pr-3 text-xs break-all font-mono" style={{ color: 'var(--text-muted)' }}>{row.article.name}</td>
                   <td className="py-2 pr-3">
                     {row.status === 'loading' ? (
                       <span className="text-xs text-[#8a92a0] animate-pulse">{t('vectorize.rename.generating')}</span>
@@ -173,7 +173,7 @@ function RenameSuggestModal({ articles, onClose, onRenamed }: {
                         ✨ Sugerir
                       </button>
                     ) : row.status === 'loading' ? (
-                      <span className="text-xs text-[#8a92a0]">…</span>
+                      <span className="text-xs" style={{ color: 'var(--text-faint)' }}>…</span>
                     ) : row.status === 'done' ? (
                       <button className="text-xs bg-lutz-500 hover:bg-lutz-600 text-white px-2 py-0.5 rounded"
                         onClick={() => applyOne(row)}>
@@ -186,7 +186,7 @@ function RenameSuggestModal({ articles, onClose, onRenamed }: {
             </tbody>
           </table>
         </div>
-        <div className="flex items-center justify-between p-6 pt-4 border-t border-[#eef0f3]">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 24px', borderTop: '1px solid var(--border)' }}>
           <button className="btn-ghost text-sm"
             onClick={() => rows.filter(r => r.status === 'idle' || r.status === 'done').forEach(r => generateOne(r.article.name))}>
             ✨ {t('vectorize.rename.generateAll')}
@@ -301,7 +301,7 @@ export default function BibliotecaTab({ articles, vectorStore, vectorizeRunning,
           </svg>
           <input value={query} onChange={e => setQuery(e.target.value)}
             placeholder="Filtrar artigos…"
-            className="border-none outline-none text-sm w-full min-w-0 bg-transparent text-[#1a1d23]" />
+            style={{ border: 'none', outline: 'none', fontSize: 13.5, width: '100%', minWidth: 0, background: 'transparent', color: 'var(--text)' }} />
         </div>
 
         {articles.length > 0 && (
