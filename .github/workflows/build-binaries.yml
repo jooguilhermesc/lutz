@@ -1,7 +1,6 @@
-name: Build Installers
+name: Build Binaries
 
 # Triggered on every release tag or manually.
-# Linux distribution is handled via Docker and uv (see issue #linux-packaging).
 on:
   push:
     tags:
@@ -9,18 +8,18 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to attach assets to (e.g. v0.3.0)"
-        required: true
-        default: "v0.3.0"
+        description: "Release tag to attach assets to (e.g. v0.5.0)"
+        required: false
+        default: ""
 
 permissions:
   contents: write
 
 jobs:
 
-  # ── Windows: Inno Setup installer (.exe wizard) ─────────────────────────────
+  # ── Windows: portable .exe via PyInstaller ───────────────────────────────────
   windows:
-    name: Windows installer
+    name: Windows binary
     runs-on: windows-latest
 
     steps:
@@ -54,26 +53,19 @@ jobs:
           pip install .
           pip install torch --index-url https://download.pytorch.org/whl/cpu --force-reinstall
 
-      - name: Build main CLI binary
+      - name: Build CLI binary
         run: pyinstaller lutz.spec
 
-      - name: Build silent GUI launcher
-        run: |
-          pyinstaller --onefile --windowed --name lutz-ui `
-            installer/windows/launcher.py
+      - name: Upload binary as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lutz-windows-x64
+          path: dist/lutz.exe
+          retention-days: 30
 
-      - name: Copy launcher next to CLI binary
-        shell: pwsh
-        run: Copy-Item dist\lutz-ui.exe installer\windows\lutz-ui.exe
-
-      # Inno Setup is pre-installed on windows-latest runners
-      - name: Compile Inno Setup installer
-        shell: cmd
-        run: |
-          "%ProgramFiles(x86)%\Inno Setup 6\iscc.exe" /DAppVersion=${{ github.event.inputs.tag || github.ref_name }} installer\windows\lutz.iss
-
-      - name: Upload Windows installer
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/') || github.event.inputs.tag != ''
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
-          files: dist/installer/lutz-setup-windows-x64.exe
+          files: dist/lutz.exe

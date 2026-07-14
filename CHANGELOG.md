@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.1] - 2026-07-14
+
+### Added
+
+- **Aviso de API key não cadastrada** — ao abrir o seletor de modelo, exibe banner com botão "Configurar" quando o provedor selecionado não tem key no `.env`; estado recarregado automaticamente ao fechar o modal de configurações
+
+### Fixed
+
+- **Documentação da interface web** — todos os docs e screenshots atualizados para refletir a nova UI v0.5.0 (SPA de aba única); screenshots antigos removidos; referências à aba Analytics removidas de `analytics.md`
+- **Workflow CI Windows** — remove etapas de build do instalador Inno Setup e launcher GUI deletados na v0.5.0
+
 ## [0.5.0] - 2026-07-14
 
 ### Changed
