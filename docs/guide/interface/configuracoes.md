@@ -1,76 +1,58 @@
 # Configurações
 
-A página de Configurações permite ajustar provedores de LLM e embedding, chaves de API e URLs customizadas — tudo salvo diretamente no `.env` do projeto sem precisar abrir um editor de texto.
+O modal de **Configurações** é acessado pelo ícone ⚙ no canto superior direito da interface. Ele permite ajustar provedores de LLM e embedding, chaves de API, URL base e idioma — tudo salvo no `.env` do projeto.
 
-![Página de Configurações](/screenshots/configuracoes.png)
+![Modal de Configurações](/screenshots/settings.png)
 
 ---
 
-## Campos do formulário
+## Abas do modal
 
-### Provedor de LLM
+O modal tem três abas:
+
+| Aba | Conteúdo |
+|---|---|
+| **LLM & Embedding** | Provider, modelo, temperatura, tokens máximos, URL base |
+| **Chaves de API** | OpenAI/OpenRouter API Key, Anthropic API Key |
+| **Idioma** | Idioma da interface |
+
+---
+
+## Aba LLM & Embedding
 
 | Campo | Descrição |
 |---|---|
 | **LLM PROVIDER** | `OpenAI / OpenRouter`, `Anthropic` ou `Docker Model Runner` |
-| **LLM MODEL** | Nome do modelo (ex: `google/gemini-flash-1.5-8b`, `gpt-4o-mini`) |
+| **LLM MODEL** | Nome do modelo (ex: `google/gemini-3.1-flash-lite`, `claude-sonnet-4-6`) |
 | **TEMPERATURE** | Variação da resposta (padrão: `0.2`) |
-| **MAX OUTPUT TOKENS** | Limite de tokens na resposta (padrão: `4096`) |
-
-### Provedor de Embeddings
-
-| Campo | Descrição |
-|---|---|
+| **MAX OUTPUT TOKENS** | Limite de tokens na resposta (padrão: `2048`) |
 | **EMBEDDING PROVIDER** | `OpenAI`, `sentence_transformers` ou `Docker Model Runner` |
-| **EMBEDDING MODEL** | Nome do modelo (ex: `openai/text-embedding-3-small`, `all-MiniLM-L6-v2`) |
-
-### Chaves de API
-
-As chaves são inseridas em campos mascarados (tipo password). Deixe em branco para **manter o valor atual** sem alteração — útil quando você quer mudar apenas o modelo sem reexpor a chave.
-
-| Campo | Quando usar |
-|---|---|
-| **OPENAI / OPENROUTER API KEY** | OpenAI, OpenRouter, Ollama e outros compatíveis |
-| **ANTHROPIC API KEY** | Anthropic Claude |
-
-### Configurações avançadas
-
-| Campo | Descrição |
-|---|---|
-| **OPENAI BASE URL** | URL base para APIs compatíveis com OpenAI. Exemplos: `https://openrouter.ai/api/v1` (OpenRouter), `http://localhost:11434/v1` (Ollama) |
-| **DOCKER MODEL HOST** | Endereço do Docker Model Runner (padrão: `http://localhost:11434`) |
+| **EMBEDDING MODEL** | Nome do modelo (ex: `openai/text-embedding-3-small`) |
+| **OPENAI BASE URL** | URL para APIs compatíveis (ex: `https://openrouter.ai/api/v1`) |
+| **DOCKER MODEL HOST** | Endereço do Docker Model Runner (ex: `http://localhost:11434`) |
 
 ---
 
-## Exemplo: OpenRouter com Gemini e embeddings OpenAI
-
-Esta é a configuração usada no exemplo desta documentação:
+## Configuração recomendada — OpenRouter + OpenAI embeddings
 
 | Campo | Valor |
 |---|---|
 | **LLM PROVIDER** | `OpenAI / OpenRouter` |
-| **LLM MODEL** | `google/gemini-flash-1.5-8b` |
+| **LLM MODEL** | `google/gemini-3.1-flash-lite` |
 | **EMBEDDING PROVIDER** | `OpenAI` |
 | **EMBEDDING MODEL** | `openai/text-embedding-3-small` |
 | **OPENAI BASE URL** | `https://openrouter.ai/api/v1` |
-| **OPENAI API KEY** | `sk-or-...` (sua chave do OpenRouter) |
 
 ---
 
 ## Segurança
 
 ::: warning
-As credenciais são armazenadas **exclusivamente** no arquivo `.env` do projeto e nunca são exibidas em texto plano na interface. O arquivo `.env` está no `.gitignore` e não é commitado ao repositório.
+As credenciais são armazenadas **exclusivamente** no `.env` do projeto e nunca exibidas em texto plano. O `.env` está no `.gitignore` e não é commitado ao repositório.
 :::
 
 ---
 
-## Configuração atual
+## Quando as configurações entram em vigor?
 
-Abaixo do formulário, uma tabela exibe os valores atuais de todas as variáveis do `.env`. Chaves sensíveis (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`) aparecem mascaradas como `••••••••••••`.
-
----
-
-## Quando as novas configurações são aplicadas?
-
-As novas configurações entram em vigor na **próxima** execução de análise ou vetorização. Não é necessário reiniciar o servidor.
+Imediatamente após clicar em **Salvar configurações** — sem necessidade de reiniciar o servidor.

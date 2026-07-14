@@ -1,8 +1,8 @@
 # Análise
 
-A página de Análise é onde você executa as análises com LLM sobre os artigos vetorizados. Suporta dois modos: RAG (corpus inteiro) e por artigo (veredicto individual).
-
-![Página de Análise](/screenshots/analise.png)
+::: warning Página removida na v0.5.0
+A página `/analysis` foi removida. A análise RAG agora é iniciada pelo painel lateral da interface principal, e os resultados são exibidos na **[aba Resultados](./resultados.md)**.
+:::
 
 ---
 

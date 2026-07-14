@@ -1,66 +1,73 @@
-# Dashboard (Home)
+# Interface Web — Visão Geral
 
-O dashboard é a página inicial da interface web do Lutz. Ele oferece uma visão geral do estado do projeto e serve como ponto de entrada para todas as demais páginas.
+A interface web do Lutz é iniciada com `lutz web` e abre automaticamente em `http://localhost:8765`.
 
-![Dashboard do Lutz](/screenshots/home.png)
-
----
-
-## Como acessar
-
-Inicie a interface web e acesse `http://localhost:8765`:
-
-```bash
-lutz web
-```
-
-O Lutz detecta automaticamente a raiz do projeto pelo diretório de trabalho atual — o mesmo diretório que contém `articles/` ou `.lutz/`.
-
-::: warning Projeto não encontrado
-Se o dashboard exibir um aviso de "Nenhum projeto Lutz encontrado", execute `lutz web` a partir de um diretório que contenha `articles/` ou `.lutz/`. Crie um projeto com `lutz init` se necessário.
-:::
+![Interface principal do Lutz](/screenshots/biblioteca.png)
 
 ---
 
-## Métricas do projeto
+## Estrutura da tela
 
-O dashboard exibe métricas em tempo real:
+A interface é organizada em três áreas principais:
 
-| Métrica | O que representa |
+| Área | Descrição |
 |---|---|
-| **Artigos PDF** | Número de arquivos `.pdf` na pasta `articles/` |
-| **Análises** | Relatórios JSON gerados em `analysis/execution_reports/` |
+| **Painel lateral esquerdo** | Pipeline de status, critério de triagem, templates, provedor LLM e modelo |
+| **Abas principais** | Biblioteca · Resultados · Relatórios |
+| **Barra superior** | Estimativa de custo, notificações, Histórico, modo escuro, Configurações |
 
 ---
 
-## Fluxo de trabalho
+## Abas principais
 
-Os cartões de navegação mostram as etapas principais:
+### Biblioteca
+Lista todos os artigos PDF do projeto, permite carregar novos arquivos e iniciar a vetorização. [Saiba mais →](./biblioteca.md)
 
-| Cartão | Rota | Função |
-|---|---|---|
-| **Vetorização** | `/vectorize` | Upload de PDFs e indexação no banco vetorial |
-| **Vector Store** | `/store` | Inspecionar artigos, chunks e distribuição de seções |
-| **Análise** | `/analysis` | Executar análises com prompt em modo RAG ou por artigo |
-| **Citações** | `/citations` | Extrair passagens relevantes com justificativa |
-| **Roteiro de leitura** | `/roadmap` | Plano de leitura gerado por LLM com ordem de dependências |
-| **Relatórios** | `/reports` | Visualizar e baixar resultados com veredictos INCLUDE/EXCLUDE |
-| **Configurações** | `/settings` | Configurar provedores de LLM/embedding e chaves de API |
+### Resultados
+Exibe os artigos com seus veredictos após a análise RAG (INCLUIR / EXCLUIR / INCERTO). [Saiba mais →](./resultados.md)
+
+### Relatórios
+Lista os relatórios gerados, com opção de visualização e download em PDF. [Saiba mais →](./relatorios.md)
 
 ---
 
-## Arquitetura RAG — contexto
+## Painel lateral
 
-O Lutz implementa o padrão **RAG (Retrieval-Augmented Generation)**:
+O painel esquerdo condensa o fluxo completo de trabalho:
+
+**Pipeline** — indicadores visuais das etapas concluídas:
+- Biblioteca (PDFs carregados)
+- Vetorizado (artigos indexados)
+- Análise (status da última execução)
+
+**Critério de triagem** — campo de texto onde você descreve os critérios de inclusão/exclusão. É o prompt enviado ao LLM na análise.
+
+**Templates** — prompts salvos para reutilização. Clique em um template para carregá-lo no campo de triagem.
+
+**Provedor LLM** — seletor rápido de provider e modelo, com link "Gerenciar" para abrir o modal de Configurações.
+
+---
+
+## Barra superior
+
+| Elemento | Função |
+|---|---|
+| **Est. análise** | Estimativa de custo da próxima análise em USD |
+| **Sininho** | Painel de notificações |
+| **Histórico** | Drawer lateral com execuções anteriores ([ver →](./historico.md)) |
+| **Lua/Sol** | Alternar modo escuro/claro |
+| **⚙** | Abrir modal de Configurações ([ver →](./configuracoes.md)) |
+
+---
+
+## Fluxo típico
 
 ```
-PDFs → extração → chunks → embeddings → LanceDB
-                                            ↓
-              prompt → embedding → busca por similaridade
-                                            ↓
-                              chunks relevantes + LLM → resposta
+1. lutz load --f /pasta/artigos    # copia PDFs para articles/
+2. lutz web                        # abre a interface
+3. Aba Biblioteca → Vetorizar      # indexa os artigos
+4. Preencher critério de triagem
+5. Iniciar análise (botão verde)
+6. Aba Resultados → revisar veredictos
+7. Aba Relatórios → baixar PDF
 ```
-
-Cada artigo é dividido em chunks de texto (padrão: 512 palavras com sobreposição de 64). Um modelo de embedding converte cada chunk em um vetor numérico de alta dimensão. Na hora da análise, o prompt também vira um vetor e os chunks com maior similaridade de cosseno são recuperados e enviados ao LLM como contexto.
-
-Isso permite analisar centenas de artigos sem precisar enviar todo o texto para o modelo — apenas as passagens mais relevantes para a pergunta feita.

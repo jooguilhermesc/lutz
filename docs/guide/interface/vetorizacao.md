@@ -1,8 +1,8 @@
 # Biblioteca (Vetorização)
 
-A página **Biblioteca** (`/vectorize`) é onde você adiciona PDFs ao projeto e os indexa no banco vetorial. É o primeiro passo obrigatório antes de qualquer análise.
-
-![Página de Biblioteca](/screenshots/vetorizacao.png)
+::: warning Página removida na v0.5.0
+A página `/vectorize` foi removida. O gerenciamento de artigos e a vetorização agora estão integrados à **[aba Biblioteca](./biblioteca.md)** da interface principal.
+:::
 
 ---
 

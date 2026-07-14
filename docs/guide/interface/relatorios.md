@@ -1,50 +1,52 @@
-# Relatórios
+# Aba Relatórios
 
-A página de Relatórios exibe todas as análises já executadas, com seus veredictos, respostas do LLM e opções de download.
+A aba **Relatórios** lista todos os relatórios gerados pelas análises anteriores, com opções de visualização e download.
 
-![Página de Relatórios](/screenshots/relatorios.png)
+![Aba Relatórios](/screenshots/relatorios.png)
 
 ---
 
-## O que é gerado após uma análise
+## Lista de relatórios
 
-Cada execução de `lutz analysis` gera arquivos em `analysis/execution_reports/`:
+Cada card exibe:
+
+| Campo | Descrição |
+|---|---|
+| **Nome** | Identificador único da execução (ex: `tmpglwe1i2p_20260522_012658`) |
+| **Data** | Data e hora da análise |
+| **Artigos** | Quantidade de artigos processados |
+| **Tokens** | Total de tokens consumidos |
+| **Tempo** | Duração da análise |
+
+---
+
+## Ações
+
+### Download PDF
+
+Clique em **↓ PDF** para baixar o relatório formatado. O PDF inclui:
+
+- Metadados da execução (modelo, tokens, data)
+- Tabela de veredictos por artigo
+- Resposta completa do LLM por artigo (modo por artigo)
+
+### Remover relatório
+
+Clique no ícone de lixeira para excluir um relatório. Use **Remover todos** para limpar o histórico completo.
+
+### Atualizar lista
+
+O botão **↻ Atualizar** recarrega a lista caso relatórios tenham sido gerados via CLI enquanto a interface estava aberta.
+
+---
+
+## Arquivos gerados
+
+Cada análise salva arquivos em `analysis/execution_reports/`:
 
 | Arquivo | Conteúdo |
 |---|---|
-| `*.json` | Metadados, artigos usados, tokens, resposta do LLM |
-| `*.html` | Tabela formatada com veredictos e análise expandível por artigo (apenas modo por artigo) |
-
----
-
-## Tabela de relatórios
-
-A tabela lista todas as análises com:
-
-- **Nome** do arquivo de relatório
-- **Modo** (RAG ou por artigo)
-- **Data** de execução
-- **Artigos** analisados
-- **Modelo** de LLM utilizado
-
----
-
-## Visualização por artigo
-
-Ao expandir um relatório de modo por artigo, você vê para cada artigo:
-
-- **Veredicto**: `INCLUDE`, `EXCLUDE`, `UNCERTAIN` ou `UNKNOWN`
-- **Análise completa** do LLM
-- **Chunks utilizados** como contexto
-
-Os veredictos `INCLUDE` e `EXCLUDE` são coloridos para facilitar a triagem visual.
-
----
-
-## Download
-
-- **JSON**: relatório completo com todos os metadados, útil para processamento programático
-- **HTML**: relatório formatado para compartilhar com colaboradores ou incluir em documentos
+| `*.json` | Metadados, artigos, tokens e resposta bruta do LLM |
 
 ---
 
@@ -52,13 +54,13 @@ Os veredictos `INCLUDE` e `EXCLUDE` são coloridos para facilitar a triagem visu
 
 ```json
 {
-  "timestamp": "2026-05-18T15:30:00",
+  "timestamp": "2026-05-22T22:26:58",
   "mode": "per_article",
   "prompt": "...",
   "llm_provider": "openai",
-  "llm_model": "gpt-4o-mini",
-  "embedding_model": "text-embedding-3-small",
-  "total_tokens": 42000,
+  "llm_model": "google/gemini-3.1-flash-lite",
+  "embedding_model": "openai/text-embedding-3-small",
+  "total_tokens": 408928,
   "articles": [
     {
       "filename": "artigo_01.pdf",

@@ -1,8 +1,8 @@
 # Vector Store
 
-A página Vector Store permite inspecionar o banco vetorial — os artigos indexados, a quantidade de chunks, o modelo de embedding usado e a distribuição de seções detectadas.
-
-![Página Vector Store](/screenshots/vector_store.png)
+::: warning Página removida na v0.5.0
+A página `/store` foi removida. O status do vector store agora é refletido na **[aba Biblioteca](./biblioteca.md)** e no bloco Pipeline do painel lateral.
+:::
 
 ---
 

@@ -1,8 +1,14 @@
 # Citações
 
-A página de Citações permite extrair passagens textuais relevantes dos artigos classificados como `INCLUDE`, com nível de confiança e justificativa gerados pelo LLM.
+::: warning Página removida na v0.5.0
+A página `/citations` foi removida na v0.5.0. A extração de citações ainda está disponível via CLI:
 
-![Página de Citações](/screenshots/citacoes.png)
+```bash
+lutz citations --analysis analysis/execution_reports/screening.json
+```
+
+[→ Ver documentação da aba Resultados](./resultados.md)
+:::
 
 ---
 
