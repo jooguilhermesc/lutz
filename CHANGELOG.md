@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.4] - 2026-07-14
+
+### Added
+
+- **Extração de citações** — botão "Extrair citações" na tela de Resultados dispara job em segundo plano que busca, em cada artigo classificado como INCLUDE, trechos de texto que corroboram a classificação; citações aparecem inline nos cards expandidos com número de página
+- **Roteiro de leitura** — botão "Roteiro de leitura" gera, via job em segundo plano, um plano de estudo com agrupamento dos artigos por estágio; modal exibe overview + artigos por estágio com notas de leitura
+- **Aba "Roteiro" nas Configurações** — permite definir os agrupamentos do roteiro (nome + critério) com adição/remoção de estágios; configuração persiste em `localStorage`; padrão são três estágios (Leituras fundacionais, Casos específicos, Evolução do conteúdo)
+- **Aba "Consumo" nas Configurações** — tabela com todas as análises realizadas (tipo, modelo, provedor, tokens de entrada/saída, custo estimado); totalizadores de tokens e custo; exportação em CSV; custo calculado com preços estáticos para Anthropic/OpenAI e busca lazy da API do OpenRouter
+- **Custo estimado nos relatórios** — barra de metadados de cada relatório na aba Relatórios exibe "Custo est." quando o preço do modelo é conhecido
+- **API `GET /api/usage`** — endpoint que agrega dados de consumo de todos os relatórios existentes com estimativa de custo
+- **API `GET /api/usage/export`** — exporta registros de consumo como CSV gerado via DuckDB
+
+### Fixed
+
+- **Auto-refresh da aba Relatórios** — ao concluir um job de citações ou roteiro, a lista de relatórios é atualizada automaticamente sem precisar recarregar a página
+
 ## [0.5.3] - 2026-07-14
 
 ### Fixed
