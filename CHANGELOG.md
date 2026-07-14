@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.3] - 2026-07-14
+
+### Fixed
+
+- **BibliotecaTab — status de vetorização incorreto** — `vectorize.py` armazena o filename sem extensão (`pdf.stem`) no vector store, mas a API `/articles` retorna o nome com `.pdf`. A comparação nunca batia, fazendo todos os artigos aparecerem como "Pendente" e a coluna Chunks mostrar "—". Ambos os lados agora são normalizados antes da comparação.
+
 ## [0.5.2] - 2026-07-14
 
 ### Added
