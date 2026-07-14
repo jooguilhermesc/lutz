@@ -75,6 +75,7 @@ export default function AppShell() {
   const [vectorStore, setVectorStore] = useState<VectorStoreInfo | null>(null)
   const [reports, setReports] = useState<ReportMeta[]>([])
   const [activeReport, setActiveReport] = useState<Report | null>(null)
+  const [activeReportName, setActiveReportName] = useState<string | null>(null)
   const [savedPrompts, setSavedPrompts] = useState<Prompt[]>([])
 
   // ── Config / LLM ──
@@ -125,6 +126,9 @@ export default function AppShell() {
   const vectorizeJob = jobs.find(j => j.type === 'vectorize' && (j.status === 'running' || j.status === 'queued'))
   const vectorizeRunning = !!vectorizeJob
 
+  // Track which jobs we've already reacted to (to avoid re-firing on every render)
+  const processedJobsRef = useRef<Set<string>>(new Set())
+
   // ── Theme ──
   useEffect(() => {
     document.documentElement.classList.toggle('dark', dark)
@@ -161,11 +165,23 @@ export default function AppShell() {
     if (!embMenuOpen) setEmbModelSearch('')
   }, [embMenuOpen])
 
-  // Reload vector store after vectorize job completes
+  // Reload resources when jobs complete
   useEffect(() => {
     const allDone = jobs.every(j => j.status === 'done' || j.status === 'error' || j.status === 'cancelled')
     if (allDone && jobs.length > 0) {
       loadVectorStore()
+    }
+
+    // Refresh report list whenever a report-generating job newly reaches done
+    let needsReportRefresh = false
+    for (const j of jobs) {
+      if (j.status === 'done' && (j.type === 'citations' || j.type === 'roadmap') && !processedJobsRef.current.has(j.id)) {
+        processedJobsRef.current.add(j.id)
+        needsReportRefresh = true
+      }
+    }
+    if (needsReportRefresh) {
+      loadReports()
     }
   }, [jobs])
 
@@ -175,11 +191,14 @@ export default function AppShell() {
       listArticles().then(r => setArticles(r.articles ?? [])).catch(() => {}),
       loadVectorStore(),
       loadContextFiles(),
-      listReports().then(r => {
+      listReports('all').then(r => {
         const reps = r.reports ?? []
         setReports(reps)
-        if (reps.length > 0) {
-          getReport(reps[0].name).then(setActiveReport).catch(() => {})
+        const analysisReps = reps.filter(rep => !rep.report_type || rep.report_type === 'analysis')
+        if (analysisReps.length > 0) {
+          const name = analysisReps[0].name
+          setActiveReportName(name)
+          getReport(name).then(setActiveReport).catch(() => {})
         }
       }).catch(() => {}),
       listPrompts().then(r => setSavedPrompts(r.prompts ?? [])).catch(() => {}),
@@ -239,7 +258,7 @@ export default function AppShell() {
 
   async function loadReports() {
     try {
-      const r = await listReports()
+      const r = await listReports('all')
       setReports(r.reports ?? [])
     } catch { /* ignore */ }
   }
@@ -350,11 +369,14 @@ export default function AppShell() {
           if (line === '__done__') {
             setAnalysisRunning(false); setAnalysisDone(true)
             // Load the freshest report
-            listReports().then(r => {
+            listReports('all').then(r => {
               const reps = r.reports ?? []
               setReports(reps)
-              if (reps.length > 0) {
-                getReport(reps[0].name).then(setActiveReport).catch(() => {})
+              const analysisReps = reps.filter(rep => !rep.report_type || rep.report_type === 'analysis')
+              if (analysisReps.length > 0) {
+                const name = analysisReps[0].name
+                setActiveReportName(name)
+                getReport(name).then(setActiveReport).catch(() => {})
               }
             }).catch(() => {})
           } else if (line.startsWith('__error__')) {
@@ -1103,6 +1125,7 @@ export default function AppShell() {
           {activeTab === 'resultados' && (
             <ResultadosTab
               report={activeReport}
+              activeReportName={activeReportName}
               analysisRunning={analysisRunning}
               logs={analysisLogs}
               analysisDone={analysisDone}

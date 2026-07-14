@@ -1,6 +1,64 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import StreamLog from '../components/StreamLog'
-import type { Report, ReportArticle } from '../api/client'
+import { useNotifications } from '../contexts/NotificationsContext'
+import { useLanguage } from '../contexts/LanguageContext'
+import {
+  getRawReport, listReports, getReportPdfUrl,
+  type Report, type ReportArticle,
+  type CitationsReport, type CitationsArticleEntry,
+  type RoadmapReport,
+} from '../api/client'
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+const DEFAULT_ROADMAP_STAGES = [
+  { name: 'Leituras fundacionais', criteria: 'Artigos que servem de base para compreender os demais — conceitos fundamentais, revisões abrangentes e metodologias centrais.' },
+  { name: 'Casos específicos', criteria: 'Artigos bem elaborados sobre tópicos que se fecham em si mesmos e têm pouca relação com os demais.' },
+  { name: 'Evolução do conteúdo', criteria: 'Artigos que apresentam conceitos mais elaborados, refinamentos metodológicos ou aplicações avançadas sobre o tema central.' },
+]
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function getRoadmapStages(): Array<{ name: string; criteria: string }> {
+  try {
+    const stored = localStorage.getItem('lutz_roadmap_stages')
+    if (stored) return JSON.parse(stored)
+  } catch { /* ignore */ }
+  return DEFAULT_ROADMAP_STAGES
+}
+
+function buildUserInstructions(stages: Array<{ name: string; criteria: string }>): string {
+  const lines = stages
+    .filter(s => s.name.trim())
+    .map((s, i) => `${i + 1}. "${s.name}": ${s.criteria}`)
+  return `Organize os artigos nos seguintes estágios (use exatamente estes nomes e critérios):\n${lines.join('\n')}`
+}
+
+function downloadPdf(reportName: string) {
+  const url = getReportPdfUrl(reportName)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${reportName}.pdf`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+}
+
+function extractRoadmapContent(rm: RoadmapReport['roadmap']) {
+  let overview = rm?.overview ?? ''
+  let stages = rm?.stages ?? []
+  // Fallback: backend JSON parsing failed → overview holds the raw LLM response
+  if (overview.trim().startsWith('{') && stages.length === 0) {
+    try {
+      const parsed = JSON.parse(overview)
+      if (parsed?.overview) overview = parsed.overview
+      if (Array.isArray(parsed?.stages)) stages = parsed.stages
+    } catch { /* not parseable, render as text */ }
+  }
+  return { overview, stages }
+}
+
+// ── Status meta ───────────────────────────────────────────────────────────────
 
 type Filter = 'all' | 'INCLUDE' | 'EXCLUDE' | 'UNCERTAIN'
 
@@ -17,8 +75,22 @@ function dot(c: string, sz = 8) {
   )
 }
 
-function ArticleResultCard({ art, expanded, onToggle }: {
-  art: ReportArticle; expanded: boolean; onToggle: () => void
+function Spinner() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" style={{ animation: 'vspin .8s linear infinite', flexShrink: 0 }}>
+      <circle cx="8" cy="8" r="6.4" stroke="currentColor" strokeOpacity=".3" strokeWidth="2"/>
+      <path d="M8 1.6a6.4 6.4 0 0 1 6.4 6.4" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+    </svg>
+  )
+}
+
+// ── Article card ──────────────────────────────────────────────────────────────
+
+function ArticleResultCard({ art, expanded, onToggle, citationsEntry }: {
+  art: ReportArticle
+  expanded: boolean
+  onToggle: () => void
+  citationsEntry?: CitationsArticleEntry | null
 }) {
   const key = (art.relevance ?? 'UNKNOWN').toUpperCase()
   const s = STATUS_META[key] ?? STATUS_META.UNKNOWN
@@ -86,6 +158,40 @@ function ArticleResultCard({ art, expanded, onToggle }: {
               <span>·</span>
               <span>{art.chunks_used ?? 0} chunks</span>
             </div>
+
+            {citationsEntry && (citationsEntry.citations?.length ?? 0) > 0 && (
+              <div style={{ marginTop: 16 }}>
+                <div className="section-label" style={{ marginBottom: 8 }}>Citações de suporte</div>
+                {citationsEntry.reasoning && (
+                  <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10, fontStyle: 'italic', lineHeight: 1.5 }}>
+                    {citationsEntry.reasoning}
+                  </p>
+                )}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {citationsEntry.citations.map((c, i) => (
+                    <div key={i} style={{
+                      background: 'var(--surface-2)', border: '1px solid var(--border)',
+                      borderLeft: '3px solid #1A9494', borderRadius: '0 8px 8px 0',
+                      padding: '8px 12px',
+                    }}>
+                      <p style={{ fontSize: 12, color: 'var(--text)', margin: 0, lineHeight: 1.6 }}>
+                        "{c.text}"
+                      </p>
+                      {c.page != null && (
+                        <p style={{ fontSize: 11, color: 'var(--text-faint)', margin: '4px 0 0', fontFamily: 'IBM Plex Mono, monospace' }}>
+                          p. {c.page}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                {citationsEntry.confidence != null && (
+                  <p style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 6, fontFamily: 'IBM Plex Mono, monospace' }}>
+                    Confiança: {citationsEntry.confidence}%
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -93,16 +199,190 @@ function ArticleResultCard({ art, expanded, onToggle }: {
   )
 }
 
+// ── Roadmap modal ─────────────────────────────────────────────────────────────
+
+function RoadmapModal({ data, reportName, onClose }: {
+  data: RoadmapReport
+  reportName: string | null
+  onClose: () => void
+}) {
+  const { metadata } = data
+  const { overview, stages } = extractRoadmapContent(data.roadmap)
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(20,25,40,.5)', zIndex: 60,
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32,
+      animation: 'vfade .15s ease',
+    }}>
+      <div style={{
+        width: 700, maxWidth: '100%', maxHeight: '88vh', background: 'var(--surface)',
+        borderRadius: 16, boxShadow: '0 24px 60px rgba(20,25,40,.4)',
+        display: 'flex', flexDirection: 'column', overflow: 'hidden',
+      }}>
+        <div style={{
+          flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '18px 24px', borderBottom: '1px solid var(--border)',
+        }}>
+          <div>
+            <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>Roteiro de leitura</span>
+            <span style={{ marginLeft: 10, fontSize: 12, color: 'var(--text-faint)', fontFamily: 'IBM Plex Mono, monospace' }}>
+              {metadata.llm?.model} · {metadata.llm?.total_tokens?.toLocaleString()} tokens · {metadata.elapsed_seconds?.toFixed(1)}s
+            </span>
+          </div>
+          <button onClick={onClose} style={{
+            width: 32, height: 32, border: '1px solid var(--border)', borderRadius: 8,
+            background: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center',
+            justifyContent: 'center', color: 'var(--text-muted)',
+          }}>
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+              <path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+          </button>
+        </div>
+
+        <div style={{ flex: 1, overflowY: 'auto', padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {overview && (
+            <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.7, margin: 0, background: 'var(--surface-2)', borderRadius: 9, padding: '10px 14px', border: '1px solid var(--border)' }}>
+              {overview}
+            </p>
+          )}
+          {stages.map((stage, i) => (
+            <div key={i} style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 11, overflow: 'hidden' }}>
+              <div style={{ padding: '12px 16px', background: 'var(--surface)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                <span style={{ flexShrink: 0, width: 24, height: 24, borderRadius: 6, background: '#1A9494', color: '#fff', fontSize: 11, fontWeight: 700, fontFamily: 'IBM Plex Mono, monospace', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{stage.stage_number ?? i + 1}</span>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>{stage.stage_name}</div>
+                  {stage.description && <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 3 }}>{stage.description}</div>}
+                </div>
+              </div>
+              <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {(stage.articles ?? []).map((a, j) => (
+                  <div key={j} style={{ display: 'flex', gap: 10 }}>
+                    <div style={{ flexShrink: 0, width: 20, height: 20, borderRadius: 4, background: '#e8f8f8', color: '#1A9494', fontSize: 10, fontWeight: 700, fontFamily: 'IBM Plex Mono, monospace', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 1 }}>{j + 1}</div>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)', fontFamily: 'IBM Plex Mono, monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.filename}</div>
+                      {a.reading_note && <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 3, lineHeight: 1.5 }}>{a.reading_note}</div>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ flexShrink: 0, padding: '14px 24px', borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}>
+          {reportName && (
+            <button
+              onClick={() => downloadPdf(reportName)}
+              style={{ padding: '8px 16px', border: 'none', borderRadius: 9, cursor: 'pointer', fontSize: 13, fontWeight: 600, background: '#1A9494', color: '#fff', display: 'flex', alignItems: 'center', gap: 6 }}
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                <path d="M8 2v8M5 7l3 3 3-3" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M3 12h10" stroke="#fff" strokeWidth="1.5" strokeLinecap="round"/>
+              </svg>
+              Exportar PDF
+            </button>
+          )}
+          <button onClick={onClose} style={{ padding: '8px 16px', border: '1px solid var(--border)', borderRadius: 9, cursor: 'pointer', fontSize: 13, fontWeight: 600, background: 'var(--surface)', color: 'var(--text-muted)' }}>
+            Fechar
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+
 interface Props {
   report: Report | null
+  activeReportName: string | null
   analysisRunning: boolean
   logs: string[]
   analysisDone: boolean | null
 }
 
-export default function ResultadosTab({ report, analysisRunning, logs, analysisDone }: Props) {
+export default function ResultadosTab({ report, activeReportName, analysisRunning, logs, analysisDone }: Props) {
+  const { dispatchJob, jobs } = useNotifications()
+  const { reportLang } = useLanguage()
   const [filter, setFilter] = useState<Filter>('all')
   const [expandedId, setExpandedId] = useState<string | null>(null)
+
+  // Citations
+  const [citJobId, setCitJobId] = useState<string | null>(null)
+  const [citData, setCitData] = useState<CitationsReport | null>(null)
+  const [citReportName, setCitReportName] = useState<string | null>(null)
+
+  // Roadmap
+  const [rmJobId, setRmJobId] = useState<string | null>(null)
+  const [rmData, setRmData] = useState<RoadmapReport | null>(null)
+  const [rmReportName, setRmReportName] = useState<string | null>(null)
+  const [showRmModal, setShowRmModal] = useState(false)
+
+  // Auto-load existing reports when the analysis report changes
+  useEffect(() => {
+    if (!activeReportName) return
+    listReports('all').then(r => {
+      const reps = r.reports ?? []
+      const citName = reps.filter(m => m.report_type === 'citations')[0]?.name
+      if (citName) {
+        setCitReportName(citName)
+        getRawReport(citName).then(raw => setCitData(raw as unknown as CitationsReport)).catch(() => {})
+      }
+      const rmName = reps.filter(m => m.report_type === 'reading_roadmap')[0]?.name
+      if (rmName) {
+        setRmReportName(rmName)
+        getRawReport(rmName).then(raw => setRmData(raw as unknown as RoadmapReport)).catch(() => {})
+      }
+    }).catch(() => {})
+  }, [activeReportName])
+
+  // Watch citations job completion
+  useEffect(() => {
+    if (!citJobId) return
+    const job = jobs.find(j => j.id === citJobId)
+    if (!job) return
+    if (job.status === 'done') {
+      setCitJobId(null)
+      listReports('all').then(r => {
+        const name = (r.reports ?? []).filter(m => m.report_type === 'citations')[0]?.name ?? null
+        if (name) {
+          setCitReportName(name)
+          getRawReport(name).then(raw => setCitData(raw as unknown as CitationsReport)).catch(() => {})
+        }
+      }).catch(() => {})
+    } else if (job.status === 'error' || job.status === 'cancelled') {
+      setCitJobId(null)
+    }
+  }, [jobs, citJobId])
+
+  // Watch roadmap job completion
+  useEffect(() => {
+    if (!rmJobId) return
+    const job = jobs.find(j => j.id === rmJobId)
+    if (!job) return
+    if (job.status === 'done') {
+      setRmJobId(null)
+      listReports('all').then(r => {
+        const name = (r.reports ?? []).filter(m => m.report_type === 'reading_roadmap')[0]?.name ?? null
+        if (name) {
+          setRmReportName(name)
+          getRawReport(name).then(raw => {
+            setRmData(raw as unknown as RoadmapReport)
+            setShowRmModal(true)
+          }).catch(() => {})
+        }
+      }).catch(() => {})
+    } else if (job.status === 'error' || job.status === 'cancelled') {
+      setRmJobId(null)
+    }
+  }, [jobs, rmJobId])
+
+  const citJob = citJobId ? jobs.find(j => j.id === citJobId) : null
+  const citRunning = citJob?.status === 'queued' || citJob?.status === 'running'
+  const rmJob = rmJobId ? jobs.find(j => j.id === rmJobId) : null
+  const rmRunning = rmJob?.status === 'queued' || rmJob?.status === 'running'
 
   const arts = report?.articles ?? []
   const counts = { all: arts.length, INCLUDE: 0, EXCLUDE: 0, UNCERTAIN: 0 }
@@ -123,6 +403,30 @@ export default function ResultadosTab({ report, analysisRunning, logs, analysisD
     { id: 'EXCLUDE',   label: 'Excluir' },
     { id: 'UNCERTAIN', label: 'Incerto' },
   ]
+
+  function getCitationsEntry(filename: string): CitationsArticleEntry | null {
+    return citData?.relevant_articles?.find(a => a.filename === filename) ?? null
+  }
+
+  async function handleExtractCitations() {
+    if (!activeReportName || citRunning) return
+    setCitData(null)
+    setCitReportName(null)
+    const job = await dispatchJob('citations', { report: activeReportName, language: reportLang })
+    setCitJobId(job.id)
+  }
+
+  async function handleRoadmap() {
+    if (!activeReportName || rmRunning) return
+    const stages = getRoadmapStages()
+    const user_instructions = buildUserInstructions(stages)
+    setRmData(null)
+    setRmReportName(null)
+    const job = await dispatchJob('roadmap', { report: activeReportName, user_instructions, language: reportLang })
+    setRmJobId(job.id)
+  }
+
+  const showActions = !!report && counts.INCLUDE > 0 && !!activeReportName
 
   if (analysisRunning) {
     return (
@@ -193,6 +497,69 @@ export default function ResultadosTab({ report, analysisRunning, logs, analysisD
           })}
         </div>
         <div style={{ flex: 1 }} />
+
+        {showActions && (
+          <div style={{ display: 'flex', gap: 8 }}>
+            {/* Citations button */}
+            <button
+              onClick={() => {
+                if (citRunning) return
+                if (citData && citReportName) {
+                  // Already have data — offer PDF download
+                  downloadPdf(citReportName)
+                } else {
+                  handleExtractCitations()
+                }
+              }}
+              disabled={citRunning}
+              title={citData ? 'Baixar PDF das citações' : 'Extrair citações dos artigos incluídos'}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '6px 12px', border: '1px solid var(--border)', borderRadius: 8,
+                background: citData ? '#e6f5ee' : 'var(--surface)',
+                color: citData ? '#0f6b47' : 'var(--text-muted)',
+                cursor: citRunning ? 'not-allowed' : 'pointer',
+                fontSize: 12.5, fontWeight: 600, opacity: citRunning ? 0.6 : 1,
+                transition: 'background .15s, color .15s',
+              }}
+            >
+              {citRunning ? <Spinner /> : (
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                  <path d="M3 4h2v8H3V4ZM11 4h2v8h-2V4ZM5 7h6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              )}
+              {citRunning ? 'Extraindo…' : citData ? 'Citações ⬇' : 'Extrair citações'}
+            </button>
+
+            {/* Roadmap button */}
+            <button
+              onClick={() => {
+                if (rmRunning) return
+                if (rmData) { setShowRmModal(true) } else { handleRoadmap() }
+              }}
+              disabled={rmRunning}
+              title={rmData ? 'Ver roteiro de leitura' : 'Gerar roteiro de leitura'}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '6px 12px', border: '1px solid var(--border)', borderRadius: 8,
+                background: rmData ? '#e8f8f8' : 'var(--surface)',
+                color: rmData ? '#1A9494' : 'var(--text-muted)',
+                cursor: rmRunning ? 'not-allowed' : 'pointer',
+                fontSize: 12.5, fontWeight: 600, opacity: rmRunning ? 0.6 : 1,
+                transition: 'background .15s, color .15s',
+              }}
+            >
+              {rmRunning ? <Spinner /> : (
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                  <rect x="2" y="3" width="12" height="10" rx="2" stroke="currentColor" strokeWidth="1.4"/>
+                  <path d="M5 6h6M5 9h4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                </svg>
+              )}
+              {rmRunning ? 'Gerando…' : rmData ? 'Ver roteiro' : 'Roteiro de leitura'}
+            </button>
+          </div>
+        )}
+
         <div style={{ fontSize: 12, color: 'var(--text-faint)', fontFamily: 'IBM Plex Mono, monospace' }}>
           {report.metadata.llm?.model} · {report.metadata.llm?.total_tokens?.toLocaleString()} tokens · {report.metadata.elapsed_seconds?.toFixed(1)}s
         </div>
@@ -230,9 +597,19 @@ export default function ResultadosTab({ report, analysisRunning, logs, analysisD
             art={a}
             expanded={expandedId === a.filename}
             onToggle={() => setExpandedId(v => v === a.filename ? null : a.filename)}
+            citationsEntry={getCitationsEntry(a.filename)}
           />
         ))}
       </div>
+
+      {/* Roadmap modal */}
+      {showRmModal && rmData && (
+        <RoadmapModal
+          data={rmData}
+          reportName={rmReportName}
+          onClose={() => setShowRmModal(false)}
+        />
+      )}
     </>
   )
 }
