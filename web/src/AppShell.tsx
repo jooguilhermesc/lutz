@@ -374,21 +374,32 @@ export default function AppShell() {
   // ── Derived values ─────────────────────────────────────────────────────────
 
   const provider = PROVIDERS.find(p => p.id === llmProvider) ?? PROVIDERS[0]
-  const currentModel = providerModels.find(m => m.id === llmModel) ?? providerModels[0]
-  const currentEmbModel = embModels.find(m => m.id === embModel) ?? embModels[0]
+
+  const llmModelInList = providerModels.find(m => m.id === llmModel)
+  const currentModel = llmModelInList ?? (llmModel ? { id: llmModel, name: llmModel } : providerModels[0])
+  const providerModelsWithCurrent = (llmModelInList || !llmModel)
+    ? providerModels
+    : [{ id: llmModel, name: llmModel }, ...providerModels]
+
+  const embModelInList = embModels.find(m => m.id === embModel)
+  const currentEmbModel = embModelInList ?? (embModel ? { id: embModel, name: embModel } : embModels[0])
+  const embModelsWithCurrent = (embModelInList || !embModel)
+    ? embModels
+    : [{ id: embModel, name: embModel }, ...embModels]
+
   const pricePerM = currentModel?.price ?? 3
   const filteredModels = modelSearch
-    ? providerModels.filter(m =>
+    ? providerModelsWithCurrent.filter(m =>
         m.name.toLowerCase().includes(modelSearch.toLowerCase()) ||
         m.id.toLowerCase().includes(modelSearch.toLowerCase())
       )
-    : providerModels
+    : providerModelsWithCurrent
   const filteredEmbModels = embModelSearch
-    ? embModels.filter(m =>
+    ? embModelsWithCurrent.filter(m =>
         m.name.toLowerCase().includes(embModelSearch.toLowerCase()) ||
         m.id.toLowerCase().includes(embModelSearch.toLowerCase())
       )
-    : embModels
+    : embModelsWithCurrent
 
   const vectorizedCount = vectorStore?.unique_documents ?? 0
   const totalArticles = articles.length
