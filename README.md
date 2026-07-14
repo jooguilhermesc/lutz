@@ -10,7 +10,7 @@
 
 [![DOI](https://zenodo.org/badge/1227342715.svg)](https://doi.org/10.5281/zenodo.19982571)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
-![Version](https://img.shields.io/badge/Version-0.3.1-blueviolet)
+![Version](https://img.shields.io/badge/Version-0.5.0-blueviolet)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
 ---
@@ -48,6 +48,17 @@ lutz web
 ```
 
 The interface opens at `http://localhost:8765`. From there you can vectorize articles, run analyses, and generate reports.
+
+---
+
+## Interface
+
+| Biblioteca | Resultados | Relatórios |
+|:---:|:---:|:---:|
+| ![Biblioteca](docs/screenshots/biblioteca.png) | ![Resultados](docs/screenshots/resultados.png) | ![Relatórios](docs/screenshots/relatorios.png) |
+| Manage and vectorize PDFs | Article verdicts after RAG analysis | Download generated reports |
+
+The interface is organized into three tabs. The left panel holds the screening criteria (your prompt), LLM provider selector, and prompt templates. The top bar gives quick access to the **History drawer** (past runs) and **Settings modal** (provider, model, API keys).
 
 ---
 
@@ -97,7 +108,7 @@ OPENAI_API_KEY=ollama
 LLM_MODEL=llama3.2
 ```
 
-You can also configure everything from the **Settings** page inside the web interface.
+You can also configure everything from the **Settings modal** (⚙ icon, top-right) inside the web interface.
 
 ---
 
@@ -114,7 +125,7 @@ Full guides, CLI reference, and screenshots at **[jooguilhermesc.github.io/lutz]
   author  = {Cabral, João Guilherme Silva and Azevedo Farias, Anna Karoline},
   title   = {{Lutz: AI-powered academic article screening and analysis tool}},
   year    = {2026},
-  version = {0.3.1},
+  version = {0.5.0},
   doi     = {10.5281/zenodo.19982571},
   url     = {https://github.com/jooguilhermesc/lutz}
 }

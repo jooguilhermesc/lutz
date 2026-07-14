@@ -10,7 +10,7 @@
 
 [![DOI](https://zenodo.org/badge/1227342715.svg)](https://doi.org/10.5281/zenodo.19982571)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
-![Version](https://img.shields.io/badge/Version-0.3.1-blueviolet)
+![Version](https://img.shields.io/badge/Version-0.5.0-blueviolet)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
 ---
@@ -48,6 +48,17 @@ lutz web
 ```
 
 A interface abre em `http://localhost:8765`. Por lá você vetoriza artigos, executa análises e gera relatórios.
+
+---
+
+## Interface
+
+| Biblioteca | Resultados | Relatórios |
+|:---:|:---:|:---:|
+| ![Biblioteca](docs/screenshots/biblioteca.png) | ![Resultados](docs/screenshots/resultados.png) | ![Relatórios](docs/screenshots/relatorios.png) |
+| Gerenciar e vetorizar PDFs | Veredictos dos artigos após análise RAG | Baixar relatórios gerados |
+
+A interface é organizada em três abas. O painel esquerdo concentra o critério de triagem (seu prompt), o seletor de provedor LLM e os templates de prompt. A barra superior dá acesso rápido ao **drawer de Histórico** (execuções anteriores) e ao **modal de Configurações** (provedor, modelo, chaves de API).
 
 ---
 
@@ -97,7 +108,7 @@ OPENAI_API_KEY=ollama
 LLM_MODEL=llama3.2
 ```
 
-Você também pode configurar tudo pela página **Configurações** na interface web.
+Você também pode configurar tudo pelo **modal de Configurações** (ícone ⚙ no canto superior direito) na interface web.
 
 ---
 
@@ -114,7 +125,7 @@ Guias completos, referência do CLI e capturas de tela em **[jooguilhermesc.gith
   author  = {Cabral, João Guilherme Silva and Azevedo Farias, Anna Karoline},
   title   = {{Lutz: AI-powered academic article screening and analysis tool}},
   year    = {2026},
-  version = {0.3.1},
+  version = {0.5.0},
   doi     = {10.5281/zenodo.19982571},
   url     = {https://github.com/jooguilhermesc/lutz}
 }
