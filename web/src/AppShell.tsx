@@ -91,6 +91,7 @@ export default function AppShell() {
   const [llmProvider, setLlmProvider] = useState('anthropic')
   const [llmModel, setLlmModel] = useState('claude-sonnet-4-6')
   const [, setConfigLoaded] = useState(false)
+  const [providerKeys, setProviderKeys] = useState<Record<string, boolean>>({});
 
   // ── Prompt ──
   const [promptText, setPromptText] = useState('')
@@ -166,6 +167,7 @@ export default function AppShell() {
           if (match) setLlmModel(match.id)
           else if (models[1]) setLlmModel(models[1].id)
         }
+        setProviderKeys({ anthropic: !!c.has_anthropic_key, openai: !!c.has_openai_key, docker_model_runner: true })
         setConfigLoaded(true)
       }).catch(() => { setConfigLoaded(true) }),
     ])
@@ -750,6 +752,27 @@ export default function AppShell() {
                     background: 'var(--surface)', border: '1px solid var(--border-2)', borderRadius: 10,
                     boxShadow: '0 12px 32px rgba(20,25,40,.22)', padding: 6, zIndex: 30,
                   }}>
+                    {!providerKeys[llmProvider] && (
+                      <div style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        margin: '2px 2px 6px', padding: '9px 11px', borderRadius: 8,
+                        background: '#fff8ed', border: '1px solid #f5d08a',
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
+                            <path d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM8 5v3.5M8 10.5v.5" stroke="#b45309" strokeWidth="1.4" strokeLinecap="round"/>
+                          </svg>
+                          <span style={{ fontSize: 12, color: '#92400e' }}>API key não cadastrada</span>
+                        </div>
+                        <button onClick={() => { setModelMenuOpen(false); setShowSettings(true) }} style={{
+                          fontSize: 11.5, fontWeight: 600, color: '#b45309',
+                          background: 'none', border: '1px solid #f5d08a', borderRadius: 6,
+                          padding: '3px 9px', cursor: 'pointer', whiteSpace: 'nowrap',
+                        }}>
+                          Configurar
+                        </button>
+                      </div>
+                    )}
                     {providerModels.map(m => (
                       <button key={m.id} onClick={() => handleChangeModel(m.id)} style={{
                         width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px',
@@ -891,7 +914,10 @@ export default function AppShell() {
         />
       )}
 
-      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+      {showSettings && <SettingsModal onClose={() => {
+        setShowSettings(false)
+        getConfig().then(c => setProviderKeys({ anthropic: !!c.has_anthropic_key, openai: !!c.has_openai_key, docker_model_runner: true })).catch(() => {})
+      }} />}
     </div>
   )
 }
