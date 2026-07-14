@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import {
-  getReport, deleteReport, deleteAllReports,
+  getReport, deleteReport, deleteAllReports, resetVectorStore,
   type ReportMeta, type Report, type ReportArticle,
 } from '../api/client'
 import Badge from '../components/Badge'
@@ -188,7 +188,7 @@ export default function RelatoriosTab({ reports, onRefresh }: Props) {
   async function handleDelete(alsoVs: boolean) {
     if (!confirmDelete) return
     await deleteReport(confirmDelete.name)
-    if (alsoVs) await deleteAllReports(true)
+    if (alsoVs) await resetVectorStore()
     setConfirmDelete(null)
     onRefresh()
   }
