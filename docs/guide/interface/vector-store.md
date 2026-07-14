@@ -1,97 +1,62 @@
 # Vector Store
 
-A página Vector Store permite inspecionar o banco vetorial — os artigos indexados, a quantidade de chunks, o modelo de embedding usado e a distribuição de seções detectadas.
-
-![Página Vector Store](/screenshots/vector_store.png)
+O banco vetorial (LanceDB em `.lutz/vector_store/`) armazena os embeddings e chunks de todos os artigos indexados. Na interface web, o status do vector store é exibido no **painel de Pipeline** do rail lateral.
 
 ---
 
-## O que é o banco vetorial?
+## Status no rail lateral
 
-O banco vetorial (implementado com [LanceDB](https://lancedb.github.io/lancedb/)) é o coração do Lutz. Ele armazena:
-
-- **Vetores de embedding** de cada chunk de texto
-- **Metadados** como nome do artigo, seção e posição do chunk
-- **Texto original** do chunk para exibição e uso no contexto do LLM
-
-O banco é armazenado localmente em `.lutz/vector_store/` e nunca é commitado ao Git.
-
-### Por que vetores?
-
-Cada chunk é representado como um ponto em um espaço vetorial de alta dimensão (ex: 768 dimensões para `all-MiniLM-L6-v2`). Chunks com conteúdo semanticamente similar ficam próximos nesse espaço.
-
-Quando você faz uma análise, o prompt é convertido no mesmo espaço vetorial e os chunks com menor distância de cosseno são recuperados — isso é a **busca semântica**.
+O pipeline mostra em tempo real:
 
 ```
-                    espaço vetorial
-                    
-  "metodologia de pesquisa"  ●───────● "research methodology"
-                                    (semanticamente próximos)
-  
-  "resultados clínicos"  ●
-                                 
-  "clinical outcomes"  ●────────────────────── (próximos)
+Pipeline
+  ✓  Biblioteca     — 12 PDFs carregados
+  ✓  Vetorizado     — 12 artigos prontos
+  ✓  Análise        — Concluída · 7 para incluir
 ```
 
----
-
-## Informações exibidas
-
-### Cards de resumo
-
-O topo da página exibe quatro métricas principais:
-
-| Métrica | Descrição |
-|---|---|
-| **Chunks totais** | Total de fragmentos de texto indexados |
-| **Artigos indexados** | Número de documentos únicos no banco |
-| **Modelo** | Nome do modelo de embedding utilizado |
-| **Atualizado em** | Data/hora da última vetorização |
-
-### Tabela de artigos indexados
-
-Para cada artigo mostra: nome do arquivo, número de chunks, data de vetorização e modelo utilizado.
-
-### Consulta SQL
-
-A seção **Consulta SQL** permite inspecionar o banco vetorial diretamente com abas rápidas:
-
-- **Contar chunks por arquivo** — distribuição de chunks entre artigos
-- **Ver schema** — estrutura da tabela LanceDB
-- **Buscar texto** — busca por substring no conteúdo dos chunks
-- **Arquivos únicos** — lista de artigos distintos
-- **Chunks recentes** — últimos chunks adicionados
-
-### Distribuição por seções
-
-Quando artigos foram vetorizados com `--section-parse`, exibe quantos chunks existem em cada seção por artigo.
-
-Útil para confirmar que a detecção de seções funcionou corretamente antes de usar `--filter-sections` nas análises.
+O contador "Vetorizado" corresponde ao número de documentos únicos no banco.
 
 ---
 
-## Ação: Unvectorize
+## Por que vetores?
 
-O botão **Limpar banco vetorial** remove todos os registros do LanceDB. Os PDFs em `articles/` são preservados.
+Cada chunk é representado como um ponto em um espaço vetorial de alta dimensão. Chunks com conteúdo semanticamente similar ficam próximos nesse espaço.
+
+Na análise, o prompt é convertido no mesmo espaço e os chunks com menor distância de cosseno são recuperados como contexto — isso é a **busca semântica**.
+
+---
+
+## Inspecionar via CLI
+
+```bash
+# Resumo do banco (chunks, artigos, modelo)
+lutz vector-store --summarize
+
+# Distribuição de chunks por seção
+lutz vector-store --sections
+
+# Exportar para JSON
+lutz vector-store --export
+
+# Limpar banco (preserva os PDFs)
+lutz unvectorize
+```
 
 ::: danger
-Esta ação é irreversível. O banco só pode ser reconstruído rodando `lutz vectorize` novamente.
+`lutz unvectorize` é irreversível. O banco só pode ser reconstruído rodando `lutz vectorize` novamente.
 :::
 
 ---
 
-## Equivalente no CLI
+## O que é armazenado
 
-```bash
-# Resumo do banco
-lutz vector-store --summarize
+| Campo | Conteúdo |
+|---|---|
+| `vector` | Vetor de embedding do chunk |
+| `text` | Texto original do chunk |
+| `source` | Nome do arquivo PDF |
+| `section` | Seção detectada (se `--section-parse` foi usado) |
+| `chunk_index` | Posição do chunk no documento |
 
-# Distribuição por seções
-lutz vector-store --sections
-
-# Exportar JSON
-lutz vector-store --export
-
-# Limpar banco
-lutz unvectorize
-```
+O banco é local, nunca sincronizado com servidores externos.

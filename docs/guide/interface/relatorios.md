@@ -1,63 +1,53 @@
 # Relatórios
 
-A página de Relatórios exibe todas as análises já executadas, com seus veredictos, respostas do LLM e opções de download.
+A aba **Relatórios** lista todas as análises executadas, com opções de visualização e download.
 
-![Página de Relatórios](/screenshots/relatorios.png)
-
----
-
-## O que é gerado após uma análise
-
-Cada execução de `lutz analysis` gera arquivos em `analysis/execution_reports/`:
-
-| Arquivo | Conteúdo |
-|---|---|
-| `*.json` | Metadados, artigos usados, tokens, resposta do LLM |
-| `*.html` | Tabela formatada com veredictos e análise expandível por artigo (apenas modo por artigo) |
+![Aba Relatórios](/screenshots/relatorios.png)
 
 ---
 
-## Tabela de relatórios
+## Lista de relatórios
 
-A tabela lista todas as análises com:
+Cada entrada exibe:
 
-- **Nome** do arquivo de relatório
-- **Modo** (RAG ou por artigo)
-- **Data** de execução
-- **Artigos** analisados
-- **Modelo** de LLM utilizado
+- Nome do arquivo de relatório
+- Modo (por artigo ou RAG)
+- Data de execução
+- Número de artigos analisados
+- Modelo de LLM utilizado
+
+Clique em um relatório para expandi-lo e ver os veredictos por artigo.
 
 ---
 
-## Visualização por artigo
+## Histórico (drawer)
 
-Ao expandir um relatório de modo por artigo, você vê para cada artigo:
+O botão **Histórico** na barra superior abre um drawer lateral com os relatórios mais recentes para acesso rápido sem sair da aba atual.
 
-- **Veredicto**: `INCLUDE`, `EXCLUDE`, `UNCERTAIN` ou `UNKNOWN`
-- **Análise completa** do LLM
-- **Chunks utilizados** como contexto
-
-Os veredictos `INCLUDE` e `EXCLUDE` são coloridos para facilitar a triagem visual.
+![Drawer de histórico](/screenshots/historico.png)
 
 ---
 
 ## Download
 
-- **JSON**: relatório completo com todos os metadados, útil para processamento programático
-- **HTML**: relatório formatado para compartilhar com colaboradores ou incluir em documentos
+Cada relatório pode ser baixado em dois formatos:
+
+| Formato | Uso |
+|---|---|
+| **JSON** | Processamento programático, importação em outras ferramentas |
+| **HTML** | Compartilhar com colaboradores, incluir em documentos |
 
 ---
 
-## Estrutura do JSON de relatório
+## Estrutura do JSON
 
 ```json
 {
   "timestamp": "2026-05-18T15:30:00",
   "mode": "per_article",
   "prompt": "...",
-  "llm_provider": "openai",
-  "llm_model": "gpt-4o-mini",
-  "embedding_model": "text-embedding-3-small",
+  "llm_provider": "anthropic",
+  "llm_model": "claude-sonnet-4-6",
   "total_tokens": 42000,
   "articles": [
     {
@@ -68,4 +58,18 @@ Os veredictos `INCLUDE` e `EXCLUDE` são coloridos para facilitar a triagem visu
     }
   ]
 }
+```
+
+Os arquivos são salvos em `analysis/execution_reports/` e nunca são apagados automaticamente.
+
+---
+
+## Equivalente no CLI
+
+```bash
+# Listar relatórios disponíveis
+lutz reports
+
+# Abrir relatório específico
+lutz reports --open screening_20260501_1432.json
 ```

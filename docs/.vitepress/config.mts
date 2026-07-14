@@ -36,13 +36,13 @@ export default defineConfig({
       {
         text: 'Interface Web',
         items: [
-          { text: 'Dashboard (Home)', link: '/guide/interface/home' },
-          { text: 'Biblioteca (Vetorização)', link: '/guide/interface/vetorizacao' },
-          { text: 'Vector Store', link: '/guide/interface/vector-store' },
-          { text: 'Análise', link: '/guide/interface/analise' },
+          { text: 'Visão Geral', link: '/guide/interface/home' },
+          { text: 'Biblioteca', link: '/guide/interface/vetorizacao' },
+          { text: 'Análise e Resultados', link: '/guide/interface/analise' },
           { text: 'Relatórios', link: '/guide/interface/relatorios' },
-          { text: 'Citações', link: '/guide/interface/citacoes' },
           { text: 'Configurações', link: '/guide/interface/configuracoes' },
+          { text: 'Vector Store (CLI)', link: '/guide/interface/vector-store' },
+          { text: 'Citações (CLI)', link: '/guide/interface/citacoes' },
         ],
       },
     ],

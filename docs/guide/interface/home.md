@@ -1,66 +1,76 @@
-# Dashboard (Home)
+# Interface Web — Visão Geral
 
-O dashboard é a página inicial da interface web do Lutz. Ele oferece uma visão geral do estado do projeto e serve como ponto de entrada para todas as demais páginas.
+A interface web do Lutz é uma aplicação de página única (SPA) acessível via `lutz web`. Ela reúne todo o fluxo de triagem em uma única tela: carregamento de PDFs, vetorização, execução de análise e visualização de resultados.
 
-![Dashboard do Lutz](/screenshots/home.png)
+![Interface principal do Lutz](/screenshots/home.png)
 
 ---
 
 ## Como acessar
 
-Inicie a interface web e acesse `http://localhost:8765`:
-
 ```bash
 lutz web
 ```
 
-O Lutz detecta automaticamente a raiz do projeto pelo diretório de trabalho atual — o mesmo diretório que contém `articles/` ou `.lutz/`.
+O servidor inicia em `http://localhost:8765` e abre o navegador automaticamente. Para usar outra porta:
+
+```bash
+lutz web --port 8080
+```
 
 ::: warning Projeto não encontrado
-Se o dashboard exibir um aviso de "Nenhum projeto Lutz encontrado", execute `lutz web` a partir de um diretório que contenha `articles/` ou `.lutz/`. Crie um projeto com `lutz init` se necessário.
+Execute `lutz web` a partir de um diretório que contenha `articles/` ou `.lutz/`. Crie um projeto com `lutz init` se necessário.
 :::
 
 ---
 
-## Métricas do projeto
+## Layout
 
-O dashboard exibe métricas em tempo real:
+A interface é dividida em duas áreas principais:
 
-| Métrica | O que representa |
+### Rail lateral (esquerda)
+
+Painel de controle fixo com:
+
+| Seção | Função |
 |---|---|
-| **Artigos PDF** | Número de arquivos `.pdf` na pasta `articles/` |
-| **Análises** | Relatórios JSON gerados em `analysis/execution_reports/` |
+| **Pipeline** | Status das três etapas: Biblioteca → Vetorizado → Análise |
+| **Critério de triagem** | Área de texto para o prompt de análise, com templates salvos e opção de anexar arquivos de contexto |
+| **Provedor LLM** | Seletor de provedor (Anthropic, OpenAI, Docker Model Runner) |
+| **Modelo** | Seletor de modelo com metadados de preço e capacidade |
+| **Estimativa de custo** | Cálculo automático baseado no corpus vetorizado e modelo escolhido |
+| **Botão Analisar** | Executa a análise e redireciona para a aba Resultados |
+
+### Área principal (direita)
+
+Três abas de visualização:
+
+| Aba | Conteúdo |
+|---|---|
+| **Biblioteca** | Lista de PDFs, upload e gestão de artigos, progresso de vetorização |
+| **Resultados** | Veredictos INCLUDE/EXCLUDE por artigo com logs de execução em tempo real |
+| **Relatórios** | Histórico de análises com download em JSON e HTML |
 
 ---
 
-## Fluxo de trabalho
+## Barra superior
 
-Os cartões de navegação mostram as etapas principais:
-
-| Cartão | Rota | Função |
-|---|---|---|
-| **Vetorização** | `/vectorize` | Upload de PDFs e indexação no banco vetorial |
-| **Vector Store** | `/store` | Inspecionar artigos, chunks e distribuição de seções |
-| **Análise** | `/analysis` | Executar análises com prompt em modo RAG ou por artigo |
-| **Citações** | `/citations` | Extrair passagens relevantes com justificativa |
-| **Roteiro de leitura** | `/roadmap` | Plano de leitura gerado por LLM com ordem de dependências |
-| **Relatórios** | `/reports` | Visualizar e baixar resultados com veredictos INCLUDE/EXCLUDE |
-| **Configurações** | `/settings` | Configurar provedores de LLM/embedding e chaves de API |
+| Elemento | Função |
+|---|---|
+| Nome do projeto | Pasta atual detectada pelo Lutz |
+| Est. análise | Custo estimado para a análise com o modelo atual |
+| Atividades | Painel de jobs em execução (vetorização, análise) |
+| Histórico | Drawer lateral com relatórios anteriores |
+| Tema | Alterna entre modo claro e escuro |
+| Configurações | Abre o modal de configurações de LLM e chaves de API |
 
 ---
 
-## Arquitetura RAG — contexto
+## Fluxo típico
 
-O Lutz implementa o padrão **RAG (Retrieval-Augmented Generation)**:
-
-```
-PDFs → extração → chunks → embeddings → LanceDB
-                                            ↓
-              prompt → embedding → busca por similaridade
-                                            ↓
-                              chunks relevantes + LLM → resposta
-```
-
-Cada artigo é dividido em chunks de texto (padrão: 512 palavras com sobreposição de 64). Um modelo de embedding converte cada chunk em um vetor numérico de alta dimensão. Na hora da análise, o prompt também vira um vetor e os chunks com maior similaridade de cosseno são recuperados e enviados ao LLM como contexto.
-
-Isso permite analisar centenas de artigos sem precisar enviar todo o texto para o modelo — apenas as passagens mais relevantes para a pergunta feita.
+1. **Biblioteca** — faça upload dos PDFs ou confirme os arquivos em `articles/`
+2. **Pipeline → Vetorizar** — clique no botão "Vetorizar" no painel lateral
+3. **Critério de triagem** — escreva o prompt ou selecione um template
+4. **Analisar** — clique em "Analisar N artigos"
+5. **Resultados** — revise os veredictos por artigo
+6. **Relatórios** — baixe o JSON ou HTML da análise
