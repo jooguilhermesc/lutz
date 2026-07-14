@@ -3,6 +3,7 @@
 Supported providers (configured via .env):
     docker_model_runner — Docker Model Runner (OpenAI-compatible, local)
     openai              — OpenAI API or any OpenAI-compatible endpoint
+    openrouter          — OpenRouter (openrouter.ai) multi-provider gateway
     anthropic           — Anthropic Claude API
 """
 
@@ -39,7 +40,7 @@ class LLMClient:
             if self._client is not None:  # double-check inside lock
                 return self._client
             match self.provider:
-                case "docker_model_runner" | "openai":
+                case "docker_model_runner" | "openai" | "openrouter":
                     from openai import OpenAI
 
                     client_kwargs: dict[str, Any] = {
@@ -64,10 +65,11 @@ class LLMClient:
         """Instantiate the right client based on environment variables.
 
         Reads:
-            LLM_PROVIDER        — docker_model_runner | openai | anthropic
+            LLM_PROVIDER        — docker_model_runner | openai | openrouter | anthropic
             LLM_MODEL           — model identifier
             OPENAI_API_KEY      — required when provider=openai
             OPENAI_BASE_URL     — optional custom base URL for openai-compatible APIs
+            OPENROUTER_API_KEY  — required when provider=openrouter
             ANTHROPIC_API_KEY   — required when provider=anthropic
             DOCKER_MODEL_HOST   — base URL for Docker Model Runner (default: auto-detect)
             LLM_MAX_TOKENS      — max tokens in the response (default: 4096)
@@ -112,6 +114,23 @@ class LLMClient:
                     temperature=temperature,
                 )
 
+            case "openrouter":
+                model_id = env.get("LLM_MODEL", "google/gemini-flash-1.5")
+                api_key = env.get("OPENROUTER_API_KEY", "")
+                if not api_key:
+                    raise ValueError(
+                        "OPENROUTER_API_KEY is required when LLM_PROVIDER=openrouter. "
+                        "Set it in your .env file."
+                    )
+                return cls(
+                    provider=provider,
+                    model_id=model_id,
+                    api_key=api_key,
+                    base_url="https://openrouter.ai/api/v1",
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                )
+
             case "anthropic":
                 model_id = env.get("LLM_MODEL", "claude-haiku-4-5-20251001")
                 api_key = env.get("ANTHROPIC_API_KEY", "")
@@ -131,7 +150,7 @@ class LLMClient:
             case _:
                 raise ValueError(
                     f"Unknown LLM_PROVIDER '{provider}'. "
-                    "Valid options: docker_model_runner, openai, anthropic."
+                    "Valid options: docker_model_runner, openai, openrouter, anthropic."
                 )
 
     # ------------------------------------------------------------------
@@ -155,7 +174,7 @@ class LLMClient:
         if temperature is not None:
             temperature = max(0.0, min(2.0, float(temperature)))
         match self.provider:
-            case "docker_model_runner" | "openai":
+            case "docker_model_runner" | "openai" | "openrouter":
                 return self._complete_messages_openai(system, messages, temperature=temperature)
             case "anthropic":
                 return self._complete_messages_anthropic(
@@ -178,7 +197,7 @@ class LLMClient:
         if temperature is not None:
             temperature = max(0.0, min(2.0, float(temperature)))
         match self.provider:
-            case "docker_model_runner" | "openai":
+            case "docker_model_runner" | "openai" | "openrouter":
                 yield from self._stream_messages_openai(system, messages, temperature=temperature)
             case "anthropic":
                 yield from self._stream_messages_anthropic(system, messages, temperature=temperature)
@@ -195,7 +214,7 @@ class LLMClient:
         Counts are 0 when the provider does not report them.
         """
         match self.provider:
-            case "docker_model_runner" | "openai":
+            case "docker_model_runner" | "openai" | "openrouter":
                 return self._complete_openai(system, user)
             case "anthropic":
                 return self._complete_anthropic(system, user)

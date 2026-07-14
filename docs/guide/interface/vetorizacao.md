@@ -28,9 +28,9 @@ O botão **Sugerir nomes** lê o conteúdo dos PDFs e propõe nomes limpos e des
 
 ---
 
-## Vetorização
+## Vetorização e modal do Vector Store
 
-A vetorização é iniciada pelo **rail lateral**, não pela aba Biblioteca. Quando há artigos pendentes, o botão **Vetorizar (N)** aparece no painel de Pipeline:
+A vetorização é iniciada pelo **rail lateral**. O botão no painel de Pipeline abre o **modal do Vector Store**:
 
 ```
 Pipeline
@@ -38,6 +38,20 @@ Pipeline
   …  Vetorizado     — 8 / 12 — 4 pendentes    [Vetorizar (4)]
   ○  Análise        — Aguardando vetorização
 ```
+
+Quando todos os artigos já estão vetorizados, o botão muda para **Detalhes** e continua abrindo o mesmo modal.
+
+### O que o modal mostra
+
+- **Registros totais** e **documentos únicos** no banco
+- **Data da última atualização** e **modelo de embedding** utilizado
+- **Tabela de artigos**: cada PDF com data de vetorização e contagem de chunks
+- **Aviso de pendentes**: artigos em `articles/` que ainda não foram indexados
+- **Botão Limpar vector store**: apaga todos os vetores (com confirmação inline)
+
+Veja [Vector Store](/guide/interface/vector-store) para detalhes completos.
+
+### Processo de vetorização
 
 O processo executa três fases:
 
@@ -85,4 +99,10 @@ lutz vectorize
 
 # Vetorizar com detecção de seções
 lutz vectorize --section-parse --chunk-size 256 --chunk-overlap 32
+
+# Inspecionar o banco (equivalente ao modal)
+lutz vector-store --summarize
+
+# Limpar o banco (equivalente ao botão "Limpar vector store")
+lutz unvectorize
 ```

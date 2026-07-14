@@ -1913,6 +1913,7 @@ _CONFIG_KEYS = [
     "OPENAI_BASE_URL",
     "DOCKER_MODEL_HOST",
     "REPORT_LANGUAGE",
+    "ANALYSIS_WORKERS",
 ]
 
 
@@ -1923,7 +1924,123 @@ async def get_config() -> dict:
     cfg: dict = {k: env.get(k, "") for k in _CONFIG_KEYS}
     cfg["has_openai_key"] = bool(env.get("OPENAI_API_KEY"))
     cfg["has_anthropic_key"] = bool(env.get("ANTHROPIC_API_KEY"))
+    cfg["has_openrouter_key"] = bool(env.get("OPENROUTER_API_KEY"))
     return cfg
+
+
+@api.get("/providers/models")
+async def list_provider_models(provider: str, kind: str = "llm") -> dict:
+    """Return available models for a provider. Falls back to curated lists on error."""
+    root = _get_root()
+    env = load_env(root)
+
+    _FALLBACKS: dict[str, dict[str, list[dict]]] = {
+        "openai": {
+            "llm": [
+                {"id": "gpt-4o", "name": "gpt-4o", "price": 5.0},
+                {"id": "gpt-4o-mini", "name": "gpt-4o-mini", "price": 0.6},
+                {"id": "o3", "name": "o3", "price": 10.0},
+                {"id": "o4-mini", "name": "o4-mini", "price": 1.1},
+            ],
+            "embedding": [
+                {"id": "text-embedding-3-small", "name": "text-embedding-3-small"},
+                {"id": "text-embedding-3-large", "name": "text-embedding-3-large"},
+                {"id": "text-embedding-ada-002", "name": "text-embedding-ada-002"},
+            ],
+        },
+        "anthropic": {
+            "llm": [
+                {"id": "claude-opus-4-8", "name": "claude-opus-4-8", "price": 15.0},
+                {"id": "claude-sonnet-4-6", "name": "claude-sonnet-4-6", "price": 3.0},
+                {"id": "claude-haiku-4-5", "name": "claude-haiku-4-5", "price": 0.8},
+            ],
+            "embedding": [],
+        },
+        "openrouter": {"llm": [], "embedding": []},
+        "docker_model_runner": {
+            "llm": [{"id": "ai/llama3.2", "name": "llama3.2", "price": 0}],
+            "embedding": [{"id": "nomic-embed-text", "name": "nomic-embed-text", "price": 0}],
+        },
+        "sentence_transformers": {
+            "llm": [],
+            "embedding": [
+                {"id": "all-MiniLM-L6-v2", "name": "all-MiniLM-L6-v2"},
+                {"id": "all-mpnet-base-v2", "name": "all-mpnet-base-v2"},
+                {"id": "paraphrase-multilingual-MiniLM-L12-v2", "name": "paraphrase-multilingual-MiniLM-L12-v2"},
+                {"id": "BAAI/bge-m3", "name": "BAAI/bge-m3"},
+            ],
+        },
+    }
+    fallback = _FALLBACKS.get(provider, {}).get(kind, [])
+
+    try:
+        if provider == "openrouter":
+            import aiohttp
+            api_key = env.get("OPENROUTER_API_KEY", "")
+            headers: dict[str, str] = {}
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    "https://openrouter.ai/api/v1/models",
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=15),
+                ) as r:
+                    r.raise_for_status()
+                    data = await r.json()
+                    models: list[dict] = []
+                    for m in data.get("data", []):
+                        raw_price = m.get("pricing", {}).get("prompt")
+                        price = round(float(raw_price) * 1_000_000, 4) if raw_price else None
+                        entry: dict = {"id": m["id"], "name": m.get("name", m["id"])}
+                        if price is not None:
+                            entry["price"] = price
+                        models.append(entry)
+                    models.sort(key=lambda x: x["name"].lower())
+                    return {"models": models}
+
+        elif provider == "openai":
+            api_key = env.get("OPENAI_API_KEY", "")
+            if not api_key:
+                return {"models": fallback}
+
+            base_url = env.get("OPENAI_BASE_URL") or None
+
+            def _fetch_openai() -> list:
+                from openai import OpenAI
+                kwargs: dict = {"api_key": api_key}
+                if base_url:
+                    kwargs["base_url"] = base_url
+                return list(OpenAI(**kwargs).models.list())
+
+            all_models = await asyncio.get_event_loop().run_in_executor(None, _fetch_openai)
+            if kind == "embedding":
+                filtered = [{"id": m.id, "name": m.id} for m in all_models if "embedding" in m.id.lower()]
+            else:
+                prefixes = ("gpt-4", "gpt-3.5", "o1", "o3", "o4")
+                filtered = [{"id": m.id, "name": m.id} for m in all_models
+                            if any(m.id.startswith(p) for p in prefixes)]
+            filtered.sort(key=lambda x: x["id"])
+            return {"models": filtered or fallback}
+
+        elif provider == "anthropic":
+            api_key = env.get("ANTHROPIC_API_KEY", "")
+            if not api_key:
+                return {"models": fallback}
+
+            def _fetch_anthropic() -> list:
+                import anthropic as _ant
+                return list(_ant.Anthropic(api_key=api_key).models.list())
+
+            models_raw = await asyncio.get_event_loop().run_in_executor(None, _fetch_anthropic)
+            models = [{"id": m.id, "name": getattr(m, "display_name", None) or m.id} for m in models_raw]
+            return {"models": models or fallback}
+
+        else:
+            return {"models": fallback}
+
+    except Exception:
+        return {"models": fallback}
 
 
 @api.put("/config")

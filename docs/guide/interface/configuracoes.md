@@ -1,6 +1,6 @@
 # Configurações
 
-O modal de **Configurações** permite ajustar provedores de LLM e embedding, chaves de API e idioma dos relatórios — tudo salvo no `.env` do projeto sem precisar abrir um editor de texto.
+O modal de **Configurações** permite ajustar o provedor de modelos, as chaves de API e o idioma dos relatórios — tudo salvo no `.env` do projeto sem precisar abrir um editor de texto.
 
 Acesse pelo ícone de engrenagem (⚙) na barra superior.
 
@@ -16,14 +16,23 @@ O modal tem três abas internas:
 
 | Campo | Descrição |
 |---|---|
-| **LLM Provider** | `OpenAI / OpenRouter`, `Anthropic` ou `Docker Model Runner` |
-| **LLM Model** | Nome do modelo (ex: `claude-sonnet-4-6`, `gpt-4o-mini`) |
-| **Embedding Provider** | `OpenAI`, `sentence_transformers` ou `Docker Model Runner` |
-| **Embedding Model** | Nome do modelo (ex: `text-embedding-3-small`, `all-MiniLM-L6-v2`) |
+| **Model Provider** | `Anthropic`, `OpenAI`, `OpenRouter` ou `Docker Model Runner` |
+| **LLM Model** | Modelo usado para raciocinar e redigir a análise |
+| **Embedding Model** | Modelo usado para vetorizar os artigos (busca semântica) |
 | **Temperature** | Variação da resposta (padrão: `0.2`) |
 | **Max Output Tokens** | Limite de tokens na resposta (padrão: `4096`) |
-| **OpenAI Base URL** | URL base para APIs compatíveis com OpenAI (OpenRouter, Ollama, etc.) |
+| **OpenAI Base URL** | URL base para APIs compatíveis com OpenAI (Ollama, etc.) |
 | **Docker Model Host** | Endereço do Docker Model Runner |
+
+#### LLM Model vs. Embedding Model
+
+**LLM Model** é o modelo de linguagem que lê os chunks relevantes e escreve a análise de cada artigo — ele precisa ser bom em raciocínio e seguir instruções. Modelos maiores custam mais, mas produzem análises mais precisas.
+
+**Embedding Model** converte cada trecho de texto num vetor numérico para que o Lutz encontre os trechos mais relevantes antes de chamar o LLM. Não há "análise" aqui — é uma operação matemática de similaridade.
+
+::: tip Para iniciantes
+Mantenha `text-embedding-3-small` (OpenAI) como modelo de embedding. Ele é rápido, barato e funciona bem com qualquer provedor LLM. Troque apenas se já usar Sentence Transformers local ou Docker Model Runner para embedding.
+:::
 
 ### Chaves de API
 
@@ -31,8 +40,9 @@ Campos mascarados (tipo password). Deixe em branco para **manter o valor atual**
 
 | Campo | Quando usar |
 |---|---|
-| **OpenAI / OpenRouter API Key** | OpenAI, OpenRouter, Ollama e compatíveis |
+| **OpenAI API Key** | OpenAI e endpoints compatíveis (Ollama, etc.) |
 | **Anthropic API Key** | Claude (Anthropic) |
+| **OpenRouter API Key** | OpenRouter (multi-provedor) |
 
 ### Idioma
 
@@ -40,14 +50,20 @@ Controla o idioma da UI e o idioma em que os relatórios são gerados pelo LLM.
 
 ---
 
-## Exemplo: OpenRouter com Gemini
+## Seleção de modelos na barra lateral
+
+Além do modal de Configurações, você pode trocar o **Modelo LLM** e o **Modelo Embedding** diretamente na barra lateral esquerda, clicando nos respectivos dropdowns. A escolha é salva automaticamente no `.env`.
+
+---
+
+## Exemplo: OpenRouter com Gemini Flash
 
 | Campo | Valor |
 |---|---|
-| LLM Provider | `OpenAI / OpenRouter` |
-| LLM Model | `google/gemini-flash-1.5-8b` |
-| OpenAI Base URL | `https://openrouter.ai/api/v1` |
-| OpenAI API Key | `sk-or-...` |
+| Model Provider | `OpenRouter` |
+| LLM Model | `google/gemini-flash-1.5` |
+| Embedding Model | `text-embedding-3-small` (via OpenAI) |
+| OpenRouter API Key | `sk-or-...` |
 
 ---
 

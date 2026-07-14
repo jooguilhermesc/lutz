@@ -138,6 +138,25 @@ export interface CitationsReport {
   not_relevant_articles: CitationsArticleEntry[]
 }
 
+// ── Provider models ───────────────────────────────────────────────────────────
+export interface ModelInfo {
+  id: string
+  name: string
+  price?: number  // $/M tokens; 0 = free; undefined = unknown
+}
+
+const _modelsCache: Record<string, Promise<{ models: ModelInfo[] }>> = {}
+
+export function getProviderModels(provider: string, kind = 'llm'): Promise<{ models: ModelInfo[] }> {
+  const key = `${provider}:${kind}`
+  if (!_modelsCache[key]) {
+    _modelsCache[key] = request<{ models: ModelInfo[] }>(
+      'GET', `/providers/models?provider=${encodeURIComponent(provider)}&kind=${kind}`
+    )
+  }
+  return _modelsCache[key]
+}
+
 // ── Config ────────────────────────────────────────────────────────────────────
 export interface Config {
   LLM_PROVIDER: string
@@ -149,8 +168,10 @@ export interface Config {
   OPENAI_BASE_URL: string
   DOCKER_MODEL_HOST: string
   REPORT_LANGUAGE: string
+  ANALYSIS_WORKERS: string
   has_openai_key: boolean
   has_anthropic_key: boolean
+  has_openrouter_key: boolean
 }
 export const getConfig = () => request<Config>('GET', '/config')
 export const saveConfig = (cfg: Partial<Config> & Record<string, string>) =>
@@ -196,6 +217,10 @@ export interface CatalogTable {
 
 export const fetchStoreCatalog = () =>
   request<{ tables: CatalogTable[] }>('GET', '/store/catalog')
+
+// ── Jobs ──────────────────────────────────────────────────────────────────────
+export const getJobLogs = (id: string) =>
+  request<{ job: { id: string; status: string; logs: string[] } }>('GET', `/jobs/${id}`)
 
 // ── SSE stream helper ─────────────────────────────────────────────────────────
 export interface StreamCallbacks {

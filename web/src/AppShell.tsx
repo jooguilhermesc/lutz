@@ -3,9 +3,9 @@ import {
   getProject, listArticles, getVectorStore, listReports, getReport,
   listPrompts, savePrompt, getPrompt,
   listContextFiles, uploadContextFiles, deleteContextFile,
-  getConfig, saveConfig,
+  getConfig, saveConfig, getProviderModels, resetVectorStore,
   type Article, type VectorStoreInfo, type ReportMeta, type Report, type Prompt, type ProjectInfo,
-  type ContextFile,
+  type ContextFile, type ModelInfo,
 } from './api/client'
 import { useLanguage } from './contexts/LanguageContext'
 import { useNotifications } from './contexts/NotificationsContext'
@@ -15,29 +15,18 @@ import ResultadosTab from './tabs/ResultadosTab'
 import RelatoriosTab from './tabs/RelatoriosTab'
 import HistoryDrawer from './components/HistoryDrawer'
 import SettingsModal from './components/SettingsModal'
+import VectorStoreModal from './components/VectorStoreModal'
+import { useTour } from './hooks/useTour'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const PROVIDERS = [
   { id: 'anthropic',           name: 'Anthropic',            mono: 'A',  color: '#c96442', tagline: 'Claude — primário' },
   { id: 'openai',              name: 'OpenAI',               mono: 'OA', color: '#1a7f64', tagline: 'GPT family' },
+  { id: 'openrouter',          name: 'OpenRouter',           mono: 'OR', color: '#7c3aed', tagline: 'Multi-provider' },
   { id: 'docker_model_runner', name: 'Docker Model Runner',  mono: 'D',  color: '#3b82f6', tagline: 'Modelos locais' },
 ]
 
-const MODELS: Record<string, Array<{ id: string; name: string; meta: string; price: number }>> = {
-  anthropic: [
-    { id: 'claude-opus-4-8',   name: 'claude-opus-4-8',   meta: 'Máxima precisão · 200K',  price: 15 },
-    { id: 'claude-sonnet-4-6', name: 'claude-sonnet-4-6', meta: 'Balanceado · recomendado', price: 3  },
-    { id: 'claude-haiku-4-5',  name: 'claude-haiku-4-5',  meta: 'Rápido · triagem em massa', price: 0.8 },
-  ],
-  openai: [
-    { id: 'gpt-4o',      name: 'gpt-4o',      meta: 'Propósito geral', price: 5   },
-    { id: 'gpt-4o-mini', name: 'gpt-4o-mini', meta: 'Econômico',       price: 0.6 },
-  ],
-  docker_model_runner: [
-    { id: 'ai/llama3.2', name: 'llama3.2', meta: 'Local · offline', price: 0 },
-  ],
-}
 
 const TEMPLATES = [
   { id: 'rct',    name: 'RCTs farmacológicos' },
@@ -78,6 +67,7 @@ function ProviderTile({ mono, color, size = 28 }: { mono: string; color: string;
 export default function AppShell() {
   const { reportLang } = useLanguage()
   const { jobs, dispatchJob } = useNotifications()
+  const { startTour } = useTour()
 
   // ── Shared data ──
   const [project, setProject] = useState<ProjectInfo | null>(null)
@@ -90,8 +80,16 @@ export default function AppShell() {
   // ── Config / LLM ──
   const [llmProvider, setLlmProvider] = useState('anthropic')
   const [llmModel, setLlmModel] = useState('claude-sonnet-4-6')
+  const [embModel, setEmbModel] = useState('text-embedding-3-small')
   const [, setConfigLoaded] = useState(false)
-  const [providerKeys, setProviderKeys] = useState<Record<string, boolean>>({});
+  const [providerKeys, setProviderKeys] = useState<Record<string, boolean>>({})
+  const [providerModels, setProviderModels] = useState<ModelInfo[]>([])
+  const [modelsLoading, setModelsLoading] = useState(false)
+  const [modelSearch, setModelSearch] = useState('')
+  const [embModels, setEmbModels] = useState<ModelInfo[]>([])
+  const [embModelsLoading, setEmbModelsLoading] = useState(false)
+  const [embMenuOpen, setEmbMenuOpen] = useState(false)
+  const [embModelSearch, setEmbModelSearch] = useState('')
 
   // ── Prompt ──
   const [promptText, setPromptText] = useState('')
@@ -108,6 +106,7 @@ export default function AppShell() {
   const [analysisRunning, setAnalysisRunning] = useState(false)
   const [analysisLogs, setAnalysisLogs] = useState<string[]>([])
   const [analysisDone, setAnalysisDone] = useState<boolean | null>(null)
+  const [workers, setWorkers] = useState(4)
   const ctrlRef = useRef<AbortController | null>(null)
 
   // ── UI state ──
@@ -116,6 +115,7 @@ export default function AppShell() {
   const [showSettings, setShowSettings] = useState(false)
   const [providerMenuOpen, setProviderMenuOpen] = useState(false)
   const [modelMenuOpen, setModelMenuOpen] = useState(false)
+  const [showVectorStoreModal, setShowVectorStoreModal] = useState(false)
   const [dark, setDark] = useState(() => {
     const saved = localStorage.getItem('lutz-theme')
     return saved ? saved === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches
@@ -135,6 +135,31 @@ export default function AppShell() {
   useEffect(() => {
     loadAll()
   }, [])
+
+  // Fetch LLM and embedding model lists whenever the provider changes
+  useEffect(() => {
+    let cancelled = false
+    setModelsLoading(true)
+    setProviderModels([])
+    getProviderModels(llmProvider, 'llm').then(({ models }) => {
+      if (!cancelled) { setProviderModels(models); setModelsLoading(false) }
+    }).catch(() => { if (!cancelled) setModelsLoading(false) })
+    setEmbModelsLoading(true)
+    setEmbModels([])
+    getProviderModels(llmProvider, 'embedding').then(({ models }) => {
+      if (!cancelled) { setEmbModels(models); setEmbModelsLoading(false) }
+    }).catch(() => { if (!cancelled) setEmbModelsLoading(false) })
+    return () => { cancelled = true }
+  }, [llmProvider])
+
+  // Reset search when dropdowns close
+  useEffect(() => {
+    if (!modelMenuOpen) setModelSearch('')
+  }, [modelMenuOpen])
+
+  useEffect(() => {
+    if (!embMenuOpen) setEmbModelSearch('')
+  }, [embMenuOpen])
 
   // Reload vector store after vectorize job completes
   useEffect(() => {
@@ -160,14 +185,10 @@ export default function AppShell() {
       listPrompts().then(r => setSavedPrompts(r.prompts ?? [])).catch(() => {}),
       getConfig().then(c => {
         if (c.LLM_PROVIDER) setLlmProvider(c.LLM_PROVIDER)
-        if (c.LLM_MODEL) {
-          // Find matching model ID in our list
-          const models = MODELS[c.LLM_PROVIDER] ?? MODELS.anthropic
-          const match = models.find(m => m.id === c.LLM_MODEL || m.name === c.LLM_MODEL)
-          if (match) setLlmModel(match.id)
-          else if (models[1]) setLlmModel(models[1].id)
-        }
-        setProviderKeys({ anthropic: !!c.has_anthropic_key, openai: !!c.has_openai_key, docker_model_runner: true })
+        if (c.LLM_MODEL) setLlmModel(c.LLM_MODEL)
+        if (c.EMBEDDING_MODEL) setEmbModel(c.EMBEDDING_MODEL)
+        if (c.ANALYSIS_WORKERS) setWorkers(Math.max(1, parseInt(c.ANALYSIS_WORKERS) || 4))
+        setProviderKeys({ anthropic: !!c.has_anthropic_key, openai: !!c.has_openai_key, openrouter: !!c.has_openrouter_key, docker_model_runner: true })
         setConfigLoaded(true)
       }).catch(() => { setConfigLoaded(true) }),
     ])
@@ -235,29 +256,54 @@ export default function AppShell() {
     await dispatchJob('vectorize', { chunk_size: 512, chunk_overlap: 64 })
   }
 
+  async function handleResetVectorStore() {
+    await resetVectorStore().catch(() => {})
+    await loadVectorStore()
+  }
+
+  function handleSettingsSaved() {
+    getConfig().then(c => {
+      if (c.LLM_PROVIDER) setLlmProvider(c.LLM_PROVIDER)
+      if (c.LLM_MODEL) setLlmModel(c.LLM_MODEL)
+      if (c.EMBEDDING_MODEL) setEmbModel(c.EMBEDDING_MODEL)
+      if (c.ANALYSIS_WORKERS) setWorkers(Math.max(1, parseInt(c.ANALYSIS_WORKERS) || 4))
+      setProviderKeys({ anthropic: !!c.has_anthropic_key, openai: !!c.has_openai_key, openrouter: !!c.has_openrouter_key, docker_model_runner: true })
+    }).catch(() => {})
+  }
+
   async function handleChangeProvider(providerId: string) {
-    setLlmProvider(providerId)
-    const models = MODELS[providerId] ?? []
-    const firstModel = models[1] ?? models[0]
-    if (firstModel) setLlmModel(firstModel.id)
     setProviderMenuOpen(false)
     setModelMenuOpen(false)
-    // Save immediately
+    setEmbMenuOpen(false)
+    setLlmProvider(providerId)  // triggers useEffect → fetches both model lists
     try {
-      await saveConfig({ LLM_PROVIDER: providerId, LLM_MODEL: firstModel?.name ?? '' })
+      const [{ models: llmMods }, { models: embMods }] = await Promise.all([
+        getProviderModels(providerId, 'llm'),
+        getProviderModels(providerId, 'embedding'),
+      ])
+      const firstLlm = llmMods[0]
+      const firstEmb = embMods[0]
+      const cfg: Record<string, string> = { LLM_PROVIDER: providerId }
+      if (firstLlm) { setLlmModel(firstLlm.id); cfg['LLM_MODEL'] = firstLlm.id }
+      if (firstEmb) { setEmbModel(firstEmb.id); cfg['EMBEDDING_MODEL'] = firstEmb.id }
+      await saveConfig(cfg)
     } catch { /* ignore */ }
   }
 
   async function handleChangeModel(modelId: string) {
     setLlmModel(modelId)
     setModelMenuOpen(false)
-    const models = MODELS[llmProvider] ?? []
-    const m = models.find(x => x.id === modelId)
-    if (m) {
-      try {
-        await saveConfig({ LLM_MODEL: m.name })
-      } catch { /* ignore */ }
-    }
+    try {
+      await saveConfig({ LLM_MODEL: modelId })
+    } catch { /* ignore */ }
+  }
+
+  async function handleChangeEmbModel(modelId: string) {
+    setEmbModel(modelId)
+    setEmbMenuOpen(false)
+    try {
+      await saveConfig({ EMBEDDING_MODEL: modelId })
+    } catch { /* ignore */ }
   }
 
   async function handleSavePrompt() {
@@ -280,7 +326,7 @@ export default function AppShell() {
       const job = await dispatchJob('analysis', {
         inline_prompt: promptText,
         mode: 'per_article',
-        workers: 4,
+        workers,
         max_chunks: 0,
         use_context_files: contextFiles.length > 0,
         language: reportLang,
@@ -328,18 +374,43 @@ export default function AppShell() {
   // ── Derived values ─────────────────────────────────────────────────────────
 
   const provider = PROVIDERS.find(p => p.id === llmProvider) ?? PROVIDERS[0]
-  const providerModels = MODELS[llmProvider] ?? []
-  const currentModel = providerModels.find(m => m.id === llmModel) ?? providerModels[1] ?? providerModels[0]
+
+  const llmModelInList = providerModels.find(m => m.id === llmModel)
+  const currentModel = llmModelInList ?? (llmModel ? { id: llmModel, name: llmModel } : providerModels[0])
+  const providerModelsWithCurrent = (llmModelInList || !llmModel)
+    ? providerModels
+    : [{ id: llmModel, name: llmModel }, ...providerModels]
+
+  const embModelInList = embModels.find(m => m.id === embModel)
+  const currentEmbModel = embModelInList ?? (embModel ? { id: embModel, name: embModel } : embModels[0])
+  const embModelsWithCurrent = (embModelInList || !embModel)
+    ? embModels
+    : [{ id: embModel, name: embModel }, ...embModels]
+
   const pricePerM = currentModel?.price ?? 3
+  const filteredModels = modelSearch
+    ? providerModelsWithCurrent.filter(m =>
+        m.name.toLowerCase().includes(modelSearch.toLowerCase()) ||
+        m.id.toLowerCase().includes(modelSearch.toLowerCase())
+      )
+    : providerModelsWithCurrent
+  const filteredEmbModels = embModelSearch
+    ? embModelsWithCurrent.filter(m =>
+        m.name.toLowerCase().includes(embModelSearch.toLowerCase()) ||
+        m.id.toLowerCase().includes(embModelSearch.toLowerCase())
+      )
+    : embModelsWithCurrent
 
   const vectorizedCount = vectorStore?.unique_documents ?? 0
   const totalArticles = articles.length
   const pendingCount = totalArticles - vectorizedCount
 
   const estimatedTokens = vectorizedCount * 9400
-  const estimatedCost = pricePerM === 0
-    ? 'gratuito'
-    : `$${((estimatedTokens / 1_000_000) * pricePerM).toFixed(2)}`
+  const estimatedCost = currentModel?.price === undefined && !modelsLoading
+    ? '—'
+    : pricePerM === 0
+      ? 'gratuito'
+      : `$${((estimatedTokens / 1_000_000) * pricePerM).toFixed(2)}`
 
   // Pipeline step statuses
   const step1Done = totalArticles > 0
@@ -398,7 +469,7 @@ export default function AppShell() {
         <div style={{ flex: 1 }} />
 
         {/* Cost chip */}
-        <div style={{
+        <div id="tour-cost" style={{
           display: 'flex', alignItems: 'center', gap: 7, padding: '5px 11px',
           background: 'var(--surface-3)', border: '1px solid var(--border)', borderRadius: 7, whiteSpace: 'nowrap',
         }}>
@@ -413,8 +484,21 @@ export default function AppShell() {
         {/* Notifications */}
         <NotificationsPanel />
 
+        {/* Tour button */}
+        <button onClick={startTour} title="Tour pela interface" style={{
+          display: 'flex', alignItems: 'center', gap: 7, background: 'none',
+          border: '1px solid var(--border)', cursor: 'pointer', padding: '7px 11px',
+          borderRadius: 7, color: 'var(--text-muted)', fontSize: 13, fontWeight: 500,
+        }}>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+            <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.3"/>
+            <path d="M8 5v3.5M8 11v.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+          </svg>
+          Tour
+        </button>
+
         {/* History button */}
-        <button onClick={() => setShowHistory(v => !v)} style={{
+        <button id="tour-history" onClick={() => setShowHistory(v => !v)} style={{
           display: 'flex', alignItems: 'center', gap: 7, background: 'none',
           border: '1px solid var(--border)', cursor: 'pointer', padding: '7px 11px',
           borderRadius: 7, color: 'var(--text)', fontSize: 13, fontWeight: 500,
@@ -447,7 +531,7 @@ export default function AppShell() {
         </button>
 
         {/* Settings */}
-        <button onClick={() => setShowSettings(v => !v)} style={{
+        <button id="tour-settings" onClick={() => setShowSettings(v => !v)} style={{
           width: 34, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center',
           background: 'none', border: '1px solid var(--border)', cursor: 'pointer', borderRadius: 7,
           color: 'var(--text-muted)',
@@ -471,7 +555,7 @@ export default function AppShell() {
           <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
 
             {/* Pipeline status */}
-            <div style={{
+            <div id="tour-pipeline" style={{
               marginBottom: 20, background: 'var(--surface-2)', border: '1px solid var(--border)',
               borderRadius: 10, padding: '12px 14px',
             }}>
@@ -494,9 +578,9 @@ export default function AppShell() {
                   icon: step2Done ? '✓' : (step2Partial ? '…' : '○'),
                   iconBg: step2Done ? '#e6f5ee' : (step2Partial ? '#fbf1dd' : '#eef0f3'),
                   iconFg: step2Done ? '#0f6b47' : (step2Partial ? '#8a6414' : '#9aa3b0'),
-                  hasBtn: pendingCount > 0 && !vectorizeRunning,
-                  btnLabel: `Vetorizar (${pendingCount})`,
-                  onBtn: handleVectorize,
+                  hasBtn: (vectorizedCount > 0 || pendingCount > 0) && !vectorizeRunning,
+                  btnLabel: pendingCount > 0 ? `Vetorizar (${pendingCount})` : 'Detalhes',
+                  onBtn: () => setShowVectorStoreModal(true),
                 },
                 {
                   label: 'Análise',
@@ -536,7 +620,7 @@ export default function AppShell() {
             </div>
 
             {/* Prompt */}
-            <div style={{ marginBottom: 20 }}>
+            <div id="tour-criteria" style={{ marginBottom: 20 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 9 }}>
                 <div className="section-label">Critério de triagem</div>
                 <span style={{ fontSize: 11, color: '#b6bcc7', fontFamily: 'IBM Plex Mono, monospace' }}>
@@ -630,7 +714,7 @@ export default function AppShell() {
               </div>
 
               {/* Templates row */}
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginTop: 10 }}>
+              <div id="tour-templates" style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginTop: 10 }}>
                 <span style={{ fontSize: 11, fontWeight: 600, color: '#8a92a0', alignSelf: 'center', marginRight: 1 }}>
                   Templates
                 </span>
@@ -680,7 +764,7 @@ export default function AppShell() {
             </div>
 
             {/* Provider */}
-            <div style={{ marginBottom: 16 }}>
+            <div id="tour-provider" style={{ marginBottom: 16 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 9 }}>
                 <div className="section-label">Provedor LLM</div>
                 <button onClick={() => setShowSettings(true)}
@@ -726,23 +810,34 @@ export default function AppShell() {
               </div>
             </div>
 
-            {/* Model */}
+            {/* LLM Model */}
             <div style={{ marginBottom: 18 }}>
-              <div className="section-label" style={{ marginBottom: 9 }}>Modelo</div>
+              <div className="section-label" style={{ marginBottom: 9 }}>Modelo LLM</div>
               <div style={{ position: 'relative' }}>
                 <button onClick={() => { setModelMenuOpen(v => !v); setProviderMenuOpen(false) }} style={{
                   width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
                   border: '1px solid var(--border-2)', borderRadius: 9, background: 'var(--surface)', cursor: 'pointer', textAlign: 'left',
                 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13.5, fontWeight: 600, fontFamily: 'IBM Plex Mono, monospace', lineHeight: 1.2, color: 'var(--text)' }}>
-                      {currentModel?.name ?? '—'}
-                    </div>
-                    <div style={{ fontSize: 11.5, color: 'var(--text-faint)', lineHeight: 1.3 }}>
-                      {currentModel?.meta ?? ''}
-                    </div>
+                    {modelsLoading ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                        <Spinner color="var(--text-faint)" />
+                        <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>Carregando modelos…</span>
+                      </div>
+                    ) : (
+                      <>
+                        <div style={{ fontSize: 13.5, fontWeight: 600, fontFamily: 'IBM Plex Mono, monospace', lineHeight: 1.2, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {currentModel?.name ?? llmModel ?? '—'}
+                        </div>
+                        {currentModel && currentModel.id !== currentModel.name && (
+                          <div style={{ fontSize: 11, color: 'var(--text-faint)', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {currentModel.id}
+                          </div>
+                        )}
+                      </>
+                    )}
                   </div>
-                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
                     <path d="m4 6 4 4 4-4" stroke="var(--text-faint)" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
                 </button>
@@ -750,12 +845,12 @@ export default function AppShell() {
                   <div style={{
                     position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0,
                     background: 'var(--surface)', border: '1px solid var(--border-2)', borderRadius: 10,
-                    boxShadow: '0 12px 32px rgba(20,25,40,.22)', padding: 6, zIndex: 30,
+                    boxShadow: '0 12px 32px rgba(20,25,40,.22)', zIndex: 30, overflow: 'hidden',
                   }}>
                     {!providerKeys[llmProvider] && (
                       <div style={{
                         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                        margin: '2px 2px 6px', padding: '9px 11px', borderRadius: 8,
+                        margin: '6px 6px 0', padding: '9px 11px', borderRadius: 8,
                         background: '#fff8ed', border: '1px solid #f5d08a',
                       }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
@@ -773,23 +868,141 @@ export default function AppShell() {
                         </button>
                       </div>
                     )}
-                    {providerModels.map(m => (
-                      <button key={m.id} onClick={() => handleChangeModel(m.id)} style={{
-                        width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px',
-                        border: 'none', borderRadius: 8,
-                        background: m.id === llmModel ? 'var(--surface-3)' : 'none', cursor: 'pointer',
-                      }}>
-                        <div style={{ flex: 1, textAlign: 'left' }}>
-                          <div style={{ fontSize: 13, fontWeight: 600, fontFamily: 'IBM Plex Mono, monospace', lineHeight: 1.2, color: 'var(--text)' }}>
-                            {m.name}
-                          </div>
-                          <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>{m.meta}</div>
+                    {providerModels.length > 8 && (
+                      <div style={{ padding: '6px 6px 2px' }}>
+                        <input
+                          autoFocus
+                          type="text"
+                          placeholder="Filtrar modelos…"
+                          value={modelSearch}
+                          onChange={e => setModelSearch(e.target.value)}
+                          onClick={e => e.stopPropagation()}
+                          style={{
+                            width: '100%', boxSizing: 'border-box',
+                            border: '1px solid var(--border)', borderRadius: 7,
+                            padding: '6px 10px', fontSize: 12.5,
+                            background: 'var(--surface-2)', color: 'var(--text)', outline: 'none',
+                          }}
+                        />
+                      </div>
+                    )}
+                    <div style={{ maxHeight: 300, overflowY: 'auto', padding: 6 }}>
+                      {modelsLoading ? (
+                        <div style={{ padding: '20px', display: 'flex', justifyContent: 'center' }}>
+                          <Spinner color="var(--text-faint)" />
                         </div>
-                        <span style={{ fontSize: 11, color: 'var(--text-faint)', fontFamily: 'IBM Plex Mono, monospace' }}>
-                          {m.price === 0 ? 'grátis' : `$${m.price}/M`}
-                        </span>
-                      </button>
-                    ))}
+                      ) : filteredModels.length === 0 ? (
+                        <div style={{ padding: '12px', fontSize: 12, color: 'var(--text-faint)', textAlign: 'center' }}>
+                          {modelSearch ? 'Nenhum modelo encontrado' : 'Sem modelos disponíveis'}
+                        </div>
+                      ) : filteredModels.map(m => (
+                        <button key={m.id} onClick={() => handleChangeModel(m.id)} style={{
+                          width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px',
+                          border: 'none', borderRadius: 8,
+                          background: m.id === llmModel ? 'var(--surface-3)' : 'none', cursor: 'pointer',
+                        }}>
+                          <div style={{ flex: 1, textAlign: 'left', minWidth: 0 }}>
+                            <div style={{ fontSize: 12.5, fontWeight: 600, fontFamily: 'IBM Plex Mono, monospace', lineHeight: 1.2, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {m.name}
+                            </div>
+                            {m.id !== m.name && (
+                              <div style={{ fontSize: 10.5, color: 'var(--text-faint)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.id}</div>
+                            )}
+                          </div>
+                          {m.price !== undefined && (
+                            <span style={{ fontSize: 10.5, color: 'var(--text-faint)', fontFamily: 'IBM Plex Mono, monospace', flexShrink: 0 }}>
+                              {m.price === 0 ? 'grátis' : `$${m.price}/M`}
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Embedding Model */}
+            <div id="tour-emb-model" style={{ marginBottom: 18 }}>
+              <div className="section-label" style={{ marginBottom: 9 }}>Modelo Embedding</div>
+              <div style={{ position: 'relative' }}>
+                <button onClick={() => { setEmbMenuOpen(v => !v); setProviderMenuOpen(false); setModelMenuOpen(false) }} style={{
+                  width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
+                  border: '1px solid var(--border-2)', borderRadius: 9, background: 'var(--surface)', cursor: 'pointer', textAlign: 'left',
+                }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    {embModelsLoading ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                        <Spinner color="var(--text-faint)" />
+                        <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>Carregando modelos…</span>
+                      </div>
+                    ) : (
+                      <>
+                        <div style={{ fontSize: 13.5, fontWeight: 600, fontFamily: 'IBM Plex Mono, monospace', lineHeight: 1.2, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {currentEmbModel?.name ?? embModel ?? '—'}
+                        </div>
+                        {currentEmbModel && currentEmbModel.id !== currentEmbModel.name && (
+                          <div style={{ fontSize: 11, color: 'var(--text-faint)', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {currentEmbModel.id}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
+                    <path d="m4 6 4 4 4-4" stroke="var(--text-faint)" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </button>
+                {embMenuOpen && (
+                  <div style={{
+                    position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0,
+                    background: 'var(--surface)', border: '1px solid var(--border-2)', borderRadius: 10,
+                    boxShadow: '0 12px 32px rgba(20,25,40,.22)', zIndex: 30, overflow: 'hidden',
+                  }}>
+                    {embModels.length > 8 && (
+                      <div style={{ padding: '6px 6px 2px' }}>
+                        <input
+                          autoFocus
+                          type="text"
+                          placeholder="Filtrar modelos…"
+                          value={embModelSearch}
+                          onChange={e => setEmbModelSearch(e.target.value)}
+                          onClick={e => e.stopPropagation()}
+                          style={{
+                            width: '100%', boxSizing: 'border-box',
+                            border: '1px solid var(--border)', borderRadius: 7,
+                            padding: '6px 10px', fontSize: 12.5,
+                            background: 'var(--surface-2)', color: 'var(--text)', outline: 'none',
+                          }}
+                        />
+                      </div>
+                    )}
+                    <div style={{ maxHeight: 260, overflowY: 'auto', padding: 6 }}>
+                      {embModelsLoading ? (
+                        <div style={{ padding: '20px', display: 'flex', justifyContent: 'center' }}>
+                          <Spinner color="var(--text-faint)" />
+                        </div>
+                      ) : filteredEmbModels.length === 0 ? (
+                        <div style={{ padding: '12px', fontSize: 12, color: 'var(--text-faint)', textAlign: 'center' }}>
+                          {embModelSearch ? 'Nenhum modelo encontrado' : 'Sem modelos disponíveis'}
+                        </div>
+                      ) : filteredEmbModels.map(m => (
+                        <button key={m.id} onClick={() => handleChangeEmbModel(m.id)} style={{
+                          width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px',
+                          border: 'none', borderRadius: 8,
+                          background: m.id === embModel ? 'var(--surface-3)' : 'none', cursor: 'pointer',
+                        }}>
+                          <div style={{ flex: 1, textAlign: 'left', minWidth: 0 }}>
+                            <div style={{ fontSize: 12.5, fontWeight: 600, fontFamily: 'IBM Plex Mono, monospace', lineHeight: 1.2, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {m.name}
+                            </div>
+                            {m.id !== m.name && (
+                              <div style={{ fontSize: 10.5, color: 'var(--text-faint)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.id}</div>
+                            )}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
@@ -819,7 +1032,7 @@ export default function AppShell() {
           </div>
 
           {/* Analyze button */}
-          <div style={{ flexShrink: 0, padding: '16px 20px', background: 'var(--surface)', borderTop: '1px solid var(--border)' }}>
+          <div id="tour-run-btn" style={{ flexShrink: 0, padding: '16px 20px', background: 'var(--surface)', borderTop: '1px solid var(--border)' }}>
             <button onClick={runAnalysis} disabled={!canAnalyze} style={{
               width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 9,
               padding: 12, border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 600, color: '#fff',
@@ -853,7 +1066,7 @@ export default function AppShell() {
             {TABS.map(tab => {
               const active = activeTab === tab.id
               return (
-                <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
+                <button key={tab.id} id={`tour-tab-${tab.id}`} onClick={() => setActiveTab(tab.id)} style={{
                   padding: '12px 16px', border: 'none', background: 'none', cursor: 'pointer',
                   fontSize: 13.5, fontWeight: active ? 700 : 500,
                   color: active ? 'var(--text)' : 'var(--text-faint)',
@@ -905,6 +1118,17 @@ export default function AppShell() {
       </div>
 
       {/* ── OVERLAYS ── */}
+      {showVectorStoreModal && (
+        <VectorStoreModal
+          vectorStore={vectorStore}
+          pendingCount={pendingCount}
+          vectorizeRunning={vectorizeRunning}
+          onVectorize={handleVectorize}
+          onReset={handleResetVectorStore}
+          onClose={() => setShowVectorStoreModal(false)}
+        />
+      )}
+
       {showHistory && (
         <HistoryDrawer
           reports={reports}
@@ -914,10 +1138,10 @@ export default function AppShell() {
         />
       )}
 
-      {showSettings && <SettingsModal onClose={() => {
-        setShowSettings(false)
-        getConfig().then(c => setProviderKeys({ anthropic: !!c.has_anthropic_key, openai: !!c.has_openai_key, docker_model_runner: true })).catch(() => {})
-      }} />}
+      {showSettings && <SettingsModal
+        onClose={() => setShowSettings(false)}
+        onSaved={handleSettingsSaved}
+      />}
     </div>
   )
 }

@@ -1,6 +1,48 @@
 # Vector Store
 
-O banco vetorial (LanceDB em `.lutz/vector_store/`) armazena os embeddings e chunks de todos os artigos indexados. Na interface web, o status do vector store é exibido no **painel de Pipeline** do rail lateral.
+O banco vetorial (LanceDB em `.lutz/vector_store/`) armazena os embeddings e chunks de todos os artigos indexados. Na interface web, o status do vector store é exibido no **painel de Pipeline** do rail lateral — e pode ser inspecionado em detalhes pelo **modal do Vector Store**.
+
+---
+
+## Modal do Vector Store
+
+Clique em **Vetorizar (N)** ou **Detalhes** no painel de Pipeline para abrir o modal do Vector Store.
+
+![Modal do Vector Store](/screenshots/vector-store-modal.png)
+
+### Metadados
+
+O topo do modal exibe quatro cards de informação:
+
+| Card | Conteúdo |
+|---|---|
+| **Registros totais** | Número de chunks indexados (um artigo = vários chunks) |
+| **Documentos únicos** | Número de arquivos PDF distintos no banco |
+| **Atualizado em** | Data e hora da última operação de vetorização |
+| **Modelo** | ID do modelo de embedding usado na última indexação |
+
+### Tabela de artigos
+
+Lista todos os arquivos já vetorizados, com:
+- Nome do arquivo
+- Data e hora da vetorização
+- Quantidade de chunks gerados
+
+::: tip
+Se um artigo tiver muito mais chunks do que os demais, pode indicar que o PDF tem muito texto de OCR repetido ou tabelas extensas — considere revisar o arquivo.
+:::
+
+### Artigos pendentes
+
+Quando há PDFs em `articles/` que ainda não foram indexados, um aviso amarelo exibe a contagem. O botão **Vetorizar (N pendentes)** no rodapé do modal inicia a vetorização e fecha o modal automaticamente.
+
+### Limpar vector store
+
+O botão **Limpar vector store** (rodapé direito) apaga **todos** os vetores do banco — os PDFs em `articles/` são preservados. Uma confirmação inline é exibida antes da ação.
+
+::: danger
+Limpar o vector store é irreversível. O banco só pode ser reconstruído rodando a vetorização novamente (CLI ou modal).
+:::
 
 ---
 
@@ -11,11 +53,11 @@ O pipeline mostra em tempo real:
 ```
 Pipeline
   ✓  Biblioteca     — 12 PDFs carregados
-  ✓  Vetorizado     — 12 artigos prontos
+  ✓  Vetorizado     — 12 artigos prontos    [Detalhes]
   ✓  Análise        — Concluída · 7 para incluir
 ```
 
-O contador "Vetorizado" corresponde ao número de documentos únicos no banco.
+O contador "Vetorizado" corresponde ao número de documentos únicos no banco. Quando há artigos pendentes, o botão muda para **Vetorizar (N)**.
 
 ---
 
@@ -42,10 +84,6 @@ lutz vector-store --export
 # Limpar banco (preserva os PDFs)
 lutz unvectorize
 ```
-
-::: danger
-`lutz unvectorize` é irreversível. O banco só pode ser reconstruído rodando `lutz vectorize` novamente.
-:::
 
 ---
 

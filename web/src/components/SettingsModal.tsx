@@ -1,18 +1,13 @@
 import { useEffect, useState } from 'react'
-import { getConfig, saveConfig, type Config } from '../api/client'
+import { getConfig, saveConfig, getProviderModels, type Config, type ModelInfo } from '../api/client'
 import { useLanguage } from '../contexts/LanguageContext'
 import { LANG_NAMES, type Lang } from '../i18n'
 
 const LLM_PROVIDERS = [
-  { value: 'openai',               label: 'OpenAI / OpenRouter' },
-  { value: 'anthropic',            label: 'Anthropic' },
-  { value: 'docker_model_runner',  label: 'Docker Model Runner' },
-]
-
-const EMBEDDING_PROVIDERS = [
-  { value: 'openai',                label: 'OpenAI' },
-  { value: 'sentence_transformers', label: 'Sentence Transformers (local)' },
-  { value: 'docker_model_runner',   label: 'Docker Model Runner' },
+  { value: 'anthropic',           label: 'Anthropic' },
+  { value: 'openai',              label: 'OpenAI' },
+  { value: 'openrouter',          label: 'OpenRouter' },
+  { value: 'docker_model_runner', label: 'Docker Model Runner' },
 ]
 
 const LANGS: Array<{ value: Lang; label: string }> = [
@@ -22,26 +17,24 @@ const LANGS: Array<{ value: Lang; label: string }> = [
 ]
 
 const TEXT_FIELDS: Array<{ key: keyof Config; label: string; type?: string; placeholder?: string }> = [
-  { key: 'LLM_MODEL',         label: 'LLM Model',         placeholder: 'google/gemini-2.5-flash-lite' },
   { key: 'LLM_MAX_TOKENS',    label: 'Max output tokens', type: 'number', placeholder: '2048' },
   { key: 'LLM_TEMPERATURE',   label: 'Temperature',       placeholder: '0.2' },
-  { key: 'EMBEDDING_MODEL',   label: 'Embedding model',   placeholder: 'openai/text-embedding-3-small' },
   { key: 'OPENAI_BASE_URL',   label: 'OpenAI base URL',   placeholder: 'https://openrouter.ai/api/v1' },
   { key: 'DOCKER_MODEL_HOST', label: 'Docker model host', placeholder: 'http://localhost:11434' },
 ]
 
-const KEY_FIELDS: Array<{ envKey: string; label: string; hasKey: 'has_openai_key' | 'has_anthropic_key' }> = [
-  { envKey: 'OPENAI_API_KEY',    label: 'OpenAI / OpenRouter API Key', hasKey: 'has_openai_key' },
-  { envKey: 'ANTHROPIC_API_KEY', label: 'Anthropic API Key',          hasKey: 'has_anthropic_key' },
+const KEY_FIELDS: Array<{ envKey: string; label: string; hasKey: 'has_openai_key' | 'has_anthropic_key' | 'has_openrouter_key' }> = [
+  { envKey: 'OPENAI_API_KEY',     label: 'OpenAI API Key',     hasKey: 'has_openai_key' },
+  { envKey: 'ANTHROPIC_API_KEY',  label: 'Anthropic API Key',  hasKey: 'has_anthropic_key' },
+  { envKey: 'OPENROUTER_API_KEY', label: 'OpenRouter API Key', hasKey: 'has_openrouter_key' },
 ]
 
-interface Props { onClose: () => void }
+interface Props { onClose: () => void; onSaved?: () => void }
 
-export default function SettingsModal({ onClose }: Props) {
+export default function SettingsModal({ onClose, onSaved }: Props) {
   const { t, lang, setLang, reportLang, setReportLang } = useLanguage()
   const [cfg, setCfg] = useState<Config | null>(null)
   const [llmProvider, setLlmProvider] = useState('openai')
-  const [embProvider, setEmbProvider] = useState('openai')
   const [form, setForm] = useState<Record<string, string>>({})
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({})
   const [localReportLang, setLocalReportLang] = useState(reportLang)
@@ -49,13 +42,22 @@ export default function SettingsModal({ onClose }: Props) {
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
   const [activeSection, setActiveSection] = useState<'llm' | 'keys' | 'language'>('llm')
+  const [llmModels, setLlmModels] = useState<ModelInfo[]>([])
+  const [llmModelsLoading, setLlmModelsLoading] = useState(false)
+  const [embModels, setEmbModels] = useState<ModelInfo[]>([])
+  const [embModelsLoading, setEmbModelsLoading] = useState(false)
+  const [showLlmDropdown, setShowLlmDropdown] = useState(false)
+  const [showEmbDropdown, setShowEmbDropdown] = useState(false)
 
   useEffect(() => {
     getConfig().then(c => {
       setCfg(c)
       setLlmProvider(c.LLM_PROVIDER || 'openai')
-      setEmbProvider(c.EMBEDDING_PROVIDER || 'openai')
-      const initial: Record<string, string> = {}
+      const initial: Record<string, string> = {
+        LLM_MODEL: c.LLM_MODEL || '',
+        EMBEDDING_MODEL: c.EMBEDDING_MODEL || '',
+        ANALYSIS_WORKERS: c.ANALYSIS_WORKERS || '4',
+      }
       for (const f of TEXT_FIELDS) {
         initial[f.key as string] = (c[f.key] as string) || ''
       }
@@ -64,11 +66,29 @@ export default function SettingsModal({ onClose }: Props) {
     })
   }, [])
 
+  useEffect(() => {
+    if (!llmProvider) return
+    setLlmModelsLoading(true)
+    getProviderModels(llmProvider, 'llm').then(({ models }) => {
+      setLlmModels(models)
+      setLlmModelsLoading(false)
+    }).catch(() => setLlmModelsLoading(false))
+  }, [llmProvider])
+
+  useEffect(() => {
+    if (!llmProvider) return
+    setEmbModelsLoading(true)
+    getProviderModels(llmProvider, 'embedding').then(({ models }) => {
+      setEmbModels(models)
+      setEmbModelsLoading(false)
+    }).catch(() => setEmbModelsLoading(false))
+  }, [llmProvider])
+
   async function handleSave() {
     setSaving(true); setSaved(false); setError('')
     try {
       const payload: Record<string, string> = {
-        ...form, LLM_PROVIDER: llmProvider, EMBEDDING_PROVIDER: embProvider,
+        ...form, LLM_PROVIDER: llmProvider, EMBEDDING_PROVIDER: llmProvider,
         REPORT_LANGUAGE: localReportLang,
       }
       for (const { envKey } of KEY_FIELDS) {
@@ -78,6 +98,7 @@ export default function SettingsModal({ onClose }: Props) {
       setReportLang(localReportLang)
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
+      onSaved?.()
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -146,17 +167,103 @@ export default function SettingsModal({ onClose }: Props) {
             </p>
           ) : activeSection === 'llm' ? (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-              <div>
-                <label className="label">LLM Provider</label>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label className="label">Model Provider</label>
                 <select className="select" value={llmProvider} onChange={e => setLlmProvider(e.target.value)}>
                   {LLM_PROVIDERS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
                 </select>
               </div>
-              <div>
-                <label className="label">Embedding Provider</label>
-                <select className="select" value={embProvider} onChange={e => setEmbProvider(e.target.value)}>
-                  {EMBEDDING_PROVIDERS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
-                </select>
+              {/* LLM Model combobox */}
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label className="label">
+                  LLM Model
+                  {llmModelsLoading && <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--text-faint)' }}>carregando…</span>}
+                </label>
+                <input
+                  type="text" className="input"
+                  placeholder={llmModelsLoading ? 'Carregando modelos…' : 'Selecione da lista ou digite o ID do modelo'}
+                  value={form['LLM_MODEL'] ?? ''}
+                  onChange={e => setForm(prev => ({ ...prev, LLM_MODEL: e.target.value }))}
+                  onFocus={() => setShowLlmDropdown(true)}
+                  onBlur={() => setTimeout(() => setShowLlmDropdown(false), 150)}
+                />
+                {showLlmDropdown && !llmModelsLoading && llmModels.length > 0 && (() => {
+                  const q = (form['LLM_MODEL'] ?? '').toLowerCase()
+                  const filtered = llmModels.filter(m => !q || m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q))
+                  return filtered.length > 0 ? (
+                    <div style={{
+                      marginTop: 4, border: '1px solid var(--border-2)', borderRadius: 9,
+                      background: 'var(--surface)', maxHeight: 220, overflowY: 'auto',
+                      boxShadow: '0 6px 20px rgba(20,25,40,.15)',
+                    }}>
+                      {filtered.map(m => (
+                        <button
+                          key={m.id}
+                          onMouseDown={e => { e.preventDefault(); setForm(prev => ({ ...prev, LLM_MODEL: m.id })); setShowLlmDropdown(false) }}
+                          style={{
+                            width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                            padding: '8px 12px', border: 'none', cursor: 'pointer', textAlign: 'left',
+                            background: m.id === form['LLM_MODEL'] ? 'var(--surface-3)' : 'none',
+                          }}
+                        >
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{ fontSize: 12.5, fontWeight: 600, fontFamily: 'IBM Plex Mono, monospace', color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.name}</div>
+                            {m.id !== m.name && <div style={{ fontSize: 11, color: 'var(--text-faint)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.id}</div>}
+                          </div>
+                          {m.price !== undefined && (
+                            <span style={{ fontSize: 11, color: 'var(--text-faint)', fontFamily: 'IBM Plex Mono, monospace', flexShrink: 0, marginLeft: 8 }}>
+                              {m.price === 0 ? 'grátis' : `$${m.price}/M`}
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null
+                })()}
+              </div>
+
+              {/* Embedding Model combobox */}
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label className="label">
+                  Embedding Model
+                  {embModelsLoading && <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--text-faint)' }}>carregando…</span>}
+                </label>
+                <input
+                  type="text" className="input"
+                  placeholder={embModelsLoading ? 'Carregando modelos…' : 'Selecione da lista ou digite o ID do modelo'}
+                  value={form['EMBEDDING_MODEL'] ?? ''}
+                  onChange={e => setForm(prev => ({ ...prev, EMBEDDING_MODEL: e.target.value }))}
+                  onFocus={() => setShowEmbDropdown(true)}
+                  onBlur={() => setTimeout(() => setShowEmbDropdown(false), 150)}
+                />
+                {showEmbDropdown && !embModelsLoading && embModels.length > 0 && (() => {
+                  const q = (form['EMBEDDING_MODEL'] ?? '').toLowerCase()
+                  const filtered = embModels.filter(m => !q || m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q))
+                  return filtered.length > 0 ? (
+                    <div style={{
+                      marginTop: 4, border: '1px solid var(--border-2)', borderRadius: 9,
+                      background: 'var(--surface)', maxHeight: 220, overflowY: 'auto',
+                      boxShadow: '0 6px 20px rgba(20,25,40,.15)',
+                    }}>
+                      {filtered.map(m => (
+                        <button
+                          key={m.id}
+                          onMouseDown={e => { e.preventDefault(); setForm(prev => ({ ...prev, EMBEDDING_MODEL: m.id })); setShowEmbDropdown(false) }}
+                          style={{
+                            width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                            padding: '8px 12px', border: 'none', cursor: 'pointer', textAlign: 'left',
+                            background: m.id === form['EMBEDDING_MODEL'] ? 'var(--surface-3)' : 'none',
+                          }}
+                        >
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{ fontSize: 12.5, fontWeight: 600, fontFamily: 'IBM Plex Mono, monospace', color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.name}</div>
+                            {m.id !== m.name && <div style={{ fontSize: 11, color: 'var(--text-faint)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.id}</div>}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null
+                })()}
               </div>
               {TEXT_FIELDS.map(f => (
                 <div key={f.key as string}>
@@ -166,6 +273,53 @@ export default function SettingsModal({ onClose }: Props) {
                     onChange={e => setForm(prev => ({ ...prev, [f.key as string]: e.target.value }))} />
                 </div>
               ))}
+
+              {/* Workers stepper */}
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label className="label">Workers de análise</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+                  <button
+                    type="button"
+                    onClick={() => setForm(prev => {
+                      const cur = Math.max(1, parseInt(prev['ANALYSIS_WORKERS'] || '4') - 1)
+                      return { ...prev, ANALYSIS_WORKERS: String(cur) }
+                    })}
+                    style={{
+                      width: 36, height: 36, border: '1px solid var(--border-2)',
+                      borderRight: 'none', borderRadius: '7px 0 0 7px',
+                      background: 'var(--surface)', color: 'var(--text-muted)',
+                      cursor: 'pointer', fontSize: 18, lineHeight: 1, display: 'flex',
+                      alignItems: 'center', justifyContent: 'center',
+                    }}
+                  >−</button>
+                  <div style={{
+                    width: 52, height: 36, border: '1px solid var(--border-2)',
+                    background: 'var(--surface-2)', display: 'flex',
+                    alignItems: 'center', justifyContent: 'center',
+                    fontSize: 14, fontWeight: 600, fontFamily: 'IBM Plex Mono, monospace',
+                    color: 'var(--text)',
+                  }}>
+                    {form['ANALYSIS_WORKERS'] || '4'}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setForm(prev => {
+                      const cur = Math.min(32, parseInt(prev['ANALYSIS_WORKERS'] || '4') + 1)
+                      return { ...prev, ANALYSIS_WORKERS: String(cur) }
+                    })}
+                    style={{
+                      width: 36, height: 36, border: '1px solid var(--border-2)',
+                      borderLeft: 'none', borderRadius: '0 7px 7px 0',
+                      background: 'var(--surface)', color: 'var(--text-muted)',
+                      cursor: 'pointer', fontSize: 18, lineHeight: 1, display: 'flex',
+                      alignItems: 'center', justifyContent: 'center',
+                    }}
+                  >+</button>
+                </div>
+                <p style={{ marginTop: 5, fontSize: 11.5, color: 'var(--text-faint)' }}>
+                  Threads paralelas por análise (1–32). Valores altos aceleram mas aumentam o uso de memória e de tokens.
+                </p>
+              </div>
             </div>
           ) : activeSection === 'keys' ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
