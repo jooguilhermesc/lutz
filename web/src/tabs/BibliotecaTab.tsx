@@ -232,9 +232,12 @@ export default function BibliotecaTab({ articles, vectorStore, vectorizeRunning,
   const [showRename, setShowRename] = useState(false)
   const [query, setQuery] = useState('')
 
-  const vectorizedSet = new Set(vectorStore?.articles.map(a => a.filename) ?? [])
+  // vectorize.py stores pdf.stem (without .pdf); articles API returns f.name (with .pdf).
+  // Normalise both sides to stem for comparison.
+  const stem = (name: string) => name.replace(/\.pdf$/i, '')
+  const vectorizedSet = new Set(vectorStore?.articles.map(a => stem(a.filename)) ?? [])
   const chunkMap = Object.fromEntries(
-    (vectorStore?.articles ?? []).map(a => [a.filename, a.chunk_count])
+    (vectorStore?.articles ?? []).map(a => [stem(a.filename), a.chunk_count])
   )
 
   const handleClose = useCallback(() => setOpenArticle(null), [])
@@ -263,7 +266,7 @@ export default function BibliotecaTab({ articles, vectorStore, vectorizeRunning,
     !query || a.name.toLowerCase().includes(query.toLowerCase())
   )
 
-  const pendingCount = articles.filter(a => !vectorizedSet.has(a.name)).length
+  const pendingCount = articles.filter(a => !vectorizedSet.has(stem(a.name))).length
 
   return (
     <>
@@ -374,7 +377,8 @@ export default function BibliotecaTab({ articles, vectorStore, vectorizeRunning,
               </thead>
               <tbody>
                 {filtered.map(a => {
-                  const isVec = vectorizedSet.has(a.name)
+                  const artStem = stem(a.name)
+                  const isVec = vectorizedSet.has(artStem)
                   const chip = VEC_CHIP[isVec ? 'vectorized' : 'pending']
                   return (
                     <tr key={a.name}
@@ -400,7 +404,7 @@ export default function BibliotecaTab({ articles, vectorStore, vectorizeRunning,
                       </td>
                       <td className="px-4 py-2.5 text-right text-xs font-mono"
                         style={{ color: 'var(--text-faint)' }}>
-                        {isVec ? (chunkMap[a.name] ?? 0) : '—'}
+                        {isVec ? (chunkMap[artStem] ?? 0) : '—'}
                       </td>
                       <td className="px-4 py-2.5 text-right" onClick={e => e.stopPropagation()}>
                         <button onClick={() => setConfirmDelete(a)}
