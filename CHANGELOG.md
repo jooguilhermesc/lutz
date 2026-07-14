@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.2] - 2026-07-14
+
+### Added
+
+- **Tour interativo** — botão "Tour" no header lança guia com 13 passos cobrindo toda a interface (pipeline, abas, critério de triagem, provedor LLM, modelo embedding, análise, histórico, configurações); usa driver.js com tema visual do Lutz
+- **Workers de análise configurável** — campo stepper (1–32) em Settings → LLM & Embedding persiste `ANALYSIS_WORKERS` no `.env` e é usado em cada execução de análise; substitui o valor fixo anterior de 4
+- **Modal do Vector Store** — botão "Vetorizar (N)"/"Detalhes" na etapa 2 do pipeline abre modal com 4 cards de metadados, tabela de artigos vetorizados e opção de limpar com confirmação inline
+- **Logs de erro nos jobs** — painel de notificações exibe "Ver logs" em jobs terminais; busca output via `GET /api/jobs/{id}` e destaca linhas de erro em vermelho
+- **OpenRouter como provedor de embedding** — `embedding_client.py` suporta `openrouter` com `OPENROUTER_API_KEY`, espelhando o suporte já existente em `llm_client.py`
+- **Seletor de Modelo Embedding no rail** — novo dropdown "Modelo Embedding" na barra lateral, sincronizado com `.env` em tempo real; SettingsModal unifica "LLM Provider" e "Embedding Provider" em "Model Provider"
+
+### Fixed
+
+- **Sync embedding model** — `SettingsModal` chama `onSaved()` imediatamente após salvar, atualizando o dropdown do rail sem precisar fechar o modal
+- **Modelo não encontrado na lista** — quando o modelo salvo em settings não existe na lista retornada pelo provedor (ex: `openai/text-embedding-3-small` no OpenRouter), cria entrada sintética `{id, name: id}` no topo da lista em vez de exibir o primeiro modelo
+- **Apagamento em massa ao deletar análise** — `handleDelete` em RelatoriosTab chamava `deleteAllReports()` quando "também limpar vector store" estava marcado; corrigido para chamar `resetVectorStore()` apenas
+- **Dark mode** — ResultadosTab, RelatoriosTab e BibliotecaTab reescritos com CSS vars (`--surface`, `--border`, `--text-*`) em vez de cores hardcoded Tailwind
+
 ## [0.5.1] - 2026-07-14
 
 ### Added
