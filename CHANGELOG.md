@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.0] - 2026-07-14
+
+### Changed
+
+#### Redesign completo da interface web
+
+- Nova arquitetura de UI baseada em `AppShell` único com navegação por abas (Biblioteca / Resultados / Relatórios) — substitui o roteamento de páginas anteriores
+- `BibliotecaTab` — gestão de artigos e vetorização unificadas em uma única tela
+- `ResultadosTab` — visualização de resultados de análise RAG com histórico de execuções
+- `RelatoriosTab` — listagem, abertura e exportação de relatórios gerados
+- `HistoryDrawer` — painel lateral com histórico de análises anteriores
+- `SettingsModal` — configuração de provider/modelo/prompt em modal, sem página separada
+- `tailwind.config.js` atualizado com paleta e tipografia do novo design
+
+### Removed
+
+- Páginas legacy: `Analysis`, `Citations`, `Home`, `Process`, `Reports`, `Roadmap`, `Settings`, `VectorStore`, `Vectorize`
+- Componentes `CollapsibleSection` e `Layout` (substituídos pelo `AppShell`)
+- Instaladores Linux (`build-deb.sh`, `lutz.desktop`) e Windows (`launcher.py`, `lutz.iss`) — distribuição exclusiva via PyPI
+
 ## [0.4.1] - 2026-05-30
 
 ### Added

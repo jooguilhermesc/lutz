@@ -4,8 +4,8 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Roboto', 'sans-serif'],
-        mono: ['"JetBrains Mono"', '"Fira Code"', 'monospace'],
+        sans: ['"IBM Plex Sans"', 'system-ui', 'sans-serif'],
+        mono: ['"IBM Plex Mono"', 'monospace'],
       },
       colors: {
         lutz: {
@@ -14,12 +14,12 @@ export default {
           200:  '#96D6D6',
           300:  '#5DBFBF',
           400:  '#2DAAAA',
-          500:  '#1A9494', // logo background — primary brand color
+          500:  '#1A9494',
           600:  '#147878',
           700:  '#0E5C5C',
           800:  '#093C3C',
           900:  '#041E1E',
-          dark: '#3B3B3B', // charcoal from the logo icon
+          dark: '#3B3B3B',
         },
       },
     },
