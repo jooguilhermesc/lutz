@@ -130,7 +130,8 @@ export interface RoadmapReport {
   roadmap: { overview: string; stages: RoadmapStage[] }
 }
 
-export interface CitationEntry { text: string }
+export interface CitationEntry { text: string; page?: number }
+export const getReportPdfUrl = (name: string) => `${BASE}/reports/${encodeURIComponent(name)}/pdf`
 export interface CitationsArticleEntry { filename: string; label: string; confidence: number; reasoning: string; citations: CitationEntry[]; llm_total_tokens: number }
 export interface CitationsReport {
   metadata: { report_type: string; generated_at: string; elapsed_seconds: number; llm: { model: string; total_tokens: number } }

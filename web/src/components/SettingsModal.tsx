@@ -29,6 +29,12 @@ const KEY_FIELDS: Array<{ envKey: string; label: string; hasKey: 'has_openai_key
   { envKey: 'OPENROUTER_API_KEY', label: 'OpenRouter API Key', hasKey: 'has_openrouter_key' },
 ]
 
+const DEFAULT_ROADMAP_STAGES = [
+  { name: 'Leituras fundacionais', criteria: 'Artigos que servem de base para compreender os demais — conceitos fundamentais, revisões abrangentes e metodologias centrais.' },
+  { name: 'Casos específicos', criteria: 'Artigos bem elaborados sobre tópicos que se fecham em si mesmos e têm pouca relação com os demais.' },
+  { name: 'Evolução do conteúdo', criteria: 'Artigos que apresentam conceitos mais elaborados, refinamentos metodológicos ou aplicações avançadas sobre o tema central.' },
+]
+
 interface Props { onClose: () => void; onSaved?: () => void }
 
 export default function SettingsModal({ onClose, onSaved }: Props) {
@@ -41,13 +47,24 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
-  const [activeSection, setActiveSection] = useState<'llm' | 'keys' | 'language'>('llm')
+  const [activeSection, setActiveSection] = useState<'llm' | 'keys' | 'language' | 'roadmap'>('llm')
+  const [roadmapStages, setRoadmapStages] = useState<Array<{ name: string; criteria: string }>>(() => {
+    try {
+      const stored = localStorage.getItem('lutz_roadmap_stages')
+      if (stored) return JSON.parse(stored)
+    } catch { /* ignore */ }
+    return DEFAULT_ROADMAP_STAGES
+  })
   const [llmModels, setLlmModels] = useState<ModelInfo[]>([])
   const [llmModelsLoading, setLlmModelsLoading] = useState(false)
   const [embModels, setEmbModels] = useState<ModelInfo[]>([])
   const [embModelsLoading, setEmbModelsLoading] = useState(false)
   const [showLlmDropdown, setShowLlmDropdown] = useState(false)
   const [showEmbDropdown, setShowEmbDropdown] = useState(false)
+
+  useEffect(() => {
+    localStorage.setItem('lutz_roadmap_stages', JSON.stringify(roadmapStages))
+  }, [roadmapStages])
 
   useEffect(() => {
     getConfig().then(c => {
@@ -157,6 +174,7 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
           {sectionTab('llm', 'LLM & Embedding')}
           {sectionTab('keys', 'Chaves de API')}
           {sectionTab('language', 'Idioma')}
+          {sectionTab('roadmap', 'Roteiro')}
         </div>
 
         {/* Body */}
@@ -340,7 +358,7 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
                 </div>
               ))}
             </div>
-          ) : (
+          ) : activeSection === 'language' ? (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
               <div>
                 <label className="label">{t('settings.lang.ui')}</label>
@@ -356,6 +374,84 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
                 </select>
                 <p className="text-xs text-[#8a92a0] mt-1">{t('settings.lang.report.hint')}</p>
               </div>
+            </div>
+          ) : (
+            /* Roadmap tab */
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <p style={{ fontSize: 12.5, color: 'var(--text-faint)', margin: 0 }}>
+                Defina os agrupamentos para o roteiro de leitura. Estas definições são enviadas ao modelo como instruções.
+                O modelo LLM configurado na aba <strong>LLM &amp; Embedding</strong> é utilizado para gerar o roteiro.
+              </p>
+              {roadmapStages.map((stage, i) => (
+                <div key={i} style={{
+                  background: 'var(--surface)', border: '1px solid var(--border)',
+                  borderRadius: 10, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-faint)', fontFamily: 'IBM Plex Mono, monospace', letterSpacing: '.05em' }}>
+                      ESTÁGIO {i + 1}
+                    </span>
+                    {roadmapStages.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => setRoadmapStages(prev => prev.filter((_, idx) => idx !== i))}
+                        style={{
+                          width: 26, height: 26, border: '1px solid var(--border)', borderRadius: 6,
+                          background: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center',
+                          justifyContent: 'center', color: 'var(--text-faint)',
+                        }}
+                        title="Remover estágio"
+                      >
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                          <path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                        </svg>
+                      </button>
+                    )}
+                  </div>
+                  <div>
+                    <label className="label" style={{ marginBottom: 4 }}>Nome</label>
+                    <input
+                      type="text" className="input"
+                      value={stage.name}
+                      onChange={e => setRoadmapStages(prev => prev.map((s, idx) => idx === i ? { ...s, name: e.target.value } : s))}
+                      placeholder="Ex: Leituras fundacionais"
+                    />
+                  </div>
+                  <div>
+                    <label className="label" style={{ marginBottom: 4 }}>Critério</label>
+                    <textarea
+                      className="input"
+                      rows={2}
+                      value={stage.criteria}
+                      onChange={e => setRoadmapStages(prev => prev.map((s, idx) => idx === i ? { ...s, criteria: e.target.value } : s))}
+                      placeholder="Descreva quais artigos pertencem a este estágio..."
+                      style={{ resize: 'vertical', fontFamily: 'inherit', fontSize: 13 }}
+                    />
+                  </div>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => setRoadmapStages(prev => [...prev, { name: '', criteria: '' }])}
+                style={{
+                  padding: '9px 16px', border: '1px dashed var(--border-2)', borderRadius: 9,
+                  background: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600,
+                  color: 'var(--text-faint)', display: 'flex', alignItems: 'center', gap: 6,
+                }}
+              >
+                <span style={{ fontSize: 16, lineHeight: 1 }}>+</span> Adicionar estágio
+              </button>
+              <button
+                type="button"
+                onClick={() => setRoadmapStages(DEFAULT_ROADMAP_STAGES)}
+                style={{
+                  padding: '7px 14px', border: '1px solid var(--border)', borderRadius: 9,
+                  background: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--text-faint)',
+                  alignSelf: 'flex-start',
+                }}
+              >
+                Restaurar padrão
+              </button>
             </div>
           )}
         </div>
