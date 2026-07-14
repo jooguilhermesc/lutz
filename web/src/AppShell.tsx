@@ -15,6 +15,7 @@ import ResultadosTab from './tabs/ResultadosTab'
 import RelatoriosTab from './tabs/RelatoriosTab'
 import HistoryDrawer from './components/HistoryDrawer'
 import SettingsModal from './components/SettingsModal'
+import { useTour } from './hooks/useTour'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -108,6 +109,9 @@ export default function AppShell() {
   const [analysisLogs, setAnalysisLogs] = useState<string[]>([])
   const [analysisDone, setAnalysisDone] = useState<boolean | null>(null)
   const ctrlRef = useRef<AbortController | null>(null)
+
+  // ── Tour ──
+  const { startTour } = useTour()
 
   // ── UI state ──
   const [activeTab, setActiveTab] = useState<Tab>('biblioteca')
@@ -396,7 +400,7 @@ export default function AppShell() {
         <div style={{ flex: 1 }} />
 
         {/* Cost chip */}
-        <div style={{
+        <div id="tour-cost" style={{
           display: 'flex', alignItems: 'center', gap: 7, padding: '5px 11px',
           background: 'var(--surface-3)', border: '1px solid var(--border)', borderRadius: 7, whiteSpace: 'nowrap',
         }}>
@@ -411,8 +415,22 @@ export default function AppShell() {
         {/* Notifications */}
         <NotificationsPanel />
 
+        {/* Tour button */}
+        <button id="tour-trigger" onClick={startTour} title="Tour pela interface" style={{
+          display: 'flex', alignItems: 'center', gap: 6, background: 'none',
+          border: '1px solid var(--border)', cursor: 'pointer', padding: '7px 11px',
+          borderRadius: 7, color: 'var(--text-muted)', fontSize: 13, fontWeight: 500,
+        }}>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+            <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.3"/>
+            <path d="M6.5 6a1.5 1.5 0 1 1 2.1 1.4c-.4.2-.6.5-.6.9V9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+            <circle cx="8" cy="11" r=".7" fill="currentColor"/>
+          </svg>
+          Tour
+        </button>
+
         {/* History button */}
-        <button onClick={() => setShowHistory(v => !v)} style={{
+        <button id="tour-history" onClick={() => setShowHistory(v => !v)} style={{
           display: 'flex', alignItems: 'center', gap: 7, background: 'none',
           border: '1px solid var(--border)', cursor: 'pointer', padding: '7px 11px',
           borderRadius: 7, color: 'var(--text)', fontSize: 13, fontWeight: 500,
@@ -445,7 +463,7 @@ export default function AppShell() {
         </button>
 
         {/* Settings */}
-        <button onClick={() => setShowSettings(v => !v)} style={{
+        <button id="tour-settings" onClick={() => setShowSettings(v => !v)} style={{
           width: 34, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center',
           background: 'none', border: '1px solid var(--border)', cursor: 'pointer', borderRadius: 7,
           color: 'var(--text-muted)',
@@ -469,7 +487,7 @@ export default function AppShell() {
           <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
 
             {/* Pipeline status */}
-            <div style={{
+            <div id="tour-pipeline" style={{
               marginBottom: 20, background: 'var(--surface-2)', border: '1px solid var(--border)',
               borderRadius: 10, padding: '12px 14px',
             }}>
@@ -534,7 +552,7 @@ export default function AppShell() {
             </div>
 
             {/* Prompt */}
-            <div style={{ marginBottom: 20 }}>
+            <div id="tour-criteria" style={{ marginBottom: 20 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 9 }}>
                 <div className="section-label">Critério de triagem</div>
                 <span style={{ fontSize: 11, color: '#b6bcc7', fontFamily: 'IBM Plex Mono, monospace' }}>
@@ -628,7 +646,7 @@ export default function AppShell() {
               </div>
 
               {/* Templates row */}
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginTop: 10 }}>
+              <div id="tour-templates" style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginTop: 10 }}>
                 <span style={{ fontSize: 11, fontWeight: 600, color: '#8a92a0', alignSelf: 'center', marginRight: 1 }}>
                   Templates
                 </span>
@@ -678,7 +696,7 @@ export default function AppShell() {
             </div>
 
             {/* Provider */}
-            <div style={{ marginBottom: 16 }}>
+            <div id="tour-provider" style={{ marginBottom: 16 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 9 }}>
                 <div className="section-label">Provedor LLM</div>
                 <button onClick={() => setShowSettings(true)}
@@ -796,7 +814,7 @@ export default function AppShell() {
           </div>
 
           {/* Analyze button */}
-          <div style={{ flexShrink: 0, padding: '16px 20px', background: 'var(--surface)', borderTop: '1px solid var(--border)' }}>
+          <div id="tour-run-btn" style={{ flexShrink: 0, padding: '16px 20px', background: 'var(--surface)', borderTop: '1px solid var(--border)' }}>
             <button onClick={runAnalysis} disabled={!canAnalyze} style={{
               width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 9,
               padding: 12, border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 600, color: '#fff',
@@ -830,7 +848,7 @@ export default function AppShell() {
             {TABS.map(tab => {
               const active = activeTab === tab.id
               return (
-                <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
+                <button key={tab.id} id={`tour-tab-${tab.id}`} onClick={() => setActiveTab(tab.id)} style={{
                   padding: '12px 16px', border: 'none', background: 'none', cursor: 'pointer',
                   fontSize: 13.5, fontWeight: active ? 700 : 500,
                   color: active ? 'var(--text)' : 'var(--text-faint)',

@@ -36,12 +36,11 @@ export default defineConfig({
       {
         text: 'Interface Web',
         items: [
-          { text: 'Dashboard (Home)', link: '/guide/interface/home' },
-          { text: 'Biblioteca (Vetorização)', link: '/guide/interface/vetorizacao' },
-          { text: 'Vector Store', link: '/guide/interface/vector-store' },
-          { text: 'Análise', link: '/guide/interface/analise' },
-          { text: 'Relatórios', link: '/guide/interface/relatorios' },
-          { text: 'Citações', link: '/guide/interface/citacoes' },
+          { text: 'Visão geral', link: '/guide/interface/home' },
+          { text: 'Aba Biblioteca', link: '/guide/interface/biblioteca' },
+          { text: 'Aba Resultados', link: '/guide/interface/resultados' },
+          { text: 'Aba Relatórios', link: '/guide/interface/relatorios' },
+          { text: 'Histórico', link: '/guide/interface/historico' },
           { text: 'Configurações', link: '/guide/interface/configuracoes' },
         ],
       },

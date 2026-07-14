@@ -2,7 +2,7 @@
 
 O modal de **Configurações** é acessado pelo ícone ⚙ no canto superior direito da interface. Ele permite ajustar provedores de LLM e embedding, chaves de API, URL base e idioma — tudo salvo no `.env` do projeto.
 
-![Modal de Configurações](/screenshots/settings.png)
+![Modal de Configurações](/screenshots/configuracoes.png)
 
 ---
 
