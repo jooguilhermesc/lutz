@@ -387,8 +387,7 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
                 <p className="text-xs text-[#8a92a0] mt-1">{t('settings.lang.report.hint')}</p>
               </div>
             </div>
-          ) : (
-            /* Roadmap tab */
+          ) : activeSection === 'roadmap' ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <p style={{ fontSize: 12.5, color: 'var(--text-faint)', margin: 0 }}>
                 Defina os agrupamentos para o roteiro de leitura. Estas definições são enviadas ao modelo como instruções.
@@ -465,10 +464,8 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
                 Restaurar padrão
               </button>
             </div>
-          )}
-
-          {/* ── Consumo ── */}
-          {activeSection === 'consumo' && (() => {
+          ) : (() => {
+            /* ── Consumo ── */
             const fmtTokens = (n: number) => n >= 1_000_000 ? `${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `${Math.round(n/1_000)}k` : String(n)
             const fmtCost = (v: number | null) => v === null ? '—' : v < 0.000001 ? '$0' : `$${v.toFixed(v < 0.01 ? 6 : 2)}`
             const fmtDate = (s: string) => {
@@ -482,9 +479,9 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
             const records = usageData?.records ?? []
             const totals = usageData?.totals
             return (
-              <div style={{ padding: '0 24px 20px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                 {/* Summary chips */}
-                <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                   {[
                     { label: 'Análises', value: usageLoading ? '…' : String(records.length) },
                     { label: 'Total de tokens', value: usageLoading ? '…' : fmtTokens(totals?.total_tokens ?? 0) },
@@ -492,7 +489,7 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
                   ].map(({ label, value }) => (
                     <div key={label} style={{
                       flex: 1, minWidth: 120, padding: '10px 14px', borderRadius: 10,
-                      background: 'var(--surface-2)', border: '1px solid var(--border)',
+                      background: 'var(--surface)', border: '1px solid var(--border)',
                     }}>
                       <div style={{ fontSize: 11, color: 'var(--text-faint)', marginBottom: 4 }}>{label}</div>
                       <div style={{ fontSize: 18, fontWeight: 700, fontFamily: 'IBM Plex Mono, monospace', color: 'var(--text)' }}>{value}</div>
@@ -506,10 +503,10 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
                 ) : records.length === 0 ? (
                   <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-faint)', fontSize: 13 }}>Nenhuma análise realizada ainda.</div>
                 ) : (
-                  <div style={{ overflowX: 'auto', borderRadius: 10, border: '1px solid var(--border)', marginBottom: 16 }}>
+                  <div style={{ overflowX: 'auto', borderRadius: 10, border: '1px solid var(--border)' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
                       <thead>
-                        <tr style={{ background: 'var(--surface-2)', borderBottom: '1px solid var(--border)' }}>
+                        <tr style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
                           {['Data/hora', 'Tipo', 'Modelo', 'Provedor', 'Tokens', 'Custo est.'].map(h => (
                             <th key={h} style={{ padding: '9px 12px', textAlign: 'left', fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{h}</th>
                           ))}
@@ -553,8 +550,8 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
                   </div>
                 )}
 
-                {/* Export buttons */}
-                <div style={{ display: 'flex', gap: 10 }}>
+                {/* Export */}
+                <div>
                   <a href={getUsageExportUrl('csv')} download="lutz_usage.csv" style={{
                     display: 'inline-flex', alignItems: 'center', gap: 7,
                     padding: '8px 16px', borderRadius: 8, border: '1px solid #1A9494',
@@ -567,21 +564,6 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
                     </svg>
                     Exportar CSV
                   </a>
-                  <a href={getUsageExportUrl('parquet')} download="lutz_usage.parquet" style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 7,
-                    padding: '8px 16px', borderRadius: 8, border: '1px solid var(--border-2)',
-                    background: 'var(--surface)', color: 'var(--text)', fontSize: 13, fontWeight: 600,
-                    textDecoration: 'none',
-                  }}>
-                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
-                      <path d="M13.5 10v1.5A1.5 1.5 0 0 1 12 13H4a1.5 1.5 0 0 1-1.5-1.5V10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-                      <path d="M8 2v7M5.5 11.5 8 14l2.5-2.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                    Exportar Parquet
-                  </a>
-                  <span style={{ alignSelf: 'center', fontSize: 11.5, color: 'var(--text-faint)', marginLeft: 4 }}>
-                    Parquet pode ser consultado com DuckDB
-                  </span>
                 </div>
               </div>
             )
