@@ -168,6 +168,7 @@ export interface Config {
   OPENAI_BASE_URL: string
   DOCKER_MODEL_HOST: string
   REPORT_LANGUAGE: string
+  ANALYSIS_WORKERS: string
   has_openai_key: boolean
   has_anthropic_key: boolean
   has_openrouter_key: boolean

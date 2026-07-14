@@ -16,6 +16,7 @@ import RelatoriosTab from './tabs/RelatoriosTab'
 import HistoryDrawer from './components/HistoryDrawer'
 import SettingsModal from './components/SettingsModal'
 import VectorStoreModal from './components/VectorStoreModal'
+import { useTour } from './hooks/useTour'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -66,6 +67,7 @@ function ProviderTile({ mono, color, size = 28 }: { mono: string; color: string;
 export default function AppShell() {
   const { reportLang } = useLanguage()
   const { jobs, dispatchJob } = useNotifications()
+  const { startTour } = useTour()
 
   // ── Shared data ──
   const [project, setProject] = useState<ProjectInfo | null>(null)
@@ -104,6 +106,7 @@ export default function AppShell() {
   const [analysisRunning, setAnalysisRunning] = useState(false)
   const [analysisLogs, setAnalysisLogs] = useState<string[]>([])
   const [analysisDone, setAnalysisDone] = useState<boolean | null>(null)
+  const [workers, setWorkers] = useState(4)
   const ctrlRef = useRef<AbortController | null>(null)
 
   // ── UI state ──
@@ -184,6 +187,7 @@ export default function AppShell() {
         if (c.LLM_PROVIDER) setLlmProvider(c.LLM_PROVIDER)
         if (c.LLM_MODEL) setLlmModel(c.LLM_MODEL)
         if (c.EMBEDDING_MODEL) setEmbModel(c.EMBEDDING_MODEL)
+        if (c.ANALYSIS_WORKERS) setWorkers(Math.max(1, parseInt(c.ANALYSIS_WORKERS) || 4))
         setProviderKeys({ anthropic: !!c.has_anthropic_key, openai: !!c.has_openai_key, openrouter: !!c.has_openrouter_key, docker_model_runner: true })
         setConfigLoaded(true)
       }).catch(() => { setConfigLoaded(true) }),
@@ -257,6 +261,16 @@ export default function AppShell() {
     await loadVectorStore()
   }
 
+  function handleSettingsSaved() {
+    getConfig().then(c => {
+      if (c.LLM_PROVIDER) setLlmProvider(c.LLM_PROVIDER)
+      if (c.LLM_MODEL) setLlmModel(c.LLM_MODEL)
+      if (c.EMBEDDING_MODEL) setEmbModel(c.EMBEDDING_MODEL)
+      if (c.ANALYSIS_WORKERS) setWorkers(Math.max(1, parseInt(c.ANALYSIS_WORKERS) || 4))
+      setProviderKeys({ anthropic: !!c.has_anthropic_key, openai: !!c.has_openai_key, openrouter: !!c.has_openrouter_key, docker_model_runner: true })
+    }).catch(() => {})
+  }
+
   async function handleChangeProvider(providerId: string) {
     setProviderMenuOpen(false)
     setModelMenuOpen(false)
@@ -312,7 +326,7 @@ export default function AppShell() {
       const job = await dispatchJob('analysis', {
         inline_prompt: promptText,
         mode: 'per_article',
-        workers: 4,
+        workers,
         max_chunks: 0,
         use_context_files: contextFiles.length > 0,
         language: reportLang,
@@ -444,7 +458,7 @@ export default function AppShell() {
         <div style={{ flex: 1 }} />
 
         {/* Cost chip */}
-        <div style={{
+        <div id="tour-cost" style={{
           display: 'flex', alignItems: 'center', gap: 7, padding: '5px 11px',
           background: 'var(--surface-3)', border: '1px solid var(--border)', borderRadius: 7, whiteSpace: 'nowrap',
         }}>
@@ -459,8 +473,21 @@ export default function AppShell() {
         {/* Notifications */}
         <NotificationsPanel />
 
+        {/* Tour button */}
+        <button onClick={startTour} title="Tour pela interface" style={{
+          display: 'flex', alignItems: 'center', gap: 7, background: 'none',
+          border: '1px solid var(--border)', cursor: 'pointer', padding: '7px 11px',
+          borderRadius: 7, color: 'var(--text-muted)', fontSize: 13, fontWeight: 500,
+        }}>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+            <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.3"/>
+            <path d="M8 5v3.5M8 11v.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+          </svg>
+          Tour
+        </button>
+
         {/* History button */}
-        <button onClick={() => setShowHistory(v => !v)} style={{
+        <button id="tour-history" onClick={() => setShowHistory(v => !v)} style={{
           display: 'flex', alignItems: 'center', gap: 7, background: 'none',
           border: '1px solid var(--border)', cursor: 'pointer', padding: '7px 11px',
           borderRadius: 7, color: 'var(--text)', fontSize: 13, fontWeight: 500,
@@ -493,7 +520,7 @@ export default function AppShell() {
         </button>
 
         {/* Settings */}
-        <button onClick={() => setShowSettings(v => !v)} style={{
+        <button id="tour-settings" onClick={() => setShowSettings(v => !v)} style={{
           width: 34, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center',
           background: 'none', border: '1px solid var(--border)', cursor: 'pointer', borderRadius: 7,
           color: 'var(--text-muted)',
@@ -517,7 +544,7 @@ export default function AppShell() {
           <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
 
             {/* Pipeline status */}
-            <div style={{
+            <div id="tour-pipeline" style={{
               marginBottom: 20, background: 'var(--surface-2)', border: '1px solid var(--border)',
               borderRadius: 10, padding: '12px 14px',
             }}>
@@ -582,7 +609,7 @@ export default function AppShell() {
             </div>
 
             {/* Prompt */}
-            <div style={{ marginBottom: 20 }}>
+            <div id="tour-criteria" style={{ marginBottom: 20 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 9 }}>
                 <div className="section-label">Critério de triagem</div>
                 <span style={{ fontSize: 11, color: '#b6bcc7', fontFamily: 'IBM Plex Mono, monospace' }}>
@@ -676,7 +703,7 @@ export default function AppShell() {
               </div>
 
               {/* Templates row */}
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginTop: 10 }}>
+              <div id="tour-templates" style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginTop: 10 }}>
                 <span style={{ fontSize: 11, fontWeight: 600, color: '#8a92a0', alignSelf: 'center', marginRight: 1 }}>
                   Templates
                 </span>
@@ -726,7 +753,7 @@ export default function AppShell() {
             </div>
 
             {/* Provider */}
-            <div style={{ marginBottom: 16 }}>
+            <div id="tour-provider" style={{ marginBottom: 16 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 9 }}>
                 <div className="section-label">Provedor LLM</div>
                 <button onClick={() => setShowSettings(true)}
@@ -885,7 +912,7 @@ export default function AppShell() {
             </div>
 
             {/* Embedding Model */}
-            <div style={{ marginBottom: 18 }}>
+            <div id="tour-emb-model" style={{ marginBottom: 18 }}>
               <div className="section-label" style={{ marginBottom: 9 }}>Modelo Embedding</div>
               <div style={{ position: 'relative' }}>
                 <button onClick={() => { setEmbMenuOpen(v => !v); setProviderMenuOpen(false); setModelMenuOpen(false) }} style={{
@@ -994,7 +1021,7 @@ export default function AppShell() {
           </div>
 
           {/* Analyze button */}
-          <div style={{ flexShrink: 0, padding: '16px 20px', background: 'var(--surface)', borderTop: '1px solid var(--border)' }}>
+          <div id="tour-run-btn" style={{ flexShrink: 0, padding: '16px 20px', background: 'var(--surface)', borderTop: '1px solid var(--border)' }}>
             <button onClick={runAnalysis} disabled={!canAnalyze} style={{
               width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 9,
               padding: 12, border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 600, color: '#fff',
@@ -1028,7 +1055,7 @@ export default function AppShell() {
             {TABS.map(tab => {
               const active = activeTab === tab.id
               return (
-                <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
+                <button key={tab.id} id={`tour-tab-${tab.id}`} onClick={() => setActiveTab(tab.id)} style={{
                   padding: '12px 16px', border: 'none', background: 'none', cursor: 'pointer',
                   fontSize: 13.5, fontWeight: active ? 700 : 500,
                   color: active ? 'var(--text)' : 'var(--text-faint)',
@@ -1100,15 +1127,10 @@ export default function AppShell() {
         />
       )}
 
-      {showSettings && <SettingsModal onClose={() => {
-        setShowSettings(false)
-        getConfig().then(c => {
-          if (c.LLM_PROVIDER) setLlmProvider(c.LLM_PROVIDER)
-          if (c.LLM_MODEL) setLlmModel(c.LLM_MODEL)
-          if (c.EMBEDDING_MODEL) setEmbModel(c.EMBEDDING_MODEL)
-          setProviderKeys({ anthropic: !!c.has_anthropic_key, openai: !!c.has_openai_key, openrouter: !!c.has_openrouter_key, docker_model_runner: true })
-        }).catch(() => {})
-      }} />}
+      {showSettings && <SettingsModal
+        onClose={() => setShowSettings(false)}
+        onSaved={handleSettingsSaved}
+      />}
     </div>
   )
 }

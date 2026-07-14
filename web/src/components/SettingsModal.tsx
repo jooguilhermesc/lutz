@@ -29,9 +29,9 @@ const KEY_FIELDS: Array<{ envKey: string; label: string; hasKey: 'has_openai_key
   { envKey: 'OPENROUTER_API_KEY', label: 'OpenRouter API Key', hasKey: 'has_openrouter_key' },
 ]
 
-interface Props { onClose: () => void }
+interface Props { onClose: () => void; onSaved?: () => void }
 
-export default function SettingsModal({ onClose }: Props) {
+export default function SettingsModal({ onClose, onSaved }: Props) {
   const { t, lang, setLang, reportLang, setReportLang } = useLanguage()
   const [cfg, setCfg] = useState<Config | null>(null)
   const [llmProvider, setLlmProvider] = useState('openai')
@@ -56,6 +56,7 @@ export default function SettingsModal({ onClose }: Props) {
       const initial: Record<string, string> = {
         LLM_MODEL: c.LLM_MODEL || '',
         EMBEDDING_MODEL: c.EMBEDDING_MODEL || '',
+        ANALYSIS_WORKERS: c.ANALYSIS_WORKERS || '4',
       }
       for (const f of TEXT_FIELDS) {
         initial[f.key as string] = (c[f.key] as string) || ''
@@ -97,6 +98,7 @@ export default function SettingsModal({ onClose }: Props) {
       setReportLang(localReportLang)
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
+      onSaved?.()
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -271,6 +273,53 @@ export default function SettingsModal({ onClose }: Props) {
                     onChange={e => setForm(prev => ({ ...prev, [f.key as string]: e.target.value }))} />
                 </div>
               ))}
+
+              {/* Workers stepper */}
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label className="label">Workers de análise</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+                  <button
+                    type="button"
+                    onClick={() => setForm(prev => {
+                      const cur = Math.max(1, parseInt(prev['ANALYSIS_WORKERS'] || '4') - 1)
+                      return { ...prev, ANALYSIS_WORKERS: String(cur) }
+                    })}
+                    style={{
+                      width: 36, height: 36, border: '1px solid var(--border-2)',
+                      borderRight: 'none', borderRadius: '7px 0 0 7px',
+                      background: 'var(--surface)', color: 'var(--text-muted)',
+                      cursor: 'pointer', fontSize: 18, lineHeight: 1, display: 'flex',
+                      alignItems: 'center', justifyContent: 'center',
+                    }}
+                  >−</button>
+                  <div style={{
+                    width: 52, height: 36, border: '1px solid var(--border-2)',
+                    background: 'var(--surface-2)', display: 'flex',
+                    alignItems: 'center', justifyContent: 'center',
+                    fontSize: 14, fontWeight: 600, fontFamily: 'IBM Plex Mono, monospace',
+                    color: 'var(--text)',
+                  }}>
+                    {form['ANALYSIS_WORKERS'] || '4'}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setForm(prev => {
+                      const cur = Math.min(32, parseInt(prev['ANALYSIS_WORKERS'] || '4') + 1)
+                      return { ...prev, ANALYSIS_WORKERS: String(cur) }
+                    })}
+                    style={{
+                      width: 36, height: 36, border: '1px solid var(--border-2)',
+                      borderLeft: 'none', borderRadius: '0 7px 7px 0',
+                      background: 'var(--surface)', color: 'var(--text-muted)',
+                      cursor: 'pointer', fontSize: 18, lineHeight: 1, display: 'flex',
+                      alignItems: 'center', justifyContent: 'center',
+                    }}
+                  >+</button>
+                </div>
+                <p style={{ marginTop: 5, fontSize: 11.5, color: 'var(--text-faint)' }}>
+                  Threads paralelas por análise (1–32). Valores altos aceleram mas aumentam o uso de memória e de tokens.
+                </p>
+              </div>
             </div>
           ) : activeSection === 'keys' ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
