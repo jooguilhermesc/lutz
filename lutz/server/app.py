@@ -345,6 +345,10 @@ def _build_job_args(job_type: str, body: dict, root: Path) -> tuple[list[str], s
         language = body.get("language", "pt")
         if language in ("pt", "en", "es"):
             args += ["--language", language]
+        if body.get("analysis_criteria"):
+            args += ["--analysis-criteria", str(body["analysis_criteria"])]
+        if body.get("verdict_categories"):
+            args += ["--verdict-categories", str(body["verdict_categories"])]
         mode = body.get("mode", "per_article")
         if mode == "per_article":
             args.append("--per-article")
@@ -371,6 +375,10 @@ def _build_job_args(job_type: str, body: dict, root: Path) -> tuple[list[str], s
         language = body.get("language", "pt")
         if language in ("pt", "en", "es"):
             args += ["--language", language]
+        if body.get("citation_instructions"):
+            args += ["--citation-instructions", str(body["citation_instructions"])]
+        if body.get("extract_citations_labels"):
+            args += ["--extract-citations-labels", str(body["extract_citations_labels"])]
         return args, f"Citações: {report_name}"
 
     if job_type == "roadmap":

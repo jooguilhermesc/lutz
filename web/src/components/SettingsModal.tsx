@@ -35,9 +35,42 @@ const DEFAULT_ROADMAP_STAGES = [
   { name: 'Evolução do conteúdo', criteria: 'Artigos que apresentam conceitos mais elaborados, refinamentos metodológicos ou aplicações avançadas sobre o tema central.' },
 ]
 
-interface Props { onClose: () => void; onSaved?: () => void }
+export function deriveCode(label: string): string {
+  return (
+    label
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, '_')
+      .replace(/^_|_$/g, '') || 'STATUS'
+  )
+}
 
-export default function SettingsModal({ onClose, onSaved }: Props) {
+export type VerdictCategory = { label: string; color: string; extractCitations: boolean }
+
+export const VERDICT_COLOR_PALETTE = [
+  '#1f9d6b', '#d69a2d', '#3b82f6', '#ef4444',
+  '#9aa3b0', '#8b5cf6', '#0891b2', '#f97316',
+]
+
+export const DEFAULT_VERDICT_CATEGORIES: VerdictCategory[] = [
+  { label: 'Include',   color: '#1f9d6b', extractCitations: true  },
+  { label: 'Exclude',   color: '#9aa3b0', extractCitations: false },
+  { label: 'Uncertain', color: '#d69a2d', extractCitations: false },
+]
+
+export const DEFAULT_ANALYSIS_CRITERIA = [
+  { name: 'Relevância temática', criteria: 'O artigo aborda diretamente o tema ou questão central da pesquisa.' },
+  { name: 'Tipo de estudo', criteria: 'O desenho metodológico é compatível com os objetivos da revisão.' },
+  { name: 'Dados originais', criteria: 'O artigo apresenta dados ou análises originais (não é editorial, carta ou comentário).' },
+]
+export type AnalysisCriteria = typeof DEFAULT_ANALYSIS_CRITERIA
+
+export const DEFAULT_CITATION_CRITERIA = 'Extract the 3 to 5 passages that most strongly support the relevance classification. Prefer exact quotes; always include the page number.'
+
+interface Props { onClose: () => void; onSaved?: () => void; initialSection?: 'llm' | 'keys' | 'language' | 'results' | 'roadmap' | 'consumo' }
+
+export default function SettingsModal({ onClose, onSaved, initialSection }: Props) {
   const { t, lang, setLang, reportLang, setReportLang } = useLanguage()
   const [cfg, setCfg] = useState<Config | null>(null)
   const [llmProvider, setLlmProvider] = useState('openai')
@@ -47,7 +80,7 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
-  const [activeSection, setActiveSection] = useState<'llm' | 'keys' | 'language' | 'roadmap' | 'consumo'>('llm')
+  const [activeSection, setActiveSection] = useState<'llm' | 'keys' | 'language' | 'results' | 'roadmap' | 'consumo'>(initialSection ?? 'llm')
   const [usageData, setUsageData] = useState<UsageSummary | null>(null)
   const [usageLoading, setUsageLoading] = useState(false)
   const [roadmapStages, setRoadmapStages] = useState<Array<{ name: string; criteria: string }>>(() => {
@@ -56,6 +89,23 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
       if (stored) return JSON.parse(stored)
     } catch { /* ignore */ }
     return DEFAULT_ROADMAP_STAGES
+  })
+  const [analysisCriteria, setAnalysisCriteria] = useState<AnalysisCriteria>(() => {
+    try {
+      const stored = localStorage.getItem('lutz_analysis_criteria')
+      if (stored) return JSON.parse(stored)
+    } catch { /* ignore */ }
+    return DEFAULT_ANALYSIS_CRITERIA
+  })
+  const [citationCriteria, setCitationCriteria] = useState<string>(() => {
+    return localStorage.getItem('lutz_citation_criteria') ?? DEFAULT_CITATION_CRITERIA
+  })
+  const [verdictCategories, setVerdictCategories] = useState<VerdictCategory[]>(() => {
+    try {
+      const stored = localStorage.getItem('lutz_verdict_categories')
+      if (stored) return JSON.parse(stored)
+    } catch { /* ignore */ }
+    return DEFAULT_VERDICT_CATEGORIES
   })
   const [llmModels, setLlmModels] = useState<ModelInfo[]>([])
   const [llmModelsLoading, setLlmModelsLoading] = useState(false)
@@ -67,6 +117,18 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
   useEffect(() => {
     localStorage.setItem('lutz_roadmap_stages', JSON.stringify(roadmapStages))
   }, [roadmapStages])
+
+  useEffect(() => {
+    localStorage.setItem('lutz_analysis_criteria', JSON.stringify(analysisCriteria))
+  }, [analysisCriteria])
+
+  useEffect(() => {
+    localStorage.setItem('lutz_citation_criteria', citationCriteria)
+  }, [citationCriteria])
+
+  useEffect(() => {
+    localStorage.setItem('lutz_verdict_categories', JSON.stringify(verdictCategories))
+  }, [verdictCategories])
 
   useEffect(() => {
     getConfig().then(c => {
@@ -134,8 +196,8 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
     }
   }
 
-  const sectionTab = (id: typeof activeSection, label: string) => (
-    <button onClick={() => setActiveSection(id)}
+  const sectionTab = (id: typeof activeSection, label: string, tourId?: string) => (
+    <button id={tourId} onClick={() => setActiveSection(id)}
       style={{
         padding: '7px 14px', border: 'none', background: 'none', cursor: 'pointer',
         fontSize: 13, fontWeight: activeSection === id ? 600 : 500,
@@ -154,7 +216,7 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
         display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32,
         animation: 'vfade .15s ease',
       }}>
-      <div onClick={e => e.stopPropagation()}
+      <div id="tour-settings-modal" onClick={e => e.stopPropagation()}
         style={{
           width: 640, maxWidth: '100%', maxHeight: '90vh', background: 'var(--surface)',
           borderRadius: 16, boxShadow: '0 24px 60px rgba(20,25,40,.4)',
@@ -166,8 +228,8 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
           padding: '20px 24px', borderBottom: '1px solid var(--border)',
         }}>
           <div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>Configurações</div>
-            <div style={{ fontSize: 12.5, color: 'var(--text-faint)' }}>Provedores LLM, chaves de API e preferências</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>{t('settings.title')}</div>
+            <div style={{ fontSize: 12.5, color: 'var(--text-faint)' }}>{t('settings.subtitle')}</div>
           </div>
           <button onClick={onClose} style={{
             width: 32, height: 32, border: '1px solid var(--border)', borderRadius: 8,
@@ -182,11 +244,12 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
 
         {/* Section tabs */}
         <div style={{ flexShrink: 0, display: 'flex', borderBottom: '1px solid var(--border)', paddingLeft: 24 }}>
-          {sectionTab('llm', 'LLM & Embedding')}
-          {sectionTab('keys', 'Chaves de API')}
-          {sectionTab('language', 'Idioma')}
-          {sectionTab('roadmap', 'Roteiro')}
-          {sectionTab('consumo', 'Consumo')}
+          {sectionTab('llm', t('settings.section.llm'))}
+          {sectionTab('keys', t('settings.section.keys'))}
+          {sectionTab('language', t('settings.section.language'))}
+          {sectionTab('results', t('settings.section.results'), 'tour-settings-results-tab')}
+          {sectionTab('roadmap', t('settings.section.roadmap'), 'tour-settings-roadmap-tab')}
+          {sectionTab('consumo', t('settings.section.consumo'))}
         </div>
 
         {/* Body */}
@@ -207,11 +270,11 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
               <div style={{ gridColumn: '1 / -1' }}>
                 <label className="label">
                   LLM Model
-                  {llmModelsLoading && <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--text-faint)' }}>carregando…</span>}
+                  {llmModelsLoading && <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--text-faint)' }}>{t('settings.llm.loadingModels')}</span>}
                 </label>
                 <input
                   type="text" className="input"
-                  placeholder={llmModelsLoading ? 'Carregando modelos…' : 'Selecione da lista ou digite o ID do modelo'}
+                  placeholder={llmModelsLoading ? t('settings.llm.loadingModelsList') : t('settings.llm.selectModel')}
                   value={form['LLM_MODEL'] ?? ''}
                   onChange={e => setForm(prev => ({ ...prev, LLM_MODEL: e.target.value }))}
                   onFocus={() => setShowLlmDropdown(true)}
@@ -256,11 +319,11 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
               <div style={{ gridColumn: '1 / -1' }}>
                 <label className="label">
                   Embedding Model
-                  {embModelsLoading && <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--text-faint)' }}>carregando…</span>}
+                  {embModelsLoading && <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--text-faint)' }}>{t('settings.llm.loadingModels')}</span>}
                 </label>
                 <input
                   type="text" className="input"
-                  placeholder={embModelsLoading ? 'Carregando modelos…' : 'Selecione da lista ou digite o ID do modelo'}
+                  placeholder={embModelsLoading ? t('settings.llm.loadingModelsList') : t('settings.llm.selectModel')}
                   value={form['EMBEDDING_MODEL'] ?? ''}
                   onChange={e => setForm(prev => ({ ...prev, EMBEDDING_MODEL: e.target.value }))}
                   onFocus={() => setShowEmbDropdown(true)}
@@ -306,7 +369,7 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
 
               {/* Workers stepper */}
               <div style={{ gridColumn: '1 / -1' }}>
-                <label className="label">Workers de análise</label>
+                <label className="label">{t('settings.llm.workers')}</label>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
                   <button
                     type="button"
@@ -347,7 +410,7 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
                   >+</button>
                 </div>
                 <p style={{ marginTop: 5, fontSize: 11.5, color: 'var(--text-faint)' }}>
-                  Threads paralelas por análise (1–32). Valores altos aceleram mas aumentam o uso de memória e de tokens.
+                  {t('settings.llm.workers.hint')}
                 </p>
               </div>
             </div>
@@ -377,7 +440,7 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
                 <select className="select" value={lang} onChange={e => setLang(e.target.value as Lang)}>
                   {LANGS.map(l => <option key={l.value} value={l.value}>{l.label}</option>)}
                 </select>
-                <p className="text-xs text-[#8a92a0] mt-1">Aplica imediatamente.</p>
+                <p className="text-xs text-[#8a92a0] mt-1">{t('settings.lang.applyNow')}</p>
               </div>
               <div>
                 <label className="label">{t('settings.lang.report')}</label>
@@ -390,8 +453,7 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
           ) : activeSection === 'roadmap' ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <p style={{ fontSize: 12.5, color: 'var(--text-faint)', margin: 0 }}>
-                Defina os agrupamentos para o roteiro de leitura. Estas definições são enviadas ao modelo como instruções.
-                O modelo LLM configurado na aba <strong>LLM &amp; Embedding</strong> é utilizado para gerar o roteiro.
+                {t('settings.roadmap.desc')}
               </p>
               {roadmapStages.map((stage, i) => (
                 <div key={i} style={{
@@ -400,7 +462,7 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-faint)', fontFamily: 'IBM Plex Mono, monospace', letterSpacing: '.05em' }}>
-                      ESTÁGIO {i + 1}
+                      {t('settings.roadmap.stage')} {i + 1}
                     </span>
                     {roadmapStages.length > 1 && (
                       <button
@@ -411,7 +473,7 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
                           background: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center',
                           justifyContent: 'center', color: 'var(--text-faint)',
                         }}
-                        title="Remover estágio"
+                        title={t('settings.roadmap.remove')}
                       >
                         <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
                           <path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
@@ -420,7 +482,7 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
                     )}
                   </div>
                   <div>
-                    <label className="label" style={{ marginBottom: 4 }}>Nome</label>
+                    <label className="label" style={{ marginBottom: 4 }}>{t('settings.roadmap.name')}</label>
                     <input
                       type="text" className="input"
                       value={stage.name}
@@ -429,7 +491,7 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
                     />
                   </div>
                   <div>
-                    <label className="label" style={{ marginBottom: 4 }}>Critério</label>
+                    <label className="label" style={{ marginBottom: 4 }}>{t('settings.roadmap.criteria')}</label>
                     <textarea
                       className="input"
                       rows={2}
@@ -450,7 +512,7 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
                   color: 'var(--text-faint)', display: 'flex', alignItems: 'center', gap: 6,
                 }}
               >
-                <span style={{ fontSize: 16, lineHeight: 1 }}>+</span> Adicionar estágio
+                <span style={{ fontSize: 16, lineHeight: 1 }}>+</span> {t('settings.roadmap.add')}
               </button>
               <button
                 type="button"
@@ -461,20 +523,272 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
                   alignSelf: 'flex-start',
                 }}
               >
-                Restaurar padrão
+                {t('settings.roadmap.restore')}
               </button>
+            </div>
+          ) : activeSection === 'results' ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+              {/* ── Categorias de resultado ── */}
+              <div id="tour-verdict-categories" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginBottom: 4 }}>{t('settings.results.cat.title')}</div>
+                  <p style={{ fontSize: 12.5, color: 'var(--text-faint)', margin: 0 }}
+                    dangerouslySetInnerHTML={{ __html: t('settings.results.cat.desc') }} />
+                </div>
+                {verdictCategories.map((cat, i) => {
+                  const code = deriveCode(cat.label)
+                  return (
+                    <div key={i} style={{
+                      background: 'var(--surface)', border: '1px solid var(--border)',
+                      borderRadius: 10, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10,
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-faint)', fontFamily: 'IBM Plex Mono, monospace', letterSpacing: '.05em' }}>
+                            {t('settings.results.cat.header')} {i + 1}
+                          </span>
+                          {code && (
+                            <span style={{
+                              fontSize: 10, fontWeight: 700, fontFamily: 'IBM Plex Mono, monospace',
+                              padding: '2px 7px', borderRadius: 5,
+                              background: cat.color + '22', color: cat.color, letterSpacing: '.3px',
+                            }}>
+                              {code}
+                            </span>
+                          )}
+                        </div>
+                        {verdictCategories.length > 2 && (
+                          <button
+                            type="button"
+                            onClick={() => setVerdictCategories(prev => prev.filter((_, idx) => idx !== i))}
+                            style={{
+                              width: 26, height: 26, border: '1px solid var(--border)', borderRadius: 6,
+                              background: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center',
+                              justifyContent: 'center', color: 'var(--text-faint)',
+                            }}
+                            title={t('settings.results.cat.remove')}
+                          >
+                            <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                              <path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                            </svg>
+                          </button>
+                        )}
+                      </div>
+                      <div>
+                        <label className="label" style={{ marginBottom: 4 }}>{t('settings.results.cat.name')}</label>
+                        <input
+                          type="text" className="input"
+                          value={cat.label}
+                          onChange={e => setVerdictCategories(prev => prev.map((x, idx) => idx === i ? { ...x, label: e.target.value } : x))}
+                          placeholder={t('settings.results.cat.namePlaceholder')}
+                        />
+                      </div>
+                      <div>
+                        <label className="label" style={{ marginBottom: 6 }}>{t('settings.results.cat.color')}</label>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          {VERDICT_COLOR_PALETTE.map(color => (
+                            <button
+                              key={color}
+                              type="button"
+                              onClick={() => setVerdictCategories(prev => prev.map((x, idx) => idx === i ? { ...x, color } : x))}
+                              style={{
+                                width: 24, height: 24, borderRadius: '50%', background: color, border: 'none',
+                                cursor: 'pointer', flexShrink: 0,
+                                outline: cat.color === color ? `2px solid ${color}` : 'none',
+                                outlineOffset: 2,
+                              }}
+                              title={color}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={cat.extractCitations}
+                          onClick={() => setVerdictCategories(prev => prev.map((x, idx) =>
+                            idx === i
+                              ? { ...x, extractCitations: true }
+                              : { ...x, extractCitations: false }
+                          ))}
+                          style={{
+                            width: 38, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer', padding: 2,
+                            background: cat.extractCitations ? '#1A9494' : 'var(--border-2)',
+                            transition: 'background .18s', flexShrink: 0, position: 'relative',
+                          }}
+                        >
+                          <span style={{
+                            display: 'block', width: 16, height: 16, borderRadius: '50%', background: '#fff',
+                            transition: 'transform .18s',
+                            transform: `translateX(${cat.extractCitations ? 18 : 0}px)`,
+                          }} />
+                        </button>
+                        <span style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
+                          {t('settings.results.cat.citations')}
+                          {cat.extractCitations && (
+                            <span style={{ marginLeft: 6, fontSize: 11, color: '#1A9494', fontWeight: 600 }}>{t('settings.results.cat.inclusion')}</span>
+                          )}
+                        </span>
+                      </div>
+                    </div>
+                  )
+                })}
+                <button
+                  type="button"
+                  disabled={verdictCategories.length >= 8}
+                  onClick={() => {
+                    const usedColors = verdictCategories.map(c => c.color)
+                    const nextColor = VERDICT_COLOR_PALETTE.find(c => !usedColors.includes(c)) ?? VERDICT_COLOR_PALETTE[0]
+                    setVerdictCategories(prev => [...prev, { label: '', color: nextColor, extractCitations: false }])
+                  }}
+                  style={{
+                    padding: '9px 16px', border: '1px dashed var(--border-2)', borderRadius: 9,
+                    background: 'none', cursor: verdictCategories.length >= 8 ? 'not-allowed' : 'pointer',
+                    fontSize: 13, fontWeight: 600,
+                    color: 'var(--text-faint)', display: 'flex', alignItems: 'center', gap: 6,
+                    opacity: verdictCategories.length >= 8 ? 0.4 : 1,
+                  }}
+                >
+                  <span style={{ fontSize: 16, lineHeight: 1 }}>+</span> {t('settings.results.cat.add')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setVerdictCategories(DEFAULT_VERDICT_CATEGORIES)}
+                  style={{
+                    padding: '7px 14px', border: '1px solid var(--border)', borderRadius: 9,
+                    background: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--text-faint)',
+                    alignSelf: 'flex-start',
+                  }}
+                >
+                  {t('settings.results.cat.restore')}
+                </button>
+              </div>
+
+              {/* ── Critérios de classificação ── */}
+              <div id="tour-analysis-criteria" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <p style={{ fontSize: 12.5, color: 'var(--text-faint)', margin: 0 }}>
+                  {t('settings.results.crit.desc')}
+                </p>
+                {analysisCriteria.map((c, i) => (
+                  <div key={i} style={{
+                    background: 'var(--surface)', border: '1px solid var(--border)',
+                    borderRadius: 10, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10,
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-faint)', fontFamily: 'IBM Plex Mono, monospace', letterSpacing: '.05em' }}>
+                        {t('settings.results.crit.header')} {i + 1}
+                      </span>
+                      {analysisCriteria.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => setAnalysisCriteria(prev => prev.filter((_, idx) => idx !== i))}
+                          style={{
+                            width: 26, height: 26, border: '1px solid var(--border)', borderRadius: 6,
+                            background: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center',
+                            justifyContent: 'center', color: 'var(--text-faint)',
+                          }}
+                          title={t('settings.results.crit.remove')}
+                        >
+                          <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                            <path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                    <div>
+                      <label className="label" style={{ marginBottom: 4 }}>{t('settings.results.crit.name')}</label>
+                      <input
+                        type="text" className="input"
+                        value={c.name}
+                        onChange={e => setAnalysisCriteria(prev => prev.map((x, idx) => idx === i ? { ...x, name: e.target.value } : x))}
+                        placeholder={t('settings.results.crit.namePlaceholder')}
+                      />
+                    </div>
+                    <div>
+                      <label className="label" style={{ marginBottom: 4 }}>{t('settings.results.crit.criteria')}</label>
+                      <textarea
+                        className="input"
+                        rows={2}
+                        value={c.criteria}
+                        onChange={e => setAnalysisCriteria(prev => prev.map((x, idx) => idx === i ? { ...x, criteria: e.target.value } : x))}
+                        placeholder={t('settings.results.crit.placeholder')}
+                        style={{ resize: 'vertical', fontFamily: 'inherit', fontSize: 13 }}
+                      />
+                    </div>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setAnalysisCriteria(prev => [...prev, { name: '', criteria: '' }])}
+                  style={{
+                    padding: '9px 16px', border: '1px dashed var(--border-2)', borderRadius: 9,
+                    background: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600,
+                    color: 'var(--text-faint)', display: 'flex', alignItems: 'center', gap: 6,
+                  }}
+                >
+                  <span style={{ fontSize: 16, lineHeight: 1 }}>+</span> {t('settings.results.crit.add')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAnalysisCriteria(DEFAULT_ANALYSIS_CRITERIA)}
+                  style={{
+                    padding: '7px 14px', border: '1px solid var(--border)', borderRadius: 9,
+                    background: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--text-faint)',
+                    alignSelf: 'flex-start',
+                  }}
+                >
+                  {t('settings.results.crit.restore')}
+                </button>
+              </div>
+
+              {/* ── Critérios de extração de citações ── */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginBottom: 4 }}>{t('settings.results.cite.title')}</div>
+                  <p style={{ fontSize: 12.5, color: 'var(--text-faint)', margin: 0 }}>
+                    {t('settings.results.cite.desc')}
+                  </p>
+                </div>
+                <div>
+                  <textarea
+                    className="input"
+                    rows={4}
+                    value={citationCriteria}
+                    onChange={e => setCitationCriteria(e.target.value)}
+                    placeholder={t('settings.results.cite.placeholder')}
+                    style={{ resize: 'vertical', fontFamily: 'inherit', fontSize: 13 }}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCitationCriteria(DEFAULT_CITATION_CRITERIA)}
+                  style={{
+                    padding: '7px 14px', border: '1px solid var(--border)', borderRadius: 9,
+                    background: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--text-faint)',
+                    alignSelf: 'flex-start',
+                  }}
+                >
+                  {t('settings.results.cite.restore')}
+                </button>
+              </div>
             </div>
           ) : (() => {
             /* ── Consumo ── */
             const fmtTokens = (n: number) => n >= 1_000_000 ? `${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `${Math.round(n/1_000)}k` : String(n)
             const fmtCost = (v: number | null) => v === null ? '—' : v < 0.000001 ? '$0' : `$${v.toFixed(v < 0.01 ? 6 : 2)}`
             const fmtDate = (s: string) => {
-              try { const d = new Date(s); return `${d.toLocaleDateString('pt-BR')} ${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` } catch { return s }
+              try {
+                const locale = lang === 'en' ? 'en-US' : lang === 'es' ? 'es-ES' : 'pt-BR'
+                const d = new Date(s)
+                return `${d.toLocaleDateString(locale)} ${d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}`
+              } catch { return s }
             }
             const TYPE_CHIP: Record<string, { label: string; bg: string; color: string }> = {
-              analysis:       { label: 'ANÁLISE',  bg: '#e8f0fe', color: '#1a56db' },
-              citations:      { label: 'CITAÇÕES', bg: '#e6f5ee', color: '#0f6b47' },
-              reading_roadmap:{ label: 'ROTEIRO',  bg: '#e8f8f8', color: '#1A9494' },
+              analysis:       { label: t('settings.consumo.type.analysis'),  bg: '#e8f0fe', color: '#1a56db' },
+              citations:      { label: t('settings.consumo.type.citations'), bg: '#e6f5ee', color: '#0f6b47' },
+              reading_roadmap:{ label: t('settings.consumo.type.roadmap'),   bg: '#e8f8f8', color: '#1A9494' },
             }
             const records = usageData?.records ?? []
             const totals = usageData?.totals
@@ -483,9 +797,9 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
                 {/* Summary chips */}
                 <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                   {[
-                    { label: 'Análises', value: usageLoading ? '…' : String(records.length) },
-                    { label: 'Total de tokens', value: usageLoading ? '…' : fmtTokens(totals?.total_tokens ?? 0) },
-                    { label: 'Custo estimado', value: usageLoading ? '…' : fmtCost(totals?.total_cost_usd ?? null) },
+                    { label: t('settings.consumo.analyses'), value: usageLoading ? '…' : String(records.length) },
+                    { label: t('settings.consumo.totalTokens'), value: usageLoading ? '…' : fmtTokens(totals?.total_tokens ?? 0) },
+                    { label: t('settings.consumo.estimatedCost'), value: usageLoading ? '…' : fmtCost(totals?.total_cost_usd ?? null) },
                   ].map(({ label, value }) => (
                     <div key={label} style={{
                       flex: 1, minWidth: 120, padding: '10px 14px', borderRadius: 10,
@@ -499,15 +813,15 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
 
                 {/* Table */}
                 {usageLoading ? (
-                  <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-faint)', fontSize: 13 }}>Carregando…</div>
+                  <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-faint)', fontSize: 13 }}>{t('settings.consumo.loading')}</div>
                 ) : records.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-faint)', fontSize: 13 }}>Nenhuma análise realizada ainda.</div>
+                  <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-faint)', fontSize: 13 }}>{t('settings.consumo.empty')}</div>
                 ) : (
                   <div style={{ overflowX: 'auto', borderRadius: 10, border: '1px solid var(--border)' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
                       <thead>
                         <tr style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
-                          {['Data/hora', 'Tipo', 'Modelo', 'Provedor', 'Tokens', 'Custo est.'].map(h => (
+                          {[t('settings.consumo.col.datetime'), t('settings.consumo.col.type'), t('settings.consumo.col.model'), t('settings.consumo.col.provider'), t('settings.consumo.col.tokens'), t('settings.consumo.col.cost')].map(h => (
                             <th key={h} style={{ padding: '9px 12px', textAlign: 'left', fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{h}</th>
                           ))}
                         </tr>
@@ -562,7 +876,7 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
                       <path d="M13.5 10v1.5A1.5 1.5 0 0 1 12 13H4a1.5 1.5 0 0 1-1.5-1.5V10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
                       <path d="M8 2v7M5.5 11.5 8 14l2.5-2.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
                     </svg>
-                    Exportar CSV
+                    {t('settings.consumo.export')}
                   </a>
                 </div>
               </div>
