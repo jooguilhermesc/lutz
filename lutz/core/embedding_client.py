@@ -165,8 +165,9 @@ class EmbeddingClient:
             from sentence_transformers import SentenceTransformer  # noqa: F401
         except ImportError as exc:
             raise ImportError(
-                "sentence-transformers is required for EMBEDDING_PROVIDER=sentence_transformers. "
-                "Install it with: pip install sentence-transformers"
+                "sentence-transformers is not installed. "
+                "Run: pip install lutz-research[local]\n"
+                "Or set EMBEDDING_PROVIDER=openai / docker_model_runner to avoid this dependency."
             ) from exc
 
         model = _get_st_model(self.model_id)

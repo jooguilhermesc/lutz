@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.7] - 2026-07-17
+
+### Changed
+
+- **`sentence-transformers`, `torch` e `transformers` agora são opcionais** — movidos para o extra `[local]` (`pip install lutz-research[local]`); a instalação padrão não baixa mais ~2 GB de PyTorch. Quem usa `EMBEDDING_PROVIDER=sentence_transformers` sem o extra recebe mensagem de erro orientando o comando correto.
+
 ## [0.5.6] - 2026-07-16
 
 ### Added

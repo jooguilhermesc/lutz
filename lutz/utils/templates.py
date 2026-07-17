@@ -76,13 +76,14 @@ def get_env_example_template() -> str:
 # -----------------------------------------------------------------------------
 # Embedding model
 # Provider options: docker_model_runner | openai | sentence_transformers
+# sentence_transformers requires: pip install lutz-research[local]  (~2 GB, PyTorch)
 # -----------------------------------------------------------------------------
 EMBEDDING_PROVIDER=docker_model_runner
 
 # Model to use for generating embeddings.
 #   docker_model_runner  -> nomic-embed-text  (pull with: docker model pull nomic-embed-text)
 #   openai               -> text-embedding-3-small  (low cost, good quality)
-#   sentence_transformers-> all-MiniLM-L6-v2  (local, no API key required)
+#   sentence_transformers-> all-MiniLM-L6-v2  (local, no API key, needs [local] extra)
 EMBEDDING_MODEL=nomic-embed-text
 
 # -----------------------------------------------------------------------------
