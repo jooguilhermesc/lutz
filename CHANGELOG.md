@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.7] - 2026-07-17
+
+### Changed
+
+- **`sentence-transformers`, `torch` e `transformers` agora são opcionais** — movidos para o extra `[local]` (`pip install lutz-research[local]`); a instalação padrão não baixa mais ~2 GB de PyTorch. Quem usa `EMBEDDING_PROVIDER=sentence_transformers` sem o extra recebe mensagem de erro orientando o comando correto.
+
+## [0.5.6] - 2026-07-16
+
+### Added
+
+- **Categorias de resultado configuráveis** — o pesquisador define suas próprias categorias de veredicto (nome, cor, qual dispara extração de citações) na aba "Resultados" das Configurações; padrão mantém Include/Exclude/Uncertain para compatibilidade com relatórios anteriores; mínimo 2, máximo 8 categorias; code derivado automaticamente do label (ex: "Elegível" → `ELEGIVEL`)
+- **Internacionalização (pt / en / es)** — toda a interface agora está disponível em Português, Inglês e Espanhol; o seletor de idioma já existente na barra superior agora altera todos os textos da aplicação: abas, botões, labels, mensagens de estado, tour de onboarding e modal de configurações
+- **`--verdict-categories`** — opção no comando `lutz analysis` para passar as categorias configuradas como JSON; o LLM é instruído a usar exatamente os codes definidos pelo pesquisador
+- **`--extract-citations-labels`** — opção no comando `lutz citations` para indicar qual(is) label(s) devem ser considerados "incluídos" na extração de citações
+
+### Changed
+
+- **Tela de Resultados** — botões de filtro e cards de resumo agora refletem dinamicamente as categorias configuradas em vez de INCLUDE/EXCLUDE/UNCERTAIN fixos
+- **Tour de onboarding** — textos dos botões de navegação (Próximo/Anterior/Concluir) e contador de progresso adaptam-se ao idioma selecionado
+
 ## [0.5.4] - 2026-07-14
 
 ### Added

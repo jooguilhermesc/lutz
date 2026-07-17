@@ -28,11 +28,6 @@ const PROVIDERS = [
 ]
 
 
-const TEMPLATES = [
-  { id: 'rct',    name: 'RCTs farmacológicos' },
-  { id: 'sys',    name: 'Revisões sistemáticas' },
-  { id: 'qualit', name: 'Qualitativo' },
-]
 
 type Tab = 'biblioteca' | 'resultados' | 'relatorios'
 
@@ -65,9 +60,13 @@ function ProviderTile({ mono, color, size = 28 }: { mono: string; color: string;
 // ── Main shell ────────────────────────────────────────────────────────────────
 
 export default function AppShell() {
-  const { reportLang } = useLanguage()
+  const { reportLang, t } = useLanguage()
   const { jobs, dispatchJob } = useNotifications()
-  const { startTour } = useTour()
+  const [tourSettingsSection, setTourSettingsSection] = useState<'llm' | 'keys' | 'language' | 'results' | 'roadmap' | 'consumo' | null>(null)
+  const { startTour } = useTour({
+    openSettings: (section) => { setTourSettingsSection(section as 'results'); setShowSettings(true) },
+    closeSettings: () => { setShowSettings(false); setTourSettingsSection(null) },
+  })
 
   // ── Shared data ──
   const [project, setProject] = useState<ProjectInfo | null>(null)
@@ -342,6 +341,40 @@ export default function AppShell() {
     setAnalysisRunning(true)
     setActiveTab('resultados')
     try {
+      const analysisCriteriaText = (() => {
+        try {
+          const stored = localStorage.getItem('lutz_analysis_criteria')
+          if (!stored) return undefined
+          const items: Array<{ name: string; criteria: string }> = JSON.parse(stored)
+          const valid = items.filter(c => c.name.trim() || c.criteria.trim())
+          if (valid.length === 0) return undefined
+          const lines = valid.map((c, i) => {
+            const label = c.name.trim() ? `"${c.name}"` : String(i + 1)
+            return `${i + 1}. ${label}: ${c.criteria}`
+          })
+          return `The following criteria define article classification:\n${lines.join('\n')}`
+        } catch { return undefined }
+      })()
+      const verdictCategoriesJson = (() => {
+        try {
+          const stored = localStorage.getItem('lutz_verdict_categories')
+          const cats = stored ? JSON.parse(stored) : null
+          if (!cats || !Array.isArray(cats) || cats.length === 0) return undefined
+          // Derive codes and include them in the JSON sent to backend
+          const catsWithCodes = cats.map((c: { label: string; color: string; extractCitations: boolean }) => ({
+            code: c.label
+              .normalize('NFD')
+              .replace(/[̀-ͯ]/g, '')
+              .toUpperCase()
+              .replace(/[^A-Z0-9]+/g, '_')
+              .replace(/^_|_$/g, '') || 'STATUS',
+            label: c.label,
+            color: c.color,
+            extractCitations: c.extractCitations,
+          }))
+          return JSON.stringify(catsWithCodes)
+        } catch { return undefined }
+      })()
       const job = await dispatchJob('analysis', {
         inline_prompt: promptText,
         mode: 'per_article',
@@ -349,6 +382,8 @@ export default function AppShell() {
         max_chunks: 0,
         use_context_files: contextFiles.length > 0,
         language: reportLang,
+        analysis_criteria: analysisCriteriaText,
+        verdict_categories: verdictCategoriesJson,
       })
       const ctrl = new AbortController()
       ctrlRef.current = ctrl
@@ -431,7 +466,7 @@ export default function AppShell() {
   const estimatedCost = currentModel?.price === undefined && !modelsLoading
     ? '—'
     : pricePerM === 0
-      ? 'gratuito'
+      ? t('app.cost.free')
       : `$${((estimatedTokens / 1_000_000) * pricePerM).toFixed(2)}`
 
   // Pipeline step statuses
@@ -441,9 +476,9 @@ export default function AppShell() {
   const step3Done = activeReport !== null
 
   const TABS: Array<{ id: Tab; label: string; count: number }> = [
-    { id: 'biblioteca', label: 'Biblioteca', count: totalArticles },
-    { id: 'resultados', label: 'Resultados',  count: (activeReport?.articles ?? []).length },
-    { id: 'relatorios', label: 'Relatórios',  count: reports.length },
+    { id: 'biblioteca', label: t('app.tabs.biblioteca'), count: totalArticles },
+    { id: 'resultados', label: t('app.tabs.resultados'),  count: (activeReport?.articles ?? []).length },
+    { id: 'relatorios', label: t('app.tabs.relatorios'),  count: reports.length },
   ]
 
   const canAnalyze = !analysisRunning && vectorizedCount > 0 && promptText.trim().length > 0
@@ -499,7 +534,7 @@ export default function AppShell() {
             <circle cx="8" cy="8" r="6.5" stroke="var(--text-faint)" strokeWidth="1.3"/>
             <path d="M8 4.5v3.5l2.2 1.3" stroke="var(--text-faint)" strokeWidth="1.3" strokeLinecap="round"/>
           </svg>
-          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Est. análise</span>
+          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t('app.est.analysis')}</span>
           <span style={{ fontSize: 12, fontWeight: 600, fontFamily: 'IBM Plex Mono, monospace', color: 'var(--text)' }}>{estimatedCost}</span>
         </div>
 
@@ -507,7 +542,7 @@ export default function AppShell() {
         <NotificationsPanel />
 
         {/* Tour button */}
-        <button onClick={startTour} title="Tour pela interface" style={{
+        <button onClick={startTour} title={t('app.tour.label')} style={{
           display: 'flex', alignItems: 'center', gap: 7, background: 'none',
           border: '1px solid var(--border)', cursor: 'pointer', padding: '7px 11px',
           borderRadius: 7, color: 'var(--text-muted)', fontSize: 13, fontWeight: 500,
@@ -516,7 +551,7 @@ export default function AppShell() {
             <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.3"/>
             <path d="M8 5v3.5M8 11v.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
           </svg>
-          Tour
+          {t('app.tour')}
         </button>
 
         {/* History button */}
@@ -529,11 +564,11 @@ export default function AppShell() {
             <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.3"/>
             <path d="M8 4.5V8l2.5 1.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
-          Histórico
+          {t('app.history')}
         </button>
 
         {/* Theme toggle */}
-        <button onClick={() => setDark(v => !v)} title={dark ? 'Tema claro' : 'Tema escuro'} style={{
+        <button onClick={() => setDark(v => !v)} title={dark ? t('app.theme.light') : t('app.theme.dark')} style={{
           width: 34, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center',
           background: 'none', border: '1px solid var(--border)', cursor: 'pointer', borderRadius: 7,
           color: 'var(--text-muted)',
@@ -581,33 +616,42 @@ export default function AppShell() {
               marginBottom: 20, background: 'var(--surface-2)', border: '1px solid var(--border)',
               borderRadius: 10, padding: '12px 14px',
             }}>
-              <div className="section-label" style={{ marginBottom: 10 }}>Pipeline</div>
+              <div className="section-label" style={{ marginBottom: 10 }}>{t('app.pipeline.title')}</div>
 
               {[
                 {
-                  label: 'Biblioteca',
-                  sub: step1Done ? `${totalArticles} PDF${totalArticles !== 1 ? 's' : ''} carregados` : 'Nenhum arquivo ainda',
+                  label: t('app.pipeline.biblioteca'),
+                  sub: step1Done
+                    ? t('app.pipeline.pdfs_loaded').replace('{n}', String(totalArticles))
+                    : t('app.pipeline.no_files'),
                   icon: step1Done ? '✓' : '○',
                   iconBg: step1Done ? '#e6f5ee' : '#eef0f3',
                   iconFg: step1Done ? '#0f6b47' : '#9aa3b0',
                   hasBtn: false, btnLabel: '', onBtn: () => {},
                 },
                 {
-                  label: 'Vetorizado',
-                  sub: step2Done ? `${vectorizedCount} artigos prontos` :
-                       step2Partial ? `${vectorizedCount} / ${totalArticles} — ${pendingCount} pendentes` :
-                       'Nenhum artigo vetorizado',
+                  label: t('app.pipeline.vetorizado'),
+                  sub: step2Done
+                    ? t('app.pipeline.articles_ready').replace('{n}', String(vectorizedCount))
+                    : step2Partial
+                    ? t('app.pipeline.partial').replace('{v}', String(vectorizedCount)).replace('{t}', String(totalArticles)).replace('{p}', String(pendingCount))
+                    : t('app.pipeline.no_vectorized'),
                   icon: step2Done ? '✓' : (step2Partial ? '…' : '○'),
                   iconBg: step2Done ? '#e6f5ee' : (step2Partial ? '#fbf1dd' : '#eef0f3'),
                   iconFg: step2Done ? '#0f6b47' : (step2Partial ? '#8a6414' : '#9aa3b0'),
                   hasBtn: (vectorizedCount > 0 || pendingCount > 0) && !vectorizeRunning,
-                  btnLabel: pendingCount > 0 ? `Vetorizar (${pendingCount})` : 'Detalhes',
+                  btnLabel: pendingCount > 0
+                    ? t('app.pipeline.vectorize_btn').replace('{n}', String(pendingCount))
+                    : t('app.pipeline.details_btn'),
                   onBtn: () => setShowVectorStoreModal(true),
                 },
                 {
-                  label: 'Análise',
-                  sub: step3Done ? `Concluída · ${(activeReport?.articles ?? []).filter(a => a.relevance === 'INCLUDE').length} para incluir` :
-                       vectorizedCount > 0 ? 'Pronto para analisar' : 'Aguardando vetorização',
+                  label: t('app.pipeline.analise'),
+                  sub: step3Done
+                    ? t('app.pipeline.done').replace('{n}', String((activeReport?.articles ?? []).filter(a => a.relevance === 'INCLUDE').length))
+                    : vectorizedCount > 0
+                    ? t('app.pipeline.ready')
+                    : t('app.pipeline.waiting'),
                   icon: step3Done ? '✓' : '○',
                   iconBg: step3Done ? '#e6f5ee' : '#eef0f3',
                   iconFg: step3Done ? '#0f6b47' : '#9aa3b0',
@@ -634,7 +678,7 @@ export default function AppShell() {
                       border: 'none', borderRadius: 6, background: '#1A9494',
                       cursor: 'pointer', color: '#fff', whiteSpace: 'nowrap',
                     }}>
-                      {vectorizeRunning ? 'Vetorizando…' : s.btnLabel}
+                      {vectorizeRunning ? t('app.pipeline.vectorizing') : s.btnLabel}
                     </button>
                   )}
                 </div>
@@ -644,7 +688,7 @@ export default function AppShell() {
             {/* Prompt */}
             <div id="tour-criteria" style={{ marginBottom: 20 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 9 }}>
-                <div className="section-label">Critério de triagem</div>
+                <div className="section-label">{t('app.prompt.label')}</div>
                 <span style={{ fontSize: 11, color: '#b6bcc7', fontFamily: 'IBM Plex Mono, monospace' }}>
                   {promptText.length} chars
                 </span>
@@ -652,7 +696,7 @@ export default function AppShell() {
               <textarea
                 value={promptText}
                 onChange={e => setPromptText(e.target.value)}
-                placeholder="Descreva os critérios de inclusão/exclusão para triagem dos artigos…"
+                placeholder={t('app.prompt.placeholder')}
                 style={{
                   width: '100%', height: 96, resize: 'none', padding: '12px 13px',
                   border: '1px solid var(--border-2)', borderRadius: 9, fontSize: 13.5, lineHeight: 1.5,
@@ -730,17 +774,21 @@ export default function AppShell() {
                         stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
                     </svg>
                   )}
-                  {uploadingContext ? 'Processando…' : 'Anexar arquivo'}
+                  {uploadingContext ? t('app.context.uploading') : t('app.context.attach')}
                   <span style={{ color: 'var(--text-faint)', fontSize: 10.5 }}>PDF · DOCX · XLSX · PPTX</span>
                 </label>
               </div>
 
-              {/* Templates row */}
-              <div id="tour-templates" style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginTop: 10 }}>
+              {/* Saved prompts row */}
+              <div id="tour-templates" style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginTop: 10, alignItems: 'center' }}>
                 <span style={{ fontSize: 11, fontWeight: 600, color: '#8a92a0', alignSelf: 'center', marginRight: 1 }}>
-                  Templates
+                  {t('app.saved.label')}
                 </span>
-                {savedPrompts.map(p => (
+                {savedPrompts.length === 0 ? (
+                  <span style={{ fontSize: 12, color: '#b0b7c3', fontStyle: 'italic' }}>
+                    {t('app.saved.empty')}
+                  </span>
+                ) : savedPrompts.map(p => (
                   <button key={p.name} onClick={async () => {
                     const { content } = await getPrompt(p.name)
                     setPromptText(content)
@@ -754,21 +802,11 @@ export default function AppShell() {
                     {p.name}
                   </button>
                 ))}
-                {TEMPLATES.filter(t => !savedPrompts.find(p => p.name === t.name)).slice(0, 2).map(t => (
-                  <button key={t.id} onClick={() => setActiveTemplate(t.id)} style={{
-                    fontSize: 12, fontWeight: 500, padding: '5px 11px', borderRadius: 15, cursor: 'pointer',
-                    border: `1px solid ${activeTemplate === t.id ? '#1A9494' : '#e4e6eb'}`,
-                    background: activeTemplate === t.id ? '#e8f8f8' : '#fff',
-                    color: activeTemplate === t.id ? '#1A9494' : '#5b6472',
-                  }}>
-                    {t.name}
-                  </button>
-                ))}
               </div>
               {/* Save prompt */}
               <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
                 <input value={saveName} onChange={e => setSaveName(e.target.value)}
-                  placeholder="Salvar como…"
+                  placeholder={t('app.saved.name_placeholder')}
                   style={{
                     flex: 1, padding: '5px 10px', border: '1px solid #d3d7de', borderRadius: 7,
                     fontSize: 12, outline: 'none', color: '#1a1d23', background: '#fcfcfd',
@@ -780,7 +818,7 @@ export default function AppShell() {
                     background: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 500,
                     color: '#5b6472', opacity: savingPrompt || !saveName.trim() || !promptText.trim() ? 0.5 : 1,
                   }}>
-                  Salvar
+                  {t('app.saved.save_btn')}
                 </button>
               </div>
             </div>
@@ -788,10 +826,10 @@ export default function AppShell() {
             {/* Provider */}
             <div id="tour-provider" style={{ marginBottom: 16 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 9 }}>
-                <div className="section-label">Provedor LLM</div>
+                <div className="section-label">{t('app.provider.label')}</div>
                 <button onClick={() => setShowSettings(true)}
                   style={{ fontSize: 12, fontWeight: 500, color: '#1A9494', background: 'none', border: 'none', cursor: 'pointer' }}>
-                  Gerenciar
+                  {t('app.provider.manage')}
                 </button>
               </div>
               <div style={{ position: 'relative' }}>
@@ -834,7 +872,7 @@ export default function AppShell() {
 
             {/* LLM Model */}
             <div style={{ marginBottom: 18 }}>
-              <div className="section-label" style={{ marginBottom: 9 }}>Modelo LLM</div>
+              <div className="section-label" style={{ marginBottom: 9 }}>{t('app.model.llm')}</div>
               <div style={{ position: 'relative' }}>
                 <button onClick={() => { setModelMenuOpen(v => !v); setProviderMenuOpen(false) }} style={{
                   width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
@@ -844,7 +882,7 @@ export default function AppShell() {
                     {modelsLoading ? (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                         <Spinner color="var(--text-faint)" />
-                        <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>Carregando modelos…</span>
+                        <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>{t('app.model.loading')}</span>
                       </div>
                     ) : (
                       <>
@@ -879,14 +917,14 @@ export default function AppShell() {
                           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
                             <path d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM8 5v3.5M8 10.5v.5" stroke="#b45309" strokeWidth="1.4" strokeLinecap="round"/>
                           </svg>
-                          <span style={{ fontSize: 12, color: '#92400e' }}>API key não cadastrada</span>
+                          <span style={{ fontSize: 12, color: '#92400e' }}>{t('app.model.no_key')}</span>
                         </div>
                         <button onClick={() => { setModelMenuOpen(false); setShowSettings(true) }} style={{
                           fontSize: 11.5, fontWeight: 600, color: '#b45309',
                           background: 'none', border: '1px solid #f5d08a', borderRadius: 6,
                           padding: '3px 9px', cursor: 'pointer', whiteSpace: 'nowrap',
                         }}>
-                          Configurar
+                          {t('app.model.configure')}
                         </button>
                       </div>
                     )}
@@ -895,7 +933,7 @@ export default function AppShell() {
                         <input
                           autoFocus
                           type="text"
-                          placeholder="Filtrar modelos…"
+                          placeholder={t('app.model.filter')}
                           value={modelSearch}
                           onChange={e => setModelSearch(e.target.value)}
                           onClick={e => e.stopPropagation()}
@@ -915,7 +953,7 @@ export default function AppShell() {
                         </div>
                       ) : filteredModels.length === 0 ? (
                         <div style={{ padding: '12px', fontSize: 12, color: 'var(--text-faint)', textAlign: 'center' }}>
-                          {modelSearch ? 'Nenhum modelo encontrado' : 'Sem modelos disponíveis'}
+                          {modelSearch ? t('app.model.not_found') : t('app.model.none')}
                         </div>
                       ) : filteredModels.map(m => (
                         <button key={m.id} onClick={() => handleChangeModel(m.id)} style={{
@@ -933,7 +971,7 @@ export default function AppShell() {
                           </div>
                           {m.price !== undefined && (
                             <span style={{ fontSize: 10.5, color: 'var(--text-faint)', fontFamily: 'IBM Plex Mono, monospace', flexShrink: 0 }}>
-                              {m.price === 0 ? 'grátis' : `$${m.price}/M`}
+                              {m.price === 0 ? t('app.model.free') : `$${m.price}/M`}
                             </span>
                           )}
                         </button>
@@ -946,7 +984,7 @@ export default function AppShell() {
 
             {/* Embedding Model */}
             <div id="tour-emb-model" style={{ marginBottom: 18 }}>
-              <div className="section-label" style={{ marginBottom: 9 }}>Modelo Embedding</div>
+              <div className="section-label" style={{ marginBottom: 9 }}>{t('app.model.emb')}</div>
               <div style={{ position: 'relative' }}>
                 <button onClick={() => { setEmbMenuOpen(v => !v); setProviderMenuOpen(false); setModelMenuOpen(false) }} style={{
                   width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
@@ -956,7 +994,7 @@ export default function AppShell() {
                     {embModelsLoading ? (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                         <Spinner color="var(--text-faint)" />
-                        <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>Carregando modelos…</span>
+                        <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>{t('app.model.loading')}</span>
                       </div>
                     ) : (
                       <>
@@ -986,7 +1024,7 @@ export default function AppShell() {
                         <input
                           autoFocus
                           type="text"
-                          placeholder="Filtrar modelos…"
+                          placeholder={t('app.model.filter')}
                           value={embModelSearch}
                           onChange={e => setEmbModelSearch(e.target.value)}
                           onClick={e => e.stopPropagation()}
@@ -1006,7 +1044,7 @@ export default function AppShell() {
                         </div>
                       ) : filteredEmbModels.length === 0 ? (
                         <div style={{ padding: '12px', fontSize: 12, color: 'var(--text-faint)', textAlign: 'center' }}>
-                          {embModelSearch ? 'Nenhum modelo encontrado' : 'Sem modelos disponíveis'}
+                          {embModelSearch ? t('app.model.not_found') : t('app.model.none')}
                         </div>
                       ) : filteredEmbModels.map(m => (
                         <button key={m.id} onClick={() => handleChangeEmbModel(m.id)} style={{
@@ -1033,8 +1071,8 @@ export default function AppShell() {
             {/* Cost estimate */}
             <div style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10, padding: '13px 14px' }}>
               {[
-                { label: 'Artigos vetorizados', value: String(vectorizedCount) },
-                { label: 'Est. tokens', value: vectorizedCount > 0 ? `~${Math.round(estimatedTokens / 1000)}K` : '—' },
+                { label: t('app.cost.articles'), value: String(vectorizedCount) },
+                { label: t('app.cost.tokens'), value: vectorizedCount > 0 ? `~${Math.round(estimatedTokens / 1000)}K` : '—' },
               ].map(({ label, value }) => (
                 <div key={label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                   <span style={{ fontSize: 12, color: '#5b6472' }}>{label}</span>
@@ -1045,7 +1083,7 @@ export default function AppShell() {
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                 paddingTop: 8, borderTop: '1px dashed #dfe2e8',
               }}>
-                <span style={{ fontSize: 12, color: '#5b6472' }}>Est. custo</span>
+                <span style={{ fontSize: 12, color: '#5b6472' }}>{t('app.cost.cost')}</span>
                 <span style={{ fontSize: 13.5, fontWeight: 700, fontFamily: 'IBM Plex Mono, monospace', color: '#1a1d23' }}>
                   {estimatedCost}
                 </span>
@@ -1069,12 +1107,12 @@ export default function AppShell() {
                 </svg>
               )}
               {analysisRunning
-                ? 'Analisando…'
+                ? t('app.run.running')
                 : canAnalyze
-                ? `Analisar ${vectorizedCount} artigos`
+                ? t('app.run.btn').replace('{n}', String(vectorizedCount))
                 : vectorizedCount === 0
-                ? 'Vetorize antes de analisar'
-                : 'Insira um critério de triagem'
+                ? t('app.run.no_vector')
+                : t('app.run.no_criteria')
               }
             </button>
           </div>
@@ -1162,8 +1200,9 @@ export default function AppShell() {
       )}
 
       {showSettings && <SettingsModal
-        onClose={() => setShowSettings(false)}
+        onClose={() => { setShowSettings(false); setTourSettingsSection(null) }}
         onSaved={handleSettingsSaved}
+        initialSection={tourSettingsSection ?? undefined}
       />}
     </div>
   )

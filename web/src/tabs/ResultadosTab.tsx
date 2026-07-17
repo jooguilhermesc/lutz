@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import StreamLog from '../components/StreamLog'
 import { useNotifications } from '../contexts/NotificationsContext'
 import { useLanguage } from '../contexts/LanguageContext'
@@ -8,6 +8,7 @@ import {
   type CitationsReport, type CitationsArticleEntry,
   type RoadmapReport,
 } from '../api/client'
+import { DEFAULT_CITATION_CRITERIA, DEFAULT_VERDICT_CATEGORIES, type VerdictCategory, deriveCode } from '../components/SettingsModal'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -60,13 +61,33 @@ function extractRoadmapContent(rm: RoadmapReport['roadmap']) {
 
 // ── Status meta ───────────────────────────────────────────────────────────────
 
-type Filter = 'all' | 'INCLUDE' | 'EXCLUDE' | 'UNCERTAIN'
+type Filter = 'all' | string
 
-const STATUS_META: Record<string, { label: string; dot: string; chipBg: string; chipFg: string }> = {
-  INCLUDE:   { label: 'Incluir',  dot: '#1f9d6b', chipBg: '#e6f5ee', chipFg: '#0f6b47' },
-  EXCLUDE:   { label: 'Excluir',  dot: '#9aa3b0', chipBg: '#eef0f3', chipFg: '#5b6472' },
-  UNCERTAIN: { label: 'Incerto',  dot: '#d69a2d', chipBg: '#fbf1dd', chipFg: '#8a6414' },
-  UNKNOWN:   { label: 'Aguard.',  dot: '#cfd4dc', chipBg: '#f4f5f7', chipFg: '#9aa3b0' },
+type StatusEntry = { label: string; dot: string; chipBg: string; chipFg: string }
+
+function loadVerdictCategories(): VerdictCategory[] {
+  try {
+    const stored = localStorage.getItem('lutz_verdict_categories')
+    if (stored) return JSON.parse(stored)
+  } catch { /* ignore */ }
+  return DEFAULT_VERDICT_CATEGORIES
+}
+
+function buildStatusMeta(cats: VerdictCategory[], unknownLabel: string): Record<string, StatusEntry> {
+  const meta: Record<string, StatusEntry> = {
+    UNKNOWN: { label: unknownLabel, dot: '#cfd4dc', chipBg: '#f4f5f7', chipFg: '#9aa3b0' },
+  }
+  for (const cat of cats) {
+    const code = deriveCode(cat.label)
+    if (!code) continue
+    meta[code] = {
+      label: cat.label || code,
+      dot: cat.color,
+      chipBg: cat.color + '22',
+      chipFg: cat.color,
+    }
+  }
+  return meta
 }
 
 function dot(c: string, sz = 8) {
@@ -86,14 +107,16 @@ function Spinner() {
 
 // ── Article card ──────────────────────────────────────────────────────────────
 
-function ArticleResultCard({ art, expanded, onToggle, citationsEntry }: {
+function ArticleResultCard({ art, expanded, onToggle, citationsEntry, statusMeta }: {
   art: ReportArticle
   expanded: boolean
   onToggle: () => void
   citationsEntry?: CitationsArticleEntry | null
+  statusMeta: Record<string, StatusEntry>
 }) {
+  const { t } = useLanguage()
   const key = (art.relevance ?? 'UNKNOWN').toUpperCase()
-  const s = STATUS_META[key] ?? STATUS_META.UNKNOWN
+  const s = statusMeta[key] ?? statusMeta.UNKNOWN
   return (
     <div style={{
       background: 'var(--surface)',
@@ -113,7 +136,7 @@ function ArticleResultCard({ art, expanded, onToggle, citationsEntry }: {
             {art.filename}
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {art.analysis ? art.analysis.slice(0, 80) + (art.analysis.length > 80 ? '…' : '') : 'Aguardando análise'}
+            {art.analysis ? art.analysis.slice(0, 80) + (art.analysis.length > 80 ? '…' : '') : t('results.status.waitingAnalysis')}
           </div>
         </div>
         {art.relevance && (
@@ -121,7 +144,7 @@ function ArticleResultCard({ art, expanded, onToggle, citationsEntry }: {
             <div style={{ fontSize: 12, fontWeight: 700, fontFamily: 'IBM Plex Mono, monospace', color: 'var(--text)' }}>
               {art.chunks_used ?? '—'} chunks
             </div>
-            <div style={{ fontSize: 10, color: 'var(--text-chip)', letterSpacing: '.05em' }}>USADOS</div>
+            <div style={{ fontSize: 10, color: 'var(--text-chip)', letterSpacing: '.05em' }}>{t('results.chunks.used')}</div>
           </div>
         )}
         <span style={{
@@ -141,7 +164,7 @@ function ArticleResultCard({ art, expanded, onToggle, citationsEntry }: {
       {expanded && art.analysis && (
         <div style={{ padding: '0 16px 16px', animation: 'vfade .18s ease' }}>
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
-            <div className="section-label" style={{ marginBottom: 8 }}>Análise do LLM</div>
+            <div className="section-label" style={{ marginBottom: 8 }}>{t('results.llm.analysis')}</div>
             <pre style={{
               fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6,
               background: 'var(--surface-2)', border: '1px solid var(--border)',
@@ -151,7 +174,7 @@ function ArticleResultCard({ art, expanded, onToggle, citationsEntry }: {
               {art.analysis}
             </pre>
             {art.error && (
-              <p style={{ fontSize: 12, color: '#ef4444', marginTop: 8 }}>Erro: {art.error}</p>
+              <p style={{ fontSize: 12, color: '#ef4444', marginTop: 8 }}>{t('results.error.prefix')} {art.error}</p>
             )}
             <div style={{ display: 'flex', gap: 8, marginTop: 12, fontSize: 12, color: 'var(--text-faint)', fontFamily: 'IBM Plex Mono, monospace' }}>
               <span>{art.llm_total_tokens} tokens</span>
@@ -161,7 +184,7 @@ function ArticleResultCard({ art, expanded, onToggle, citationsEntry }: {
 
             {citationsEntry && (citationsEntry.citations?.length ?? 0) > 0 && (
               <div style={{ marginTop: 16 }}>
-                <div className="section-label" style={{ marginBottom: 8 }}>Citações de suporte</div>
+                <div className="section-label" style={{ marginBottom: 8 }}>{t('results.citations.title')}</div>
                 {citationsEntry.reasoning && (
                   <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10, fontStyle: 'italic', lineHeight: 1.5 }}>
                     {citationsEntry.reasoning}
@@ -187,7 +210,7 @@ function ArticleResultCard({ art, expanded, onToggle, citationsEntry }: {
                 </div>
                 {citationsEntry.confidence != null && (
                   <p style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 6, fontFamily: 'IBM Plex Mono, monospace' }}>
-                    Confiança: {citationsEntry.confidence}%
+                    {t('results.confidence')} {citationsEntry.confidence}%
                   </p>
                 )}
               </div>
@@ -206,6 +229,7 @@ function RoadmapModal({ data, reportName, onClose }: {
   reportName: string | null
   onClose: () => void
 }) {
+  const { t } = useLanguage()
   const { metadata } = data
   const { overview, stages } = extractRoadmapContent(data.roadmap)
 
@@ -225,7 +249,7 @@ function RoadmapModal({ data, reportName, onClose }: {
           padding: '18px 24px', borderBottom: '1px solid var(--border)',
         }}>
           <div>
-            <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>Roteiro de leitura</span>
+            <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>{t('results.roadmap.title')}</span>
             <span style={{ marginLeft: 10, fontSize: 12, color: 'var(--text-faint)', fontFamily: 'IBM Plex Mono, monospace' }}>
               {metadata.llm?.model} · {metadata.llm?.total_tokens?.toLocaleString()} tokens · {metadata.elapsed_seconds?.toFixed(1)}s
             </span>
@@ -281,11 +305,11 @@ function RoadmapModal({ data, reportName, onClose }: {
                 <path d="M8 2v8M5 7l3 3 3-3" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                 <path d="M3 12h10" stroke="#fff" strokeWidth="1.5" strokeLinecap="round"/>
               </svg>
-              Exportar PDF
+              {t('results.roadmap.export')}
             </button>
           )}
           <button onClick={onClose} style={{ padding: '8px 16px', border: '1px solid var(--border)', borderRadius: 9, cursor: 'pointer', fontSize: 13, fontWeight: 600, background: 'var(--surface)', color: 'var(--text-muted)' }}>
-            Fechar
+            {t('results.roadmap.close')}
           </button>
         </div>
       </div>
@@ -305,8 +329,11 @@ interface Props {
 
 export default function ResultadosTab({ report, activeReportName, analysisRunning, logs, analysisDone }: Props) {
   const { dispatchJob, jobs } = useNotifications()
-  const { reportLang } = useLanguage()
+  const { reportLang, t } = useLanguage()
   const [filter, setFilter] = useState<Filter>('all')
+  const [verdictVersion, setVerdictVersion] = useState(0)
+  const statusMeta = useMemo(() => buildStatusMeta(loadVerdictCategories(), t('results.status.unknown')), [verdictVersion, t]) // eslint-disable-line react-hooks/exhaustive-deps
+  const verdictCats = useMemo(() => loadVerdictCategories(), [verdictVersion]) // eslint-disable-line react-hooks/exhaustive-deps
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
   // Citations
@@ -319,6 +346,14 @@ export default function ResultadosTab({ report, activeReportName, analysisRunnin
   const [rmData, setRmData] = useState<RoadmapReport | null>(null)
   const [rmReportName, setRmReportName] = useState<string | null>(null)
   const [showRmModal, setShowRmModal] = useState(false)
+
+  useEffect(() => {
+    const handler = (e: StorageEvent) => {
+      if (e.key === 'lutz_verdict_categories') setVerdictVersion(v => v + 1)
+    }
+    window.addEventListener('storage', handler)
+    return () => window.removeEventListener('storage', handler)
+  }, [])
 
   // Auto-load existing reports when the analysis report changes
   useEffect(() => {
@@ -385,12 +420,18 @@ export default function ResultadosTab({ report, activeReportName, analysisRunnin
   const rmRunning = rmJob?.status === 'queued' || rmJob?.status === 'running'
 
   const arts = report?.articles ?? []
-  const counts = { all: arts.length, INCLUDE: 0, EXCLUDE: 0, UNCERTAIN: 0 }
+  const catCounts: Record<string, number> = { all: arts.length }
+  for (const cat of verdictCats) {
+    catCounts[deriveCode(cat.label)] = 0
+  }
   for (const a of arts) {
     const k = (a.relevance ?? 'UNKNOWN').toUpperCase()
-    if (k === 'INCLUDE') counts.INCLUDE++
-    else if (k === 'EXCLUDE') counts.EXCLUDE++
-    else counts.UNCERTAIN++
+    if (k in catCounts) catCounts[k]++
+    else {
+      // Article has a label not in current config — count under first non-include category
+      const fallback = verdictCats.find(c => !c.extractCitations)
+      if (fallback) catCounts[deriveCode(fallback.label)] = (catCounts[deriveCode(fallback.label)] ?? 0) + 1
+    }
   }
 
   const visible = filter === 'all' ? arts : arts.filter(a =>
@@ -398,10 +439,8 @@ export default function ResultadosTab({ report, activeReportName, analysisRunnin
   )
 
   const filterDefs: Array<{ id: Filter; label: string }> = [
-    { id: 'all',       label: 'Todos'  },
-    { id: 'INCLUDE',   label: 'Incluir' },
-    { id: 'EXCLUDE',   label: 'Excluir' },
-    { id: 'UNCERTAIN', label: 'Incerto' },
+    { id: 'all', label: t('results.filter.all') },
+    ...verdictCats.map(cat => ({ id: deriveCode(cat.label), label: cat.label || deriveCode(cat.label) })),
   ]
 
   function getCitationsEntry(filename: string): CitationsArticleEntry | null {
@@ -412,7 +451,18 @@ export default function ResultadosTab({ report, activeReportName, analysisRunnin
     if (!activeReportName || citRunning) return
     setCitData(null)
     setCitReportName(null)
-    const job = await dispatchJob('citations', { report: activeReportName, language: reportLang })
+    const citationInstructions = localStorage.getItem('lutz_citation_criteria') || undefined
+    const includeLabels = verdictCats
+      .filter(c => c.extractCitations)
+      .map(c => deriveCode(c.label))
+      .filter(Boolean)
+      .join(',')
+    const job = await dispatchJob('citations', {
+      report: activeReportName,
+      language: reportLang,
+      citation_instructions: citationInstructions !== DEFAULT_CITATION_CRITERIA ? citationInstructions : undefined,
+      extract_citations_labels: includeLabels || undefined,
+    })
     setCitJobId(job.id)
   }
 
@@ -426,7 +476,9 @@ export default function ResultadosTab({ report, activeReportName, analysisRunnin
     setRmJobId(job.id)
   }
 
-  const showActions = !!report && counts.INCLUDE > 0 && !!activeReportName
+  const includeCodes = verdictCats.filter(c => c.extractCitations).map(c => deriveCode(c.label))
+  const includeCount = arts.filter(a => includeCodes.includes((a.relevance ?? '').toUpperCase())).length
+  const showActions = !!report && includeCount > 0 && !!activeReportName
 
   if (analysisRunning) {
     return (
@@ -437,9 +489,9 @@ export default function ResultadosTab({ report, activeReportName, analysisRunnin
             <circle cx="8" cy="8" r="6.4" stroke="var(--border-2)" strokeWidth="2"/>
             <path d="M8 1.6a6.4 6.4 0 0 1 6.4 6.4" stroke="#1A9494" strokeWidth="2" strokeLinecap="round"/>
           </svg>
-          <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}>Analisando artigos…</span>
+          <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}>{t('results.analysing')}</span>
           <span className="text-xs text-lutz-500 bg-lutz-50 px-2.5 py-1 rounded-full border border-lutz-200">
-            rodando em segundo plano
+            {t('results.background')}
           </span>
         </div>
         <StreamLog lines={logs} running={analysisRunning} className="flex-1" />
@@ -452,14 +504,16 @@ export default function ResultadosTab({ report, activeReportName, analysisRunnin
       <div className="flex-1 flex items-center justify-center">
         <div style={{ textAlign: 'center', color: 'var(--text-faint)' }}>
           {analysisDone === false ? (
-            <p style={{ fontSize: 13.5, color: '#ef4444' }}>Análise encerrada com erro. Verifique o painel de jobs.</p>
+            <p style={{ fontSize: 13.5, color: '#ef4444' }}>{t('results.error.failed')}</p>
           ) : (
             <>
               <svg width="44" height="44" viewBox="0 0 24 24" fill="none" style={{ margin: '0 auto 12px', opacity: 0.3, color: 'var(--text-faint)', display: 'block' }}>
                 <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="1.5"/>
                 <path d="m21 21-4.35-4.35" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
               </svg>
-              <p style={{ fontSize: 13.5, color: 'var(--text-faint)' }}>Configure o critério de triagem e clique em <strong style={{ color: 'var(--text-muted)' }}>Analisar</strong> para ver os resultados aqui.</p>
+              <p style={{ fontSize: 13.5, color: 'var(--text-faint)' }}>
+                {t('results.empty.setup')} <strong style={{ color: 'var(--text-muted)' }}>{t('results.empty.button')}</strong> {t('results.empty.suffix')}
+              </p>
             </>
           )}
         </div>
@@ -490,7 +544,7 @@ export default function ResultadosTab({ report, activeReportName, analysisRunnin
                   background: active ? '#e8f8f8' : 'var(--border)',
                   color: active ? '#1A9494' : 'var(--text-faint)',
                 }}>
-                  {counts[fd.id === 'all' ? 'all' : fd.id]}
+                  {catCounts[fd.id] ?? 0}
                 </span>
               </button>
             )
@@ -512,7 +566,7 @@ export default function ResultadosTab({ report, activeReportName, analysisRunnin
                 }
               }}
               disabled={citRunning}
-              title={citData ? 'Baixar PDF das citações' : 'Extrair citações dos artigos incluídos'}
+              title={citData ? t('results.cit.tooltip.download') : t('results.cit.tooltip.extract')}
               style={{
                 display: 'flex', alignItems: 'center', gap: 6,
                 padding: '6px 12px', border: '1px solid var(--border)', borderRadius: 8,
@@ -528,7 +582,7 @@ export default function ResultadosTab({ report, activeReportName, analysisRunnin
                   <path d="M3 4h2v8H3V4ZM11 4h2v8h-2V4ZM5 7h6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
               )}
-              {citRunning ? 'Extraindo…' : citData ? 'Citações ⬇' : 'Extrair citações'}
+              {citRunning ? t('results.cit.extracting') : citData ? t('results.cit.download') : t('results.cit.extract')}
             </button>
 
             {/* Roadmap button */}
@@ -538,7 +592,7 @@ export default function ResultadosTab({ report, activeReportName, analysisRunnin
                 if (rmData) { setShowRmModal(true) } else { handleRoadmap() }
               }}
               disabled={rmRunning}
-              title={rmData ? 'Ver roteiro de leitura' : 'Gerar roteiro de leitura'}
+              title={rmData ? t('results.rm.tooltip.view') : t('results.rm.tooltip.generate')}
               style={{
                 display: 'flex', alignItems: 'center', gap: 6,
                 padding: '6px 12px', border: '1px solid var(--border)', borderRadius: 8,
@@ -555,7 +609,7 @@ export default function ResultadosTab({ report, activeReportName, analysisRunnin
                   <path d="M5 6h6M5 9h4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
                 </svg>
               )}
-              {rmRunning ? 'Gerando…' : rmData ? 'Ver roteiro' : 'Roteiro de leitura'}
+              {rmRunning ? t('results.rm.generating') : rmData ? t('results.rm.view') : t('results.rm.generate')}
             </button>
           </div>
         )}
@@ -566,30 +620,30 @@ export default function ResultadosTab({ report, activeReportName, analysisRunnin
       </div>
 
       {/* Summary cards */}
-      <div style={{ flexShrink: 0, display: 'flex', gap: 12, padding: '0 24px 16px' }}>
-        {[
-          { label: 'Incluir',  count: counts.INCLUDE,   dotColor: '#1f9d6b' },
-          { label: 'Excluir',  count: counts.EXCLUDE,   dotColor: '#9aa3b0' },
-          { label: 'Incerto',  count: counts.UNCERTAIN, dotColor: '#d69a2d' },
-        ].map(s => (
-          <div key={s.label} style={{
-            flex: 1, background: 'var(--surface)', border: '1px solid var(--border)',
-            borderRadius: 11, padding: 12, display: 'flex', alignItems: 'center', gap: 12,
-          }}>
-            {dot(s.dotColor, 12)}
-            <div>
-              <div style={{ fontSize: 20, fontWeight: 700, fontFamily: 'IBM Plex Mono, monospace', color: 'var(--text)', lineHeight: 1 }}>{s.count}</div>
-              <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 2 }}>{s.label}</div>
+      <div style={{ flexShrink: 0, display: 'flex', gap: 12, padding: '0 24px 16px', flexWrap: 'wrap' }}>
+        {verdictCats.map(cat => {
+          const code = deriveCode(cat.label)
+          const meta = statusMeta[code] ?? statusMeta.UNKNOWN
+          return (
+            <div key={code} style={{
+              flex: 1, minWidth: 100, background: 'var(--surface)', border: '1px solid var(--border)',
+              borderRadius: 11, padding: 12, display: 'flex', alignItems: 'center', gap: 12,
+            }}>
+              {dot(meta.dot, 12)}
+              <div>
+                <div style={{ fontSize: 20, fontWeight: 700, fontFamily: 'IBM Plex Mono, monospace', color: 'var(--text)', lineHeight: 1 }}>{catCounts[code] ?? 0}</div>
+                <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 2 }}>{meta.label}</div>
+              </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
 
       {/* Results list */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '0 24px 24px', display: 'flex', flexDirection: 'column', gap: 8 }}>
         {visible.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--text-faint)', fontSize: 13.5 }}>
-            Nenhum resultado neste filtro.
+            {t('results.noResults')}
           </div>
         ) : visible.map(a => (
           <ArticleResultCard
@@ -598,6 +652,7 @@ export default function ResultadosTab({ report, activeReportName, analysisRunnin
             expanded={expandedId === a.filename}
             onToggle={() => setExpandedId(v => v === a.filename ? null : a.filename)}
             citationsEntry={getCitationsEntry(a.filename)}
+            statusMeta={statusMeta}
           />
         ))}
       </div>
