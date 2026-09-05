@@ -9,6 +9,7 @@ import git
 from rich.console import Console
 from rich.panel import Panel
 
+from lutz.utils.console import ARROW, CHECK, DASH
 from lutz.utils.templates import (
     get_gitignore_template,
     get_env_example_template,
@@ -46,7 +47,7 @@ def init(project_name: str) -> None:
 
     \b
     After init:
-      1. Copy .env.example → .env and set EMBEDDING_PROVIDER, LLM_PROVIDER, etc.
+      1. Copy .env.example -> .env and set EMBEDDING_PROVIDER, LLM_PROVIDER, etc.
       2. Add PDFs with 'lutz load' or copy them directly to articles/.
       3. Run 'lutz vectorize' to build the vector index.
       4. Run 'lutz analysis --p prompts/<prompt>.md' to analyse.
@@ -78,18 +79,18 @@ def init(project_name: str) -> None:
         (project_path / subdir).mkdir(parents=True, exist_ok=True)
         # keep empty dirs tracked in git
         (project_path / subdir / ".gitkeep").touch()
-    console.print("[green]✓[/] Directories created")
+    console.print(f"[green]{CHECK}[/] Directories created")
 
     # --- static files --------------------------------------------------------
     _write(project_path / ".gitignore", get_gitignore_template())
     _write(project_path / ".env.example", get_env_example_template())
     _write(project_path / "README.md", get_readme_template(project_path.name))
-    console.print("[green]✓[/] Configuration files written")
+    console.print(f"[green]{CHECK}[/] Configuration files written")
 
     # --- prompt templates ----------------------------------------------------
     for name, content in get_prompt_templates().items():
         _write(project_path / "prompts" / name, content)
-    console.print("[green]✓[/] Prompt templates written to prompts/")
+    console.print(f"[green]{CHECK}[/] Prompt templates written to prompts/")
 
     # --- git repository ------------------------------------------------------
     try:
@@ -98,15 +99,18 @@ def init(project_name: str) -> None:
         if repo.index.diff("HEAD") or repo.untracked_files:
             repo.index.add(repo.untracked_files)
             repo.index.commit("chore: initialise lutz research project")
-        console.print("[green]✓[/] Git repository initialised")
+        console.print(f"[green]{CHECK}[/] Git repository initialised")
     except Exception as exc:  # pragma: no cover
-        console.print(f"[yellow]Warning:[/] could not initialise git repository — {exc}")
+        console.print(
+            f"[yellow]Warning:[/] could not initialise git repository {DASH} {exc}"
+        )
 
     console.print(
         Panel.fit(
             "[bold green]Project ready![/]\n\n"
             "Next steps:\n"
-            "  1. Copy [cyan].env.example[/] → [cyan].env[/] and set your model configuration\n"
+            f"  1. Copy [cyan].env.example[/] {ARROW} [cyan].env[/] and set your "
+            "model configuration\n"
             "  2. Add PDF articles to [cyan]articles/[/]  (or use [bold]lutz load[/])\n"
             "  3. Run [bold]lutz vectorize[/] to index your articles\n"
             "  4. Run [bold]lutz analysis --p prompts/systematic_review.md[/]",

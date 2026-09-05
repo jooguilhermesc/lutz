@@ -168,7 +168,10 @@ class SecurityChecker:
 
         # --- Primary extractor: pymupdf (fast C library, MuPDF) ---------------
         try:
-            import fitz  # pymupdf
+            try:
+                import pymupdf as fitz
+            except ImportError:  # pymupdf < 1.24.3 ships only the legacy module
+                import fitz
 
             doc = fitz.open(str(path))
             cached_pages = [(i + 1, page.get_text("text") or "") for i, page in enumerate(doc)]

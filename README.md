@@ -28,6 +28,20 @@ python -m venv .venv && source .venv/bin/activate
 pip install lutz-research
 ```
 
+### Windows: garbled or crashing output
+
+Legacy consoles (cmd.exe, PowerShell 5) run on a non-UTF-8 code page such as
+cp1252. Lutz 0.5.8+ reconfigures stdio to UTF-8 automatically and falls back to
+ASCII symbols when it cannot. On **older versions**, `lutz vectorize` may abort
+with `UnicodeEncodeError: 'charmap' codec can't encode character '\u2192'`.
+Workaround:
+
+```bat
+set PYTHONUTF8=1
+:: or, in the current console only:
+chcp 65001
+```
+
 ---
 
 ## Quick start

@@ -44,7 +44,10 @@ def extract_pages(path: Path) -> list[tuple[int, str]]:
 def _extract_pdf(path: Path) -> list[tuple[int, str]]:
     """Extract pages from a PDF using pymupdf, falling back to pdfplumber."""
     try:
-        import fitz  # pymupdf
+        try:
+            import pymupdf as fitz
+        except ImportError:  # pymupdf < 1.24.3 ships only the legacy module
+            import fitz
 
         doc = fitz.open(str(path))
         pages = []

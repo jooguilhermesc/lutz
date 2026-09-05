@@ -10,6 +10,7 @@ import click
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 
+from lutz.utils.console import DASH
 from lutz.utils.project import require_project_root
 from lutz.utils.pdf import is_valid_pdf
 
@@ -106,7 +107,9 @@ def load(folder: str, source_os: str, overwrite: bool) -> None:
                 continue
 
             if not is_valid_pdf(pdf):
-                console.print(f"  [red]invalid[/] {pdf.name} — not a valid PDF, skipping")
+                console.print(
+                    f"  [red]invalid[/] {pdf.name} {DASH} not a valid PDF, skipping"
+                )
                 invalid += 1
                 continue
 

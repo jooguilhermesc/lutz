@@ -171,6 +171,45 @@ Veja a seção [Interface Web](/guide/interface/home) para uma descrição compl
 
 ---
 
+## Solução de problemas no Windows
+
+### Saída corrompida (`Phase 1/3 ?`) ou `UnicodeEncodeError`
+
+Consoles legados (cmd.exe e PowerShell 5) usam a code page ANSI do sistema —
+normalmente `cp1252` — e o Python segue essa configuração até a versão 3.14.
+Símbolos como `→`, `✓` e `—` não existem nessa code page, então o
+`lutz vectorize` podia abortar no meio do corpus com:
+
+```
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2192'
+```
+
+A partir da versão **0.5.8** o Lutz reconfigura `stdout`/`stderr` para UTF-8 no
+Windows e, quando isso não é possível (saída redirecionada para arquivo ou
+pipe), troca os símbolos por equivalentes ASCII (`->`, `OK`, `-`).
+
+Se você estiver em uma versão anterior, use um dos contornos abaixo antes de
+rodar o comando:
+
+::: code-group
+
+```bat [cmd.exe]
+set PYTHONUTF8=1
+lutz vectorize
+```
+
+```powershell [PowerShell]
+$env:PYTHONUTF8 = "1"
+lutz vectorize
+```
+
+```bat [Alterar a code page do console]
+chcp 65001
+lutz vectorize
+```
+
+:::
+
 ## Fluxo completo de revisão sistemática
 
 ```bash

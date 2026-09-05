@@ -77,7 +77,10 @@ class PyMuPDFStrategy:
         """Extract text using pymupdf with pdfplumber / pypdf fallbacks."""
         # 1. pymupdf (MuPDF C binding — fastest, best layout handling)
         try:
-            import fitz  # pymupdf
+            try:
+                import pymupdf as fitz
+            except ImportError:  # pymupdf < 1.24.3 ships only the legacy module
+                import fitz
 
             doc = fitz.open(str(pdf_path))
             pages = [(i + 1, page.get_text("text") or "") for i, page in enumerate(doc)]
