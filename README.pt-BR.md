@@ -10,7 +10,7 @@
 
 [![DOI](https://zenodo.org/badge/1227342715.svg)](https://doi.org/10.5281/zenodo.19982571)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
-![Version](https://img.shields.io/badge/Version-0.5.4-blueviolet)
+![Version](https://img.shields.io/badge/Version-0.5.8-blueviolet)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
 ---
@@ -129,7 +129,7 @@ Guias completos, referência do CLI e capturas de tela em **[jooguilhermesc.gith
   author  = {Cabral, João Guilherme Silva and Azevedo Farias, Anna Karoline},
   title   = {{Lutz: AI-powered academic article screening and analysis tool}},
   year    = {2026},
-  version = {0.5.4},
+  version = {0.5.8},
   doi     = {10.5281/zenodo.19982571},
   url     = {https://github.com/jooguilhermesc/lutz}
 }
