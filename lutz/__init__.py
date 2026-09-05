@@ -13,5 +13,5 @@ from lutz.utils.console import force_utf8_stdio
 
 force_utf8_stdio()
 
-__version__ = "0.5.0"
+__version__ = "0.5.8"
 __author__ = "Lutz Contributors"
