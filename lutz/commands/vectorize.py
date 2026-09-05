@@ -13,6 +13,7 @@ from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 from rich.panel import Panel
 
+from lutz.utils.console import ARROW, CHECK, DASH
 from lutz.utils.project import require_project_root, load_env
 from lutz.utils.pdf import is_valid_pdf
 from lutz.core.security_checker import SecurityChecker, SecurityReport, detect_corpus_anomalies
@@ -45,7 +46,7 @@ console = Console()
     "--chunk-size", default=512, show_default=True,
     help=(
         "Sliding-window size in words (not LLM tokens). "
-        "512 words ≈ 680 LLM tokens. "
+        "512 words ~ 680 LLM tokens. "
         "Smaller values increase retrieval granularity but raise chunk count and embedding cost."
     ),
 )
@@ -63,7 +64,7 @@ console = Console()
     default=False,
     help=(
         "Process PDFs from articles/_quarantine/ instead of articles/. "
-        "The security scan is skipped — use only after manually reviewing the quarantined files."
+        "The security scan is skipped - use only after manually reviewing the quarantined files."
     ),
 )
 @click.option(
@@ -71,7 +72,7 @@ console = Console()
     default=False,
     show_default=True,
     help=(
-        "Split each article into sections (abstract, introduction, methodology, …) "
+        "Split each article into sections (abstract, introduction, methodology, ...) "
         "before chunking.  Each chunk is annotated with its section name so the LLM "
         "receives richer context.  Chunks never cross section boundaries. "
         "When --extraction marker is active, sections are parsed directly from the "
@@ -118,23 +119,23 @@ def vectorize(
 
     \b
     Workflow (normal mode):
-      1. Security scan  — structural PDF analysis, prompt-injection detection,
+      1. Security scan  - structural PDF analysis, prompt-injection detection,
                           academic-structure validation, and corpus-level anomaly
                           detection (IsolationForest, applied when >= 5 PDFs).
          Suspicious files are moved to articles/_quarantine/ and excluded.
-      2. Text extraction — configurable backend (see --extraction).
-      3. Section parsing — (optional, --section-parse) splits each article into
+      2. Text extraction - configurable backend (see --extraction).
+      3. Section parsing - (optional, --section-parse) splits each article into
                           sections (abstract, introduction, methodology, results,
-                          discussion, conclusion, references …) before chunking.
+                          discussion, conclusion, references ...) before chunking.
                           When --extraction marker is active, sections come from
                           Markdown headings; otherwise layout-parser or heuristics.
                           Each chunk is tagged with its section name.
-      4. Chunking        — sliding window over words (not LLM tokens).
-                          chunk-size=512 words ≈ 680 LLM tokens.
+      4. Chunking        - sliding window over words (not LLM tokens).
+                          chunk-size=512 words ~ 680 LLM tokens.
                           With --section-parse, chunks never cross section boundaries.
-      5. Embedding       — one embedding API call per article; provider and model
+      5. Embedding       - one embedding API call per article; provider and model
                           are read from .env (EMBEDDING_PROVIDER, EMBEDDING_MODEL).
-      6. Storage         — chunks are upserted into LanceDB.
+      6. Storage         - chunks are upserted into LanceDB.
 
     \b
     Quarantine mode (--quarantine):
@@ -224,7 +225,7 @@ def vectorize(
             console.print("[yellow]Warning:[/] security check skipped.\n")
         approved = pdf_files
     else:
-        console.print("[bold]Phase 1/3 — Security scan[/]")
+        console.print(f"[bold]Phase 1/3 {DASH} Security scan[/]")
         checker = SecurityChecker()
         quarantine_dir = articles_dir / "_quarantine"
 
@@ -264,9 +265,11 @@ def vectorize(
                 shutil.move(str(rep.path), str(dest))
                 console.print(f"  [red]quarantined[/] {rep.path.name}")
                 for reason in rep.reasons:
-                    console.print(f"    [dim]→ {reason}[/]")
+                    console.print(f"    [dim]{ARROW} {reason}[/]")
         else:
-            console.print(f"[green]✓[/] All {len(safe)} file(s) passed the security scan.\n")
+            console.print(
+                f"[green]{CHECK}[/] All {len(safe)} file(s) passed the security scan.\n"
+            )
 
         approved = [r.path for r in safe]
 
@@ -296,8 +299,8 @@ def vectorize(
     # ------------------------------------------------------------------
     # Extraction phase — parallel extraction using ThreadPoolExecutor
     # ------------------------------------------------------------------
-    phase_label = "Phase 2/3" if not section_parse else "Phase 2–3/4"
-    console.print(f"[bold]{phase_label} — Text extraction[/]")
+    phase_label = "Phase 2/3" if not section_parse else f"Phase 2{DASH}3/4"
+    console.print(f"[bold]{phase_label} {DASH} Text extraction[/]")
 
     processor = PDFProcessor(
         chunk_size=chunk_size,
@@ -401,7 +404,7 @@ def vectorize(
     total_chunks = sum(len(c) for c in chunks_by_file.values())
     section_note = " (section-aware)" if section_parse else ""
     console.print(
-        f"[green]✓[/] Extracted {total_chunks} chunk(s){section_note} "
+        f"[green]{CHECK}[/] Extracted {total_chunks} chunk(s){section_note} "
         f"from {len(approved)} file(s).\n"
     )
 
@@ -421,7 +424,8 @@ def vectorize(
             )
         else:
             console.print(
-                f"[dim]{len(sparse_pdfs)} PDF(s) detected as scanned → processed with marker.[/]\n"
+                f"[dim]{len(sparse_pdfs)} PDF(s) detected as scanned {ARROW} "
+                "processed with marker.[/]\n"
             )
 
     if section_parse:
@@ -437,7 +441,7 @@ def vectorize(
     # ------------------------------------------------------------------
     # Embedding + storage phase
     # ------------------------------------------------------------------
-    console.print("[bold]Phase 3/3 — Embedding and indexing[/]")
+    console.print(f"[bold]Phase 3/3 {DASH} Embedding and indexing[/]")
     embedding_client = EmbeddingClient.from_env(env)
     vector_store = VectorStore(project_root / ".lutz" / "vector_store")
 
@@ -506,7 +510,7 @@ def unvectorize() -> None:
     \b
     This removes every chunk stored in .lutz/vector_store/ but does NOT
     touch your PDF files in articles/. Use this command when you want to
-    rebuild the index from scratch — for example after changing the embedding
+    rebuild the index from scratch - for example after changing the embedding
     model or chunk size, which would otherwise mix incompatible vectors in
     the same store.
 

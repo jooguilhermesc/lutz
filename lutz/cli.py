@@ -21,7 +21,7 @@ console = Console()
 @click.group()
 @click.version_option(package_name="lutz-research")
 def cli() -> None:
-    """Lutz — AI-powered academic article screening tool.
+    """Lutz - AI-powered academic article screening tool.
 
     Use 'lutz COMMAND --help' for information on a specific command.
     """

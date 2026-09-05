@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- **Crash do `lutz vectorize` em consoles Windows legados** — `cmd.exe` e PowerShell 5 usam a code page ANSI (`cp1252`), na qual símbolos como `→` e `✓` não existem; o comando abortava com `UnicodeEncodeError: 'charmap' codec can't encode character '\u2192'` no meio do processamento do corpus. O Lutz agora reconfigura `stdout`/`stderr` para UTF-8 com `errors="replace"` no import do pacote (antes de qualquer `Console()` ser criado) e, como defesa em profundidade, degrada os símbolos para ASCII (`->`, `OK`, `x`, `*`, `-`) quando a saída não usa um codec UTF — o que também elimina a corrupção visual do tipo `Phase 1/3 ?` causada pelo travessão em consoles com code page OEM
+- **Aviso de depreciação do pymupdf** — `import fitz` substituído por `import pymupdf as fitz` (com fallback para o módulo legado) em `security_checker.py`, `extraction.py`, `server/app.py` e `utils/document_reader.py`; a mensagem `warning: The 'fitz' API is deprecated...` não aparece mais a cada execução
+
+### Added
+
+- **`lutz/utils/console.py`** — helper `force_utf8_stdio()` e constantes de símbolo com fallback ASCII (`ARROW`, `CHECK`, `CROSS`, `BULLET`, `DASH`) usadas no fluxo `init`/`load`/`vectorize`/`analysis`
+- **Seção "Solução de problemas no Windows"** no guia de início rápido e nos READMEs (pt/en/es), com os contornos `set PYTHONUTF8=1` e `chcp 65001` para quem estiver em versões anteriores
+
 ## [0.5.7] - 2026-07-17
 
 ### Changed

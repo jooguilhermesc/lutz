@@ -28,6 +28,21 @@ python -m venv .venv && source .venv/bin/activate
 pip install lutz-research
 ```
 
+### Windows: saída corrompida ou travando
+
+Consoles legados (cmd.exe, PowerShell 5) usam uma code page que não é UTF-8,
+como cp1252. A partir da versão 0.5.8 o Lutz reconfigura a saída para UTF-8
+automaticamente e usa símbolos ASCII quando não é possível. Em **versões
+anteriores**, o `lutz vectorize` pode abortar com
+`UnicodeEncodeError: 'charmap' codec can't encode character '\u2192'`.
+Contorno:
+
+```bat
+set PYTHONUTF8=1
+:: ou, apenas no console atual:
+chcp 65001
+```
+
 ---
 
 ## Início rápido

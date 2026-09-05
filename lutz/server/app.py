@@ -505,7 +505,10 @@ async def suggest_article_rename(name: str) -> dict:
         # Extract text from the first 3 pages of the PDF directly — no vector store needed
         sample_text = ""
         try:
-            import fitz  # pymupdf
+            try:
+                import pymupdf as fitz
+            except ImportError:  # pymupdf < 1.24.3 ships only the legacy module
+                import fitz
             doc = fitz.open(str(target))
             pages_text = []
             for page_num in range(min(3, len(doc))):

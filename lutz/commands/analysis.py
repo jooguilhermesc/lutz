@@ -15,6 +15,7 @@ from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 from rich.table import Table
 
+from lutz.utils.console import CHECK, CROSS, DASH
 from lutz.utils.project import require_project_root, load_env
 from lutz.core.vector_store import VectorStore
 from lutz.core.context_store import ContextStore
@@ -256,7 +257,7 @@ def _user_message(
     help=(
         "Per-article mode only. Number of concurrent LLM calls (ThreadPoolExecutor). "
         "Effective for remote APIs (OpenAI, Anthropic, OpenRouter) where the bottleneck "
-        "is network I/O. For local models (Docker Model Runner), keep at 1 — requests "
+        "is network I/O. For local models (Docker Model Runner), keep at 1 - requests "
         "queue on the GPU anyway. Increase carefully to avoid API rate-limit errors (429)."
     ),
 )
@@ -268,7 +269,7 @@ def _user_message(
         "Per-article mode only. Maximum number of chunks sent to the LLM per article. "
         "Chunks are taken from the beginning of the document (document order). "
         "Use this to cap context size when articles exceed the model's context window. "
-        "Example: --max-chunks-per-article 10 sends at most 10 × 512 words ≈ 7 000 LLM tokens. "
+        "Example: --max-chunks-per-article 10 sends at most 10 x 512 words ~ 7 000 LLM tokens. "
         "Default: no limit (all chunks for the article are sent)."
     ),
 )
@@ -308,7 +309,7 @@ def _user_message(
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
     help=(
         "Path to a YAML file defining multiple experiments to run sequentially. "
-        "When this option is used all other flags are ignored — each experiment "
+        "When this option is used all other flags are ignored - each experiment "
         "defines its own parameters inside the YAML file. "
         "A summary JSON is saved alongside the individual experiment reports. "
         "See 'lutz analysis --multiple experiments.yaml' for the expected YAML schema."
@@ -355,7 +356,7 @@ def analysis(
       synthesis questions where the most relevant passages are unknown in advance.
 
       Context window estimate:
-        top-k=10 chunks × 512 words × 1.33 ≈ 6 800 LLM tokens of article text,
+        top-k=10 chunks x 512 words x 1.33 ~ 6 800 LLM tokens of article text,
         plus system prompt (~60 tokens) and researcher prompt (variable).
 
     \b
@@ -365,7 +366,7 @@ def analysis(
       need an inclusion/exclusion decision for every article.
 
       Context window estimate per call:
-        ~23 chunks (corpus average) × 512 words × 1.33 ≈ 15 700 LLM tokens.
+        ~23 chunks (corpus average) x 512 words x 1.33 ~ 15 700 LLM tokens.
         Use --max-chunks-per-article to cap this for models with smaller windows.
 
       Performance tip:
@@ -452,7 +453,10 @@ def analysis(
         section_filter = [s.strip() for s in filter_sections.split(",") if s.strip()]
 
     mode = "per_article" if per_article else "rag"
-    top_k_display = "*" if (not per_article and top_k is None) else (top_k if not per_article else "—")
+    if per_article:
+        top_k_display = DASH
+    else:
+        top_k_display = "*" if top_k is None else top_k
 
     panel_lines = [
         f"[bold cyan]Analysis run[/]",
@@ -521,7 +525,7 @@ def analysis(
     finished_at = datetime.now(timezone.utc)
     elapsed_seconds = round(time.time() - start_ts, 2)
 
-    console.print(f"[green]✓[/] Analysis complete in {elapsed_seconds:.1f}s.\n")
+    console.print(f"[green]{CHECK}[/] Analysis complete in {elapsed_seconds:.1f}s.\n")
 
     # ---- assemble final JSON -----------------------------------------------
     timestamp = started_at.strftime("%Y%m%d_%H%M%S")
@@ -618,7 +622,7 @@ def _run_rag(
     section_filter: list[str] | None = None,
     language: str = "pt",
 ) -> dict:
-    console.print("[bold]Step 1/2 — Retrieving relevant context[/]")
+    console.print(f"[bold]Step 1/2 {DASH} Retrieving relevant context[/]")
     with Progress(SpinnerColumn(), TextColumn("Embedding prompt..."), console=console, transient=True) as p:
         p.add_task("", total=None)
         query_embeddings, embed_tokens = embedding_client.embed([prompt_content])
@@ -629,14 +633,14 @@ def _run_rag(
 
     top_k_label = "*" if top_k is None else top_k
     console.print(
-        f"[green]✓[/] Retrieved {len(chunks)} chunk(s) from {len(unique_docs)} article(s) "
+        f"[green]{CHECK}[/] Retrieved {len(chunks)} chunk(s) from {len(unique_docs)} article(s) "
         f"(top-k={top_k_label}).\n"
     )
 
     context = _build_context(chunks)
     user_msg = _user_message(prompt_content, context)
 
-    console.print("[bold]Step 2/2 — Running LLM analysis[/]")
+    console.print(f"[bold]Step 2/2 {DASH} Running LLM analysis[/]")
     with Progress(SpinnerColumn(), TextColumn("Analysing with LLM..."), console=console, transient=True) as p:
         p.add_task("", total=None)
         llm_text, llm_usage = llm_client.complete(system=_build_system_prompt(language), user=user_msg)
@@ -709,7 +713,7 @@ def _run_per_article(
         )
 
     console.print(
-        f"[bold]Per-article analysis — {len(filenames)} article(s)"
+        f"[bold]Per-article analysis {DASH} {len(filenames)} article(s)"
         f"{f', {workers} workers' if workers > 1 else ''}[/]\n"
     )
 
@@ -802,9 +806,9 @@ def _run_per_article(
     table.add_column("Status")
     for r in articles_results:
         if r.get("error"):
-            status = f"[red]✗ {r['error']}[/]"
+            status = f"[red]{CROSS} {r['error']}[/]"
         else:
-            status = "[green]✓[/]"
+            status = f"[green]{CHECK}[/]"
         relevance_label = r.get("relevance", "UNKNOWN")
         color = _RELEVANCE_COLOR.get(relevance_label, "dim")
         table.add_row(
