@@ -32,7 +32,6 @@ dependencies = [
     "krippendorff>=0.6",
     "rapidfuzz>=3.6",
     "openai>=1.30",
-    "anthropic>=0.28",
     "fastapi>=0.111",
     "uvicorn[standard]>=0.29",
     "python-multipart>=0.0.9",

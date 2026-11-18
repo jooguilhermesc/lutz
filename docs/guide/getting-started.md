@@ -11,6 +11,14 @@ lutz --version
 
 Python 3.10 ou mais novo. No Windows há também o executável do instalador.
 
+No Windows, a instalação por `pip` precisa do [Microsoft Visual C++ Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe), usado pelo PyMuPDF para ler os PDFs. A maioria das máquinas já tem. Num Windows recém-instalado:
+
+```powershell
+winget install --id Microsoft.VCRedist.2015+.x64 -e
+```
+
+Se faltar, `lutz doctor` mostra o PyMuPDF como erro e diz o que instalar. O `lutz.exe` já leva essas DLLs.
+
 ## 1. Criar o projeto
 
 ```bash
@@ -20,8 +28,8 @@ cd minha-revisao
 
 ## 2. Configurar os modelos
 
-* Chaves de API no `.env` (ou `lutz config set ANTHROPIC_API_KEY ...`).
-* Modelos E1, E2, E3 (extratores) e V (verificador) no `lutz.yaml`. Prefira fornecedores diferentes: os erros ficam menos correlacionados. Modelos locais do Docker Model Runner funcionam sem chave.
+* Crie uma chave em <https://openrouter.ai/keys> e grave-a no `.env` (`lutz config set OPENROUTER_API_KEY sk-or-...`) ou em **Configurações** na web. Todos os modelos passam pelo OpenRouter.
+* Escolha os modelos E1, E2, E3 (extratores) e V (verificador) em **Configurações** (catálogo com preço e contexto) ou no `lutz.yaml`. Prefira fornecedores diferentes (`anthropic/`, `openai/`, `google/`): os erros ficam menos correlacionados.
 * `lutz doctor --chamar` confere tudo com uma chamada mínima a cada modelo.
 
 Detalhes em [Configuração](/configuracao).

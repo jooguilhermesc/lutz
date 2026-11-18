@@ -1,4 +1,4 @@
-"""Secrets and provider URLs: the ``.env`` file of the project.
+"""Secrets and provider URLs: the ``.env`` file of the project (OpenRouter only, ADR-004).
 
 This is the configuration mechanism kept from Lutz 0.5 (``SettingsModal`` + ``/config``):
 
@@ -33,38 +33,22 @@ class ChaveEnv:
 
 
 CHAVES: tuple[ChaveEnv, ...] = (
-    ChaveEnv("ANTHROPIC_API_KEY", "Anthropic API key", True),
-    ChaveEnv("OPENAI_API_KEY", "OpenAI API key", True),
     ChaveEnv("OPENROUTER_API_KEY", "OpenRouter API key", True),
-    ChaveEnv("OPENAI_BASE_URL", "OpenAI-compatible base URL", False),
-    ChaveEnv("ANTHROPIC_BASE_URL", "Anthropic base URL", False),
     ChaveEnv("OPENROUTER_BASE_URL", "OpenRouter base URL", False, "https://openrouter.ai/api/v1"),
-    ChaveEnv(
-        "DOCKER_MODEL_HOST",
-        "Docker Model Runner URL",
-        False,
-        "http://localhost:12434/engines/v1",
-    ),
 )
 _POR_NOME = {c.nome: c for c in CHAVES}
 
 ENV_EXEMPLO = """\
-# Lutz 1.0 — secrets and provider URLs for this project.
+# Lutz 1.0 — secret for this project. Every model runs through OpenRouter:
+# create a key at https://openrouter.ai/keys
 # Models, thresholds and budget live in lutz.yaml, not here.
 # Variables exported in your shell take precedence over this file.
 # Never commit this file.
 
-ANTHROPIC_API_KEY=
-OPENAI_API_KEY=
 OPENROUTER_API_KEY=
 
-# Optional URLs
-# OPENAI_BASE_URL=
-# ANTHROPIC_BASE_URL=
+# Optional
 # OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
-# Docker Model Runner (local models, no key). Inside a container use
-# http://model-runner.docker.internal/engines/v1
-# DOCKER_MODEL_HOST=http://localhost:12434/engines/v1
 """
 
 

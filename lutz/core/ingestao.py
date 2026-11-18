@@ -24,12 +24,15 @@ import unicodedata
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
-
-import pymupdf
+from typing import TYPE_CHECKING
 
 from lutz.core.db import agora, jdump, transacao
+from lutz.core.dependencias import carregar_pymupdf
 from lutz.core.project import Projeto
 from lutz.core.texto import estimar_tokens
+
+if TYPE_CHECKING:
+    import pymupdf
 
 MIN_CHARS_ARTIGO = 300
 MIN_CHARS_POR_PAGINA = 80
@@ -245,7 +248,7 @@ def _ordenar(blocos: list[_Bloco], largura: float) -> tuple[list[_Bloco], bool]:
 def _linhas_celula(page: pymupdf.Page, rect) -> list[tuple[float, str]]:
     """Horizontal text lines inside a cell, as (vertical centre, text)."""
     out = []
-    for b in page.get_text("dict", clip=pymupdf.Rect(rect), flags=0).get("blocks", []):
+    for b in page.get_text("dict", clip=carregar_pymupdf().Rect(rect), flags=0).get("blocks", []):
         for ln in b.get("lines", []):
             d = ln.get("dir", (1, 0))
             if abs(d[0] - 1) > 0.01:
@@ -434,8 +437,9 @@ def importar_pdf(projeto: Projeto, con: sqlite3.Connection, origem: Path) -> Res
     if dup:
         return ResultadoImportacao(str(origem), "duplicado", chave=dup[0],
                                    mensagem=f"mesmo conteúdo que {dup[0]}")
+    fitz = carregar_pymupdf()  # outside the try: a missing library is not an unreadable PDF
     try:
-        doc = pymupdf.open(origem)
+        doc = fitz.open(origem)
     except Exception as exc:
         return ResultadoImportacao(str(origem), "erro", mensagem=f"PDF ilegível: {exc}")
     if doc.needs_pass:

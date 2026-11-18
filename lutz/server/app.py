@@ -25,8 +25,8 @@ from fastapi.staticfiles import StaticFiles
 
 from lutz import __version__
 from lutz.calibrated import piloto as pil
-from lutz.config.env import salvar_env, valores_com_origem
-from lutz.config.settings import avisos, carregar_settings, estrategia_diversidade, validar_yaml
+from lutz.config.env import carregar_env, salvar_env, valores_com_origem
+from lutz.config.settings import avisos, carregar_settings, estrategia_diversidade, gravar_modelos, validar_yaml
 from lutz.core import assistente
 from lutz.core import codebook as cbk
 from lutz.core import metricas as M
@@ -44,6 +44,7 @@ from lutz.core.lock import bloqueio
 from lutz.core.project import Projeto
 from lutz.extraction import executor as ex
 from lutz.extraction.metricas_autonomo import metricas
+from lutz.llm import openrouter
 from lutz.llm.cliente import consumo
 from lutz.report import render
 from lutz.report.dados import coletar
@@ -786,6 +787,20 @@ def criar_app(projeto: Projeto) -> FastAPI:
             resumo.update({"valido": False, "erro": str(exc)})
         return _limpo({"env": valores_com_origem(projeto), "lutz_yaml": {"caminho": str(projeto.yaml),
                                                                           "texto": texto, **resumo}})
+
+    @app.put(f"{api}/config/modelos")
+    def config_modelos(body: dict):
+        """Write the OpenRouter model of each role (E1, E2, E3, V) into lutz.yaml (ADR-004)."""
+        gravar_modelos(projeto, {k: (v if isinstance(v, str) else None) for k, v in body.items()})
+        return config()
+
+    @app.get(f"{api}/openrouter/modelos")
+    def openrouter_modelos(atualizar: bool = False):
+        return openrouter.catalogo(projeto, carregar_env(projeto), atualizar=atualizar)
+
+    @app.get(f"{api}/openrouter/conta")
+    def openrouter_conta():
+        return openrouter.conta(carregar_env(projeto))
 
     @app.put(f"{api}/config")
     def config_salvar(body: dict):

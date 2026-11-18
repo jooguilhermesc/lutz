@@ -19,8 +19,9 @@ def _criar(pasta: str, nome: str | None, pergunta: str, tipo: str) -> None:
     console.print(f"[green]Projeto criado em[/] {projeto.raiz}")
     console.print(
         "Próximos passos:\n"
-        "  1. Ponha as chaves de API no [cyan].env[/] (ou use modelos locais do Docker Model Runner).\n"
-        "  2. Ajuste os modelos E1, E2, E3 e V no [cyan]lutz.yaml[/] e rode [bold]lutz doctor[/].\n"
+        "  1. Ponha a chave do OpenRouter no [cyan].env[/] ([bold]lutz config set OPENROUTER_API_KEY ...[/]).\n"
+        "  2. Escolha os modelos E1, E2, E3 e V em [bold]lutz web[/] (Configurações) ou no [cyan]lutz.yaml[/]\n"
+        "     e rode [bold]lutz doctor[/].\n"
         "  3. Importe os PDFs: [bold]lutz load <pasta>[/].\n"
         "  4. Monte o codebook: [bold]lutz codebook new[/] ou [bold]lutz codebook import codebook.yaml[/]."
     )

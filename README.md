@@ -32,13 +32,15 @@ pip install --pre lutz-research
 
 Python 3.10+. Windows installer: see the releases page.
 
+**Windows with `pip`:** PyMuPDF, which reads the PDFs, needs the [Microsoft Visual C++ Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe). Most machines already have it; on a fresh Windows install it with `winget install --id Microsoft.VCRedist.2015+.x64 -e`. If it is missing, `lutz doctor` says so. The `lutz.exe` from the releases page carries these DLLs and needs nothing else.
+
 ## Quick start
 
 ```bash
 lutz init my-review --pergunta "Do LLM tutors improve student engagement?"
 cd my-review
-lutz config set ANTHROPIC_API_KEY sk-ant-...   # and the keys of the other vendors
-# edit lutz.yaml: models for E1, E2, E3 (extractors) and V (verifier)
+lutz config set OPENROUTER_API_KEY sk-or-...   # one key for every model (https://openrouter.ai/keys)
+# choose E1, E2, E3 (extractors) and V (verifier) in lutz web > Settings, or in lutz.yaml
 lutz doctor --chamar
 lutz load ~/papers/
 lutz codebook new                 # or: lutz codebook import codebook.yaml
@@ -51,7 +53,7 @@ lutz report
 lutz web                          # the same flow in the browser
 ```
 
-Local models through Docker Model Runner work without keys; see [configuration](docs/configuracao.md).
+Every model runs through [OpenRouter](https://openrouter.ai): one key, the whole catalog, prices and usage in the Settings screen; see [configuration](docs/configuracao.md).
 
 ## Interfaces
 

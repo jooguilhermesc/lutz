@@ -23,6 +23,8 @@ lutz report
 lutz web
 ```
 
+**Windows con `pip`:** PyMuPDF, que lee los PDF, necesita el [Microsoft Visual C++ Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe). La mayoría de los equipos ya lo tiene; en un Windows recién instalado use `winget install --id Microsoft.VCRedist.2015+.x64 -e`. Si falta, `lutz doctor` lo indica. El `lutz.exe` de la página de releases ya incluye esas DLL.
+
 La interfaz y el informe están en portugués e inglés. Documentación completa: [README en inglés](README.md) y [especificación](docs/spec-1.0.md).
 
 ## Licencia

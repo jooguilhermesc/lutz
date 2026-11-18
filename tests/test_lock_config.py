@@ -68,24 +68,27 @@ def test_banco_recusa_esquema_estranho(tmp_path):
 
 
 def test_env_origem_mascara_e_lista_branca(projeto, monkeypatch):
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    envm.salvar_env(projeto, {"ANTHROPIC_API_KEY": "sk-ant-1234567890"})
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_BASE_URL", raising=False)
+    envm.salvar_env(projeto, {"OPENROUTER_API_KEY": "sk-or-1234567890"})
     v = {x["nome"]: x for x in envm.valores_com_origem(projeto)}
-    assert v["ANTHROPIC_API_KEY"]["origem"] == ".env" and "••••" in v["ANTHROPIC_API_KEY"]["valor"]
-    assert v["DOCKER_MODEL_HOST"]["origem"] == "padrao"
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "do-shell")
-    assert envm.salvar_env(projeto, {"ANTHROPIC_API_KEY": "outra"}) == ["ANTHROPIC_API_KEY"]
+    assert set(v) == {"OPENROUTER_API_KEY", "OPENROUTER_BASE_URL"}  # ADR-004: OpenRouter only
+    assert v["OPENROUTER_API_KEY"]["origem"] == ".env" and "••••" in v["OPENROUTER_API_KEY"]["valor"]
+    assert v["OPENROUTER_BASE_URL"]["origem"] == "padrao"
+    monkeypatch.setenv("OPENROUTER_API_KEY", "do-shell")
+    assert envm.salvar_env(projeto, {"OPENROUTER_API_KEY": "outra"}) == ["OPENROUTER_API_KEY"]
     v = {x["nome"]: x for x in envm.valores_com_origem(projeto)}
-    assert v["ANTHROPIC_API_KEY"]["origem"] == "processo" and v["ANTHROPIC_API_KEY"]["sombreado"]
-    assert envm.carregar_env(projeto)["ANTHROPIC_API_KEY"] == "do-shell"
-    monkeypatch.delenv("ANTHROPIC_API_KEY")
-    envm.salvar_env(projeto, {"ANTHROPIC_API_KEY": None})
-    assert "ANTHROPIC_API_KEY" not in envm.carregar_env(projeto)
+    assert v["OPENROUTER_API_KEY"]["origem"] == "processo" and v["OPENROUTER_API_KEY"]["sombreado"]
+    assert envm.carregar_env(projeto)["OPENROUTER_API_KEY"] == "do-shell"
+    monkeypatch.delenv("OPENROUTER_API_KEY")
+    envm.salvar_env(projeto, {"OPENROUTER_API_KEY": None})
+    assert "OPENROUTER_API_KEY" not in envm.carregar_env(projeto)
     with pytest.raises(ConfigInvalida):
         envm.salvar_env(projeto, {"LLM_MODEL": "x"})
     with pytest.raises(ConfigInvalida):
-        envm.salvar_env(projeto, {"OPENAI_API_KEY": "a\nb"})
+        envm.salvar_env(projeto, {"ANTHROPIC_API_KEY": "sk-ant-1234567890"})
+    with pytest.raises(ConfigInvalida):
+        envm.salvar_env(projeto, {"OPENROUTER_API_KEY": "a\nb"})
 
 
 def test_settings_validacao_e_diversidade():
@@ -101,11 +104,12 @@ def test_settings_validacao_e_diversidade():
     def m(p, mod, v="padrao"):
         return ModeloPapel(provedor=p, modelo=mod, variante_prompt=v)
 
-    assert estrategia_diversidade(Modelos(E1=m("anthropic", "a"), E2=m("openai", "b"), E3=m("openrouter", "google/c"))) == "fornecedores_diferentes"
-    assert estrategia_diversidade(Modelos(E1=m("openai", "a"), E2=m("openai", "b"), E3=m("anthropic", "c"))) == "modelos_diferentes"
-    assert estrategia_diversidade(Modelos(E1=m("openai", "a"), E2=m("openai", "a", "reescrita_a"),
-                                          E3=m("openai", "a", "reescrita_b"))) == "instrucoes_reescritas"
-    assert estrategia_diversidade(Modelos(E1=m("openai", "a"), E2=m("openai", "a"), E3=m("openai", "a"))) == "nenhuma"
+    o = "openrouter"
+    assert estrategia_diversidade(Modelos(E1=m(o, "anthropic/a"), E2=m(o, "openai/b"), E3=m(o, "google/c"))) == "fornecedores_diferentes"
+    assert estrategia_diversidade(Modelos(E1=m(o, "openai/a"), E2=m(o, "openai/b"), E3=m(o, "anthropic/c"))) == "modelos_diferentes"
+    assert estrategia_diversidade(Modelos(E1=m(o, "openai/a"), E2=m(o, "openai/a", "reescrita_a"),
+                                          E3=m(o, "openai/a", "reescrita_b"))) == "instrucoes_reescritas"
+    assert estrategia_diversidade(Modelos(E1=m(o, "openai/a"), E2=m(o, "openai/a"), E3=m(o, "openai/a"))) == "nenhuma"
     s2 = validar_yaml(YAML_FAKE.replace("fake-b", "fake-a").replace("fake-c", "fake-a").replace(
         "  V:  {provedor: fake, modelo: fake-v}\n", ""))
     a = avisos(s2)

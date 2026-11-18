@@ -17,28 +17,24 @@ import random
 import threading
 import time
 from dataclasses import dataclass
-from importlib import resources
-
-import yaml
 
 from lutz.config.env import carregar_env
 from lutz.config.settings import ModeloPapel, Settings, hash_obj
 from lutz.core.db import agora, conectar, jdump
 from lutz.core.project import Projeto
+from lutz.llm.openrouter import precos_catalogo
 from lutz.llm.provedores import ErroDefinitivo, ErroTransitorio, Requisicao, Resposta, completar
 
 
-def tabela_precos(settings: Settings) -> dict[str, tuple[float, float]]:
-    base = yaml.safe_load(resources.files("lutz.data").joinpath("precos.yaml").read_text("utf-8")) or {}
-    out = {k: (float(v["entrada"]), float(v["saida"])) for k, v in base.items()}
+def tabela_precos(settings: Settings, projeto: Projeto | None = None) -> dict[str, tuple[float, float]]:
+    """USD per million tokens: cached OpenRouter catalog, overridden by 'precos' in lutz.yaml."""
+    out = precos_catalogo(projeto) if projeto is not None else {}
     for k, p in settings.precos.items():
         out[k] = (p.entrada, p.saida)
     return out
 
 
 def preco_de(cfg: ModeloPapel, precos: dict[str, tuple[float, float]]) -> tuple[float, float] | None:
-    if cfg.provedor == "docker_model_runner":
-        return (0.0, 0.0)
     if cfg.modelo in precos:
         return precos[cfg.modelo]
     curto = cfg.modelo.split("/")[-1]
@@ -82,7 +78,7 @@ class ClienteLLM:
         self.projeto = projeto
         self.settings = settings
         self.env = carregar_env(projeto)
-        self.precos = tabela_precos(settings)
+        self.precos = tabela_precos(settings, projeto)
         self.usar_cache = usar_cache
         self._dormir = dormir
         self._local = threading.local()
@@ -157,7 +153,11 @@ class ClienteLLM:
                     espera = exc.espera or min(60.0, 2 ** tentativas + random.random())
             if tentativas < conc.tentativas:
                 self._dormir(espera)
-        c = custo(cfg, self.precos, resp.tokens_entrada, resp.tokens_saida) if resp else 0.0
+        c = 0.0
+        if resp:  # the cost billed by OpenRouter, else tokens × catalog price
+            c = resp.extra.get("custo_usd")
+            if c is None:
+                c = custo(cfg, self.precos, resp.tokens_entrada, resp.tokens_saida)
         cur = con.execute(
             """INSERT INTO chamada_llm (execucao_id, papel, rotulo, artigo_id, grupo, provedor,
                modelo_pedido, modelo_observado, fingerprint, tokens_entrada, tokens_saida, custo_usd,

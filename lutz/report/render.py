@@ -6,8 +6,7 @@ import html
 import re
 from datetime import datetime, timezone
 
-import pymupdf
-
+from lutz.core.dependencias import carregar_pymupdf
 from lutz.report import textos as tx
 from lutz.report.textos import T, num, pct
 
@@ -58,7 +57,7 @@ def markdown(d: dict, lang: str) -> str:
         ["Codebook", f"v{d['codebook_row']['versao']} · hash {d['codebook_row']['hash']}"],
     ]
     for e in d["extratores"]:
-        temp = "n/a" if e["provedor"] == "anthropic" else num(e["temperatura"], lang, 1)
+        temp = "n/a" if e["temperatura"] is None or e["provedor"] == "anthropic" else num(e["temperatura"], lang, 1)
         obs = e.get("modelo_observado") or "—"
         m_sha = re.search(r"sha256[:/]([0-9a-f]{12})", obs)
         if m_sha:
@@ -331,6 +330,7 @@ code { font-family: monospace; }
 
 
 def pdf(md: str, destino) -> None:
+    pymupdf = carregar_pymupdf()
     html_doc = f"<html><body>{md_para_html(md)}</body></html>"
     story = pymupdf.Story(html_doc, user_css=CSS)
     escritor = pymupdf.DocumentWriter(str(destino))

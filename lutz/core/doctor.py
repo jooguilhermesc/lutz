@@ -4,20 +4,19 @@ from __future__ import annotations
 
 from importlib import resources
 
-import pymupdf
-
 from lutz import __version__
 from lutz.config.env import carregar_env
 from lutz.config.settings import ModeloPapel, avisos, carregar_settings, estrategia_diversidade
 from lutz.core.db import VERSAO_SCHEMA, conectar
+from lutz.core.dependencias import DependenciaAusente, versao_pymupdf
 from lutz.core.errors import LutzError
 from lutz.core.lock import ler_lock
 from lutz.core.project import Projeto
 from lutz.llm.cliente import ClienteLLM, preco_de, tabela_precos
+from lutz.llm.openrouter import ids_catalogo
 from lutz.llm.provedores import Requisicao
 
-CHAVE_POR_PROVEDOR = {"anthropic": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY",
-                      "openrouter": "OPENROUTER_API_KEY"}
+CHAVE_POR_PROVEDOR = {"openrouter": "OPENROUTER_API_KEY"}
 
 
 def verificar(projeto: Projeto, chamar: bool = False) -> list[dict]:
@@ -28,7 +27,10 @@ def verificar(projeto: Projeto, chamar: bool = False) -> list[dict]:
         out.append({"item": item, "status": status, "detalhe": detalhe})
 
     add("Lutz", "ok", __version__)
-    add("PyMuPDF", "ok", pymupdf.__version__ if hasattr(pymupdf, "__version__") else pymupdf.VersionBind)
+    try:
+        add("PyMuPDF", "ok", versao_pymupdf())
+    except DependenciaAusente as exc:
+        add("PyMuPDF", "erro", str(exc))
     try:
         s = carregar_settings(projeto)
         add("lutz.yaml", "ok", f"diversidade: {estrategia_diversidade(s.modelos)}")
@@ -38,7 +40,8 @@ def verificar(projeto: Projeto, chamar: bool = False) -> list[dict]:
         add("lutz.yaml", "erro", str(exc))
         return out
     env = carregar_env(projeto)
-    precos = tabela_precos(s)
+    precos = tabela_precos(s, projeto)
+    no_catalogo = ids_catalogo(projeto)
     papeis: list[tuple[str, ModeloPapel]] = list(s.modelos.extratores().items())
     if s.modelos.V:
         papeis.append(("V", s.modelos.V))
@@ -48,8 +51,12 @@ def verificar(projeto: Projeto, chamar: bool = False) -> list[dict]:
         chave = CHAVE_POR_PROVEDOR.get(m.provedor)
         if chave and not env.get(chave):
             add(f"{rot} ({m.provedor})", "erro", f"falta {chave} no .env")
+        elif m.provedor == "openrouter" and no_catalogo and m.modelo not in no_catalogo:
+            add(f"{rot} ({m.modelo})", "erro", "modelo não está no catálogo do OpenRouter: escolha outro nas "
+                                               "Configurações ou corrija o id no lutz.yaml")
         elif preco_de(m, precos) is None:
-            add(f"{rot} ({m.modelo})", "aviso", "preço desconhecido: custo não será estimado (defina em 'precos')")
+            add(f"{rot} ({m.modelo})", "aviso", "preço desconhecido: custo não será estimado (abra as "
+                                                "Configurações para baixar o catálogo ou defina em 'precos')")
         else:
             add(f"{rot} ({m.modelo})", "ok", m.provedor)
     try:

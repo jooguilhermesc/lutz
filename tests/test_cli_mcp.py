@@ -82,8 +82,8 @@ def test_fluxo_cli_completo(tmp_path, pasta_pdfs):
     assert "Total" in r.output
     r = _run(["config", "show", *p])
     assert "diversidade" in r.output
-    _run(["config", "set", "OPENAI_API_KEY", "sk-1234567890", *p])
-    _run(["config", "unset", "OPENAI_API_KEY", *p])
+    _run(["config", "set", "OPENROUTER_API_KEY", "sk-1234567890", *p])
+    _run(["config", "unset", "OPENROUTER_API_KEY", *p])
     assert _run(["config", "set", "LLM_MODEL", "x", *p], ok=False).exit_code != 0
     r = _run(["doctor", *p])
     assert "lutz.yaml" in r.output

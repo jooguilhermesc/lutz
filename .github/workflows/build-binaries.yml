@@ -60,7 +60,10 @@ jobs:
         run: |
           ./dist/lutz.exe --version
           ./dist/lutz.exe init demo --pergunta "smoke"
-          ./dist/lutz.exe doctor --projeto demo || true
+          ./dist/lutz.exe doctor --projeto demo > doctor.txt || true
+          cat doctor.txt
+          # PyMuPDF must load from the bundled Visual C++ runtime
+          grep -E "PyMuPDF.*ok" doctor.txt
 
       - name: Upload binary as artifact
         uses: actions/upload-artifact@v4

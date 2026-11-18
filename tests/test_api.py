@@ -137,7 +137,7 @@ def test_fluxo_completo_pela_api(cliente, pasta_pdfs):
     # Config (the mechanism kept from 0.5), usage and MCP info.
     cfg = c.get("/api/v1/config").json()
     assert cfg["lutz_yaml"]["valido"] and cfg["lutz_yaml"]["papeis"]
-    assert c.put("/api/v1/config", json={"OPENAI_API_KEY": "sk-teste-123456"}).json()["ok"]
+    assert c.put("/api/v1/config", json={"OPENROUTER_API_KEY": "sk-teste-123456"}).json()["ok"]
     assert c.put("/api/v1/config", json={"LLM_MODEL": "x"}).status_code == 422
     cons = c.get("/api/v1/consumo").json()
     assert cons["total"]["chamadas"] > 0 and cons["chamadas"]
