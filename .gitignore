@@ -57,6 +57,7 @@ build/
 chat-ai-prototype.html
 .secrets.baseline
 
-# Local design drafts (not versioned); only the folder placeholder is tracked
+# Local design drafts (not versioned); only the placeholder and the folder ADRs are tracked (ADR-003)
 specs/*
 !specs/.gitkeep
+!specs/ADR-*.md
