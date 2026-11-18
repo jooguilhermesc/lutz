@@ -58,8 +58,8 @@ def markdown(d: dict, lang: str) -> str:
         ["Codebook", f"v{d['codebook_row']['versao']} · hash {d['codebook_row']['hash']}"],
     ]
     for e in d["extratores"]:
-        t = temperatura_aplicada(e["provedor"], e["modelo"], e["temperatura"])
-        temp = "n/a" if t is None else num(t, lang, 1)
+        temp_aplicada = temperatura_aplicada(e["provedor"], e["modelo"], e["temperatura"])
+        temp = "n/a" if temp_aplicada is None else num(temp_aplicada, lang, 1)
         obs = e.get("modelo_observado") or "—"
         m_sha = re.search(r"sha256[:/]([0-9a-f]{12})", obs)
         if m_sha:
