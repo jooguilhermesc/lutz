@@ -57,5 +57,6 @@ build/
 chat-ai-prototype.html
 .secrets.baseline
 
-# Local design drafts (not versioned)
-specs/
+# Local design drafts (not versioned); only the folder placeholder is tracked
+specs/*
+!specs/.gitkeep
