@@ -10,8 +10,8 @@ tools: Read, Edit, Write, Bash, Grep, Glob
 Implementar funcionalidades novas, corrigir bugs e refatorar código do Lutz usando TDD estrito.
 
 ## Permissões
-- `Read`, `Edit`, `Write`: qualquer arquivo do repositório EXCETO `.lutz/audit/`
-- `Bash`: comandos de build e execução local. **Proibido**: `git push`, `rm -rf`, `git reset --hard`, modificar `.lutz/audit/`
+- `Read`, `Edit`, `Write`: qualquer arquivo do repositório
+- `Bash`: comandos de build e execução local. **Proibido**: `git push`, `rm -rf`, `git reset --hard`
 - `Grep`, `Glob`: busca irrestrita no repositório
 
 ## Metodologia TDD obrigatória
@@ -33,20 +33,21 @@ Nunca escrever código de produção sem um teste correspondente.
 ## Padrões de código
 
 - Python 3.10+ com type hints
-- Respeitar `line-length = 100` (ruff config em pyproject.toml)
+- Respeitar a configuração do ruff em pyproject.toml (`ruff check lutz tests` sem erros)
 - `from __future__ import annotations` no topo de cada módulo Python novo
 - Não adicionar dependências novas sem justificativa explícita no handoff
 - Não adicionar docstrings/comentários em código não modificado
 
-## Segurança obrigatória (OWASP + ATLAS)
+## Segurança e confiabilidade obrigatórias
 
 Ao implementar qualquer código que:
-- Lê entrada do usuário → validar e sanitizar
-- Faz chamadas LLM → usar envelope de segurança (system prompt protetivo)
-- Processa PDFs → acionar `SecurityChecker` antes de qualquer extração
-- Escreve em disco → usar paths absolutos derivados de `require_project_root()`
-- Usa subprocess → nunca interpolar input do usuário no comando (command injection)
-- Armazena configuração → usar `.env` via `load_env()`, nunca hardcodar secrets
+- Processa PDFs → só texto **visível** pode chegar aos extratores e à verificação de evidência (`lutz/core/ingestao.py`)
+- Monta prompts → o texto do artigo é dado, nunca instrução; registrar mudanças de prompt subindo `VERSAO_PROMPTS`
+- Faz chamadas LLM → sempre pelo `ClienteLLM` (registro em `chamada_llm`, cache, custo, retentativas)
+- Escreve no projeto → sob `core.lock.bloqueio`, com caminhos relativos à raiz (`Projeto.rel/abs`)
+- Muda o esquema do banco → nova migração numerada em `lutz/core/db.py`, nunca editar uma migração publicada
+- Muda uma regra de nível, evidência ou métrica → teste com exemplo numérico e atualização de `docs/spec-1.0.md` e `docs/metodos-estatisticos.md`
+- Armazena configuração → segredos só no `.env` (lista branca em `lutz/config/env.py`); o resto no `lutz.yaml`
 
 Qualquer uso de `subprocess`, `eval`, `exec` ou `os.system` deve ser revisado pelo `explora-vulnerabilidades` antes do merge.
 
@@ -54,27 +55,26 @@ Qualquer uso de `subprocess`, `eval`, `exec` ou `os.system` deve ser revisado pe
 
 ```
 lutz/
-├── cli.py                # entry point Click
-├── commands/             # um arquivo por comando CLI
-├── core/
-│   ├── security_checker.py  # 6 camadas de defesa — NÃO simplificar
-│   ├── audit.py             # log HMAC append-only — NÃO modificar formato
-│   ├── llm_client.py
-│   ├── embedding_client.py
-│   └── vector_store.py
-├── analytics/            # DuckDB UDFs
-├── server/               # FastAPI + React SPA
-├── agents/               # templates de agentes para lutz init
-└── security/             # catálogos YAML de padrões (injection, RAG, PII)
+├── cli/          # comandos Click (um módulo por grupo)
+├── config/       # .env (env.py) e lutz.yaml (settings.py)
+├── core/         # projeto, banco/migrações, lock, ingestão, codebook, métricas, Assistente, bundle, doctor
+├── llm/          # provedores e gateway ClienteLLM
+├── extraction/   # Modo Autônomo: prompts, contexto, evidência, consolidação, regras, executor, métricas
+├── calibrated/   # Modo Calibrado (piloto)
+├── revisao/      # adjudicação e auditoria
+├── report/       # relatório de confiabilidade e anexos
+├── server/       # FastAPI, jobs, servidor MCP
+└── data/         # precos.yaml
+web/              # SPA React (consome /api/v1)
 ```
 
 ## Restrições absolutas
 
 1. Nunca fazer `git push` ou `git push --force`
-2. Nunca modificar `.lutz/audit/` diretamente — usar `lutz/core/audit.py`
-3. Nunca usar `--skip-security` em testes automatizados
-4. Nunca hardcodar API keys, tokens ou secrets
-5. Nunca remover camadas de `SecurityChecker` sem ADR aprovado
+2. Nunca hardcodar API keys, tokens ou secrets
+3. Nunca deixar texto oculto do PDF chegar a extratores, verificador ou evidência
+4. Nunca enfraquecer o cegamento do piloto (respostas do Lutz ocultas até a importação humana)
+5. Mudanças de limiares padrão ou da regra de nível exigem ADR em `docs/adr/`
 
 ## Handoff obrigatório ao encerrar
 

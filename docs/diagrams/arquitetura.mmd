@@ -1,0 +1,32 @@
+%% Lutz 1.0 — arquitetura. Tudo local; sem Postgres e sem índice vetorial.
+flowchart TB
+    subgraph Portas
+        WEB["Web (React)"] --> API["API REST local<br/>127.0.0.1 · jobs + SSE"]
+        CLI["CLI lutz"]
+        MCP["Servidor MCP<br/>stdio · somente leitura"]
+    end
+    API --> NUCLEO
+    CLI --> NUCLEO
+    MCP --> NUCLEO
+    subgraph NUCLEO["Núcleo Python"]
+        ING["Ingestão<br/>texto visível · colunas · tabelas · unidades"]
+        CB["Codebook + Assistente<br/>lint · versões · hash"]
+        AUTO["Modo Autônomo<br/>3 extratores · evidência sem LLM · V · regras · níveis · α"]
+        CAL["Modo Calibrado<br/>plano · sorteio · cegamento · κ/ICC · calibração"]
+        REV["Adjudicação + auditoria de Alta"]
+        REL["Relatório<br/>7 partes · PRISMA · RAISE · anexos"]
+    end
+    AUTO --> GW["Gateway LLM<br/>cache · retentativas · custo · modelo observado"]
+    CB --> GW
+    GW --> PROV["Anthropic · OpenAI · OpenRouter · Docker Model Runner"]
+    subgraph Disco["Pasta do projeto"]
+        DB[("lutz.db<br/>SQLite WAL")]
+        TXT[["texto/ por página"]]
+        CFG[["lutz.yaml · .env"]]
+        OUT[["relatorios/ · exports/"]]
+    end
+    NUCLEO --> DB
+    ING --> TXT
+    AUTO -- "texto da página" --> TXT
+    REL --> OUT
+    LOCK["Lock de escrita por projeto<br/>.lutz/lock"] -.-> NUCLEO

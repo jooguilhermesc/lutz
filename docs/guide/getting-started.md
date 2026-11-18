@@ -1,253 +1,75 @@
-# Primeiros passos
+# Começar
 
-Lutz é uma ferramenta de linha de comando e interface web para triagem e análise de artigos acadêmicos em PDF usando IA. Este guia cobre a instalação e os primeiros comandos para colocar o projeto em funcionamento.
+O Lutz monta a tabela de extração de uma revisão sistemática com um nível de confiança medido em cada célula e gera o relatório de confiabilidade para a seção de Métodos e o checklist PRISMA 2020.
 
-## Pré-requisitos
-
-- Python **3.10** ou superior
-- Terminal (PowerShell no Windows, Terminal no macOS/Linux)
-- Uma pasta com PDFs de artigos científicos
-- Um modelo de IA: Docker Model Runner, Ollama, OpenAI, OpenRouter ou Anthropic
-
-## Instalação
-
-### Via PyPI (recomendado)
-
-::: code-group
-
-```bash [Linux / macOS]
-python -m venv .venv
-source .venv/bin/activate
-pip install lutz-research
-```
-
-```powershell [Windows PowerShell]
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install lutz-research
-```
-
-:::
-
-Para instalar com a interface web:
+## Instalar
 
 ```bash
-pip install "lutz-research[ui]"
-```
-
-Verifique a instalação:
-
-```bash
+pip install --pre lutz-research    # 1.0.0a1
 lutz --version
-lutz --help
 ```
 
-### A partir do código-fonte
+Python 3.10 ou mais novo. No Windows há também o executável do instalador.
+
+## 1. Criar o projeto
 
 ```bash
-git clone https://github.com/jooguilhermesc/lutz.git
-cd lutz
-pip install -e .
-```
-
----
-
-## Criando um projeto
-
-```bash
-mkdir minha-revisao
+lutz init minha-revisao --pergunta "LLMs melhoram o engajamento de estudantes?"
 cd minha-revisao
-lutz init
 ```
 
-O comando `lutz init` cria a estrutura de diretórios e arquivos de configuração:
+## 2. Configurar os modelos
 
-```
-minha-revisao/
-├── articles/                   → PDFs dos artigos
-├── prompts/                    → templates de prompt prontos para editar
-│   ├── systematic_review.md
-│   ├── methodology_analysis.md
-│   ├── evidence_quality.md
-│   └── thematic_synthesis.md
-├── analysis/
-│   └── execution_reports/      → relatórios gerados pelas análises
-├── .env.example                → exemplo de configuração de modelos
-├── .gitignore
-└── README.md
-```
+* Chaves de API no `.env` (ou `lutz config set ANTHROPIC_API_KEY ...`).
+* Modelos E1, E2, E3 (extratores) e V (verificador) no `lutz.yaml`. Prefira fornecedores diferentes: os erros ficam menos correlacionados. Modelos locais do Docker Model Runner funcionam sem chave.
+* `lutz doctor --chamar` confere tudo com uma chamada mínima a cada modelo.
 
-::: tip
-Você pode passar um nome de projeto: `lutz init minha-revisao`. Se omitido, o nome da pasta atual é usado.
-:::
+Detalhes em [Configuração](/configuracao).
 
----
-
-## Adicionando PDFs
-
-Copie os arquivos manualmente para `articles/` ou use o comando `load`:
-
-::: code-group
-
-```bash [Linux]
-lutz load --f ~/Downloads/artigos --so linux
-```
-
-```bash [macOS]
-lutz load --f ~/Desktop/artigos --so mac
-```
-
-```powershell [Windows]
-lutz load --f "C:\Users\Ana\Downloads\artigos" --so windows
-```
-
-:::
-
-Você também pode usar a aba **Biblioteca → + Adicionar PDFs** na interface web para fazer upload diretamente pelo navegador.
-
-::: tip Exemplo com artigos reais
-```bash
-lutz load --f ~/Downloads/AI-cyber --so linux
-# Found 18 PDF candidate(s)...
-# Copying articles... ████████████████████ 100%
-# Done. Copied: 18 | Skipped: 0 | Invalid: 0
-```
-:::
-
-
----
-
-## Vetorizando os artigos
+## 3. Importar os PDFs
 
 ```bash
-lutz vectorize
+lutz load ~/artigos/
+lutz library
 ```
 
-Este comando executa três fases:
+O Lutz guarda o texto visível de cada página, corrige a ordem de leitura em duas colunas, lê as tabelas linha a linha e marca PDFs sem camada de texto.
 
-1. **Verificação de segurança** — analisa cada PDF em busca de JavaScript embutido, XFA, ações automáticas e padrões de prompt injection.
-2. **Extração de texto** — usa `pdfplumber` (com fallback para `pypdf`) e divide o conteúdo em chunks de palavras.
-3. **Embedding e indexação** — gera vetores de embedding e armazena no banco LanceDB em `.lutz/vector_store/`.
-
-Para vetorização com detecção de seções (abstract, metodologia, resultados…):
+## 4. Montar o codebook
 
 ```bash
-lutz vectorize --section-parse
+lutz codebook new                         # Assistente
+lutz codebook test --campo tamanho_amostra
+lutz codebook freeze
 ```
 
----
+Ou escreva o `codebook.yaml` e use `lutz codebook import codebook.yaml`.
 
-## Rodando uma análise
+## 5. (Opcional) Piloto com humanos
 
 ```bash
-lutz analysis --p prompts/systematic_review.md
+lutz pilot plan --n 30 --ajuste 10
+lutz pilot sample
+# avaliadores preenchem exports/piloto/humano_A.csv e humano_B.csv sem ver o Lutz
+lutz pilot import exports/piloto/humano_A.csv --avaliador A
+lutz pilot import exports/piloto/humano_B.csv --avaliador B
+lutz pilot consensus            # e depois --importar
+lutz extract --piloto validacao
+lutz pilot compare
 ```
 
-**Modo RAG (padrão):** embeds do prompt recuperam os chunks mais relevantes do corpus inteiro e fazem uma única chamada ao LLM.
-
-**Modo por artigo:** cada artigo recebe uma chamada separada, útil para triagem com veredicto INCLUDE/EXCLUDE:
+## 6. Extrair, revisar e relatar
 
 ```bash
-lutz analysis --p prompts/screening.md --per-article --workers 4
+lutz extract                    # estimativa de custo, confirmação, execução
+lutz adjudicate export          # planilha das células duvidosas
+lutz adjudicate import exports/adjudicacao_0001.csv
+lutz audit sample               # confira uma amostra das células Alta
+lutz report                     # relatorios/execucao-0001/
 ```
 
----
+Ou faça tudo pela interface: `lutz web`.
 
-## Abrindo a interface web
+## Integrar
 
-```bash
-lutz web
-```
-
-Isso inicia o servidor FastAPI + React em `http://localhost:8765` e abre o navegador automaticamente.
-
-Para escolher outra porta:
-
-```bash
-lutz web --port 8080
-```
-
-Veja a seção [Interface Web](/guide/interface/home) para uma descrição completa de cada página.
-
----
-
-## Solução de problemas no Windows
-
-### Saída corrompida (`Phase 1/3 ?`) ou `UnicodeEncodeError`
-
-Consoles legados (cmd.exe e PowerShell 5) usam a code page ANSI do sistema —
-normalmente `cp1252` — e o Python segue essa configuração até a versão 3.14.
-Símbolos como `→`, `✓` e `—` não existem nessa code page, então o
-`lutz vectorize` podia abortar no meio do corpus com:
-
-```
-UnicodeEncodeError: 'charmap' codec can't encode character '\u2192'
-```
-
-A partir da versão **0.5.8** o Lutz reconfigura `stdout`/`stderr` para UTF-8 no
-Windows e, quando isso não é possível (saída redirecionada para arquivo ou
-pipe), troca os símbolos por equivalentes ASCII (`->`, `OK`, `-`).
-
-Se você estiver em uma versão anterior, use um dos contornos abaixo antes de
-rodar o comando:
-
-::: code-group
-
-```bat [cmd.exe]
-set PYTHONUTF8=1
-lutz vectorize
-```
-
-```powershell [PowerShell]
-$env:PYTHONUTF8 = "1"
-lutz vectorize
-```
-
-```bat [Alterar a code page do console]
-chcp 65001
-lutz vectorize
-```
-
-:::
-
-## Fluxo completo de revisão sistemática
-
-```bash
-# 1. Criar projeto
-lutz init minha-revisao && cd minha-revisao
-
-# 2. Adicionar PDFs
-lutz load --f ~/Downloads/artigos --so linux
-
-# 3. Vetorizar com detecção de seções
-lutz vectorize --section-parse
-
-# 4. Conferir seções detectadas
-lutz vector-store --sections
-
-# 5. Remover duplicatas entre bases (PubMed, Scopus, WoS)
-lutz dedup --threshold 0.05
-
-# 6. Priorizar triagem por relevância semântica
-lutz rank --question "sua pergunta PICO aqui" --filter-sections abstract
-
-# 7. Triagem por abstract (rápido e econômico)
-lutz analysis --p prompts/screening.md --per-article --workers 4 \
-  --filter-sections abstract
-
-# 8. Análise de metodologia e resultados
-lutz analysis --p prompts/methodology_analysis.md \
-  --filter-sections methodology,results
-
-# 9. Extrair citações dos artigos relevantes
-lutz citations \
-  --analysis analysis/execution_reports/screening_<timestamp>.json \
-  --workers 4 --only-relevant
-
-# 10. Síntese temática por clustering
-lutz model explore kmeans --k-range 2..12   # escolhe k
-lutz model fit kmeans --k 5                 # treina uma vez
-lutz model cluster-report --model kmeans_5  # síntese por cluster
-```
-
-Veja a seção [Análise Semântica](/guide/analytics) para detalhes sobre deduplicação, ranking, clustering e detecção de outliers.
+`lutz mcp --projeto .` expõe o projeto, somente leitura, para Claude Desktop, Cursor e VS Code. A API REST fica em `http://127.0.0.1:8000/api/docs` com `lutz web`.

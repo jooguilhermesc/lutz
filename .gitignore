@@ -56,3 +56,7 @@ build/
 # Dev prototypes / scratch files
 chat-ai-prototype.html
 .secrets.baseline
+
+# Local design drafts (not versioned); only the ADRs in this folder are tracked (see specs/ADR-003)
+specs/*
+!specs/ADR-*.md

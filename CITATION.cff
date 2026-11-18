@@ -8,21 +8,20 @@ authors:
     given-names: Karoline
     orcid: https://orcid.org/0000-0002-6302-4187
     website: http://lattes.cnpq.br/5407395559226556
-title: "Lutz: AI-powered academic article screening and analysis tool"
-version: 0.5.8
+title: "Lutz: validated data extraction for systematic reviews"
+version: 1.0.0a1
 doi: 10.5281/zenodo.19982571
-date-released: 2026-09-05
+date-released: 2026-11-18
 url: "https://github.com/jooguilhermesc/lutz"
 repository-code: "https://github.com/jooguilhermesc/lutz"
 license: MIT
 keywords:
   - systematic review
-  - academic screening
-  - scientific articles
-  - generative AI
-  - LLM
-  - RAG
-  - embeddings
+  - data extraction
+  - inter-rater reliability
+  - PRISMA 2020
+  - Krippendorff's alpha
+  - large language models
   - PDF
   - Python
   - open science

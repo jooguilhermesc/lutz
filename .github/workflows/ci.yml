@@ -6,293 +6,128 @@ on:
   pull_request:
 
 jobs:
-  checks:
-    name: Checks
+  tests:
+    name: Tests (Python ${{ matrix.python }})
     runs-on: ubuntu-latest
-
+    strategy:
+      matrix:
+        python: ["3.10", "3.12"]
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python }}
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          mkdir -p web/dist
+          pip install -e ".[dev]"
+      - name: Ruff
+        run: ruff check lutz tests
+      - name: Pytest with coverage (gate: 80%)
+        run: python -m pytest tests --cov=lutz --cov-report=term-missing --cov-fail-under=80
 
-      - name: Install build tools
-        run: python -m pip install --upgrade pip build
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+  web:
+    name: Web build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: "npm"
           cache-dependency-path: web/package-lock.json
-
-      - name: Build React frontend
+      - name: Build SPA (tsc + vite)
         run: |
           cd web
           npm ci
           npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
 
-      - name: Compile Python files
-        run: python -m compileall lutz
-
-      - name: Build package
-        run: python -m build
+  package:
+    name: Package
+    needs: web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+      - name: Smoke test of the wheel
+        run: |
+          pip install dist/*.whl
+          lutz --version
+          lutz init /tmp/demo --pergunta "smoke"
+          lutz doctor --projeto /tmp/demo || true
+          cd /tmp && python -c "import importlib.resources as r; assert r.files('lutz').joinpath('web', 'index.html').is_file()"
 
   security:
     name: Security
     runs-on: ubuntu-latest
-
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: Install security tools
-        run: python -m pip install --upgrade pip bandit[toml] detect-secrets
-
-      - name: Run Bandit (high and critical only)
+      - name: Install tools
         run: |
-          bandit -r lutz \
-            --severity-level high \
-            --confidence-level high \
-            --format json \
-            --output bandit-report.json || true
-          python - <<'EOF'
-          import json, sys
-
-          with open("bandit-report.json") as f:
-              report = json.load(f)
-
-          issues = [
-              i for i in report.get("results", [])
-              if i["issue_severity"] in ("HIGH", "CRITICAL")
-              and i["issue_confidence"] in ("HIGH", "MEDIUM", "LOW")
-          ]
-
-          if issues:
-              print(f"::error::Bandit encontrou {len(issues)} vulnerabilidade(s) de severidade HIGH/CRITICAL:")
-              for i in issues:
-                  print(
-                      f"  [{i['issue_severity']}] {i['issue_text']} "
-                      f"— {i['filename']}:{i['line_number']}"
-                  )
-              sys.exit(1)
-
-          print("Bandit: nenhuma vulnerabilidade HIGH/CRITICAL encontrada.")
-          EOF
-
-      - name: Upload Bandit report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: bandit-report
-          path: bandit-report.json
-
-      - name: Scan for hardcoded secrets (detect-secrets)
+          python -m pip install --upgrade pip bandit detect-secrets pip-audit
+          mkdir -p web/dist
+          pip install .
+      - name: Bandit (fails on HIGH)
+        run: bandit -r lutz --severity-level high --confidence-level medium
+      - name: detect-secrets
         run: |
-          detect-secrets scan \
-            --exclude-files '(\.git|dist|build|\.venv|node_modules)' \
-            > .secrets.baseline
-
-          python - <<'EOF'
+          detect-secrets scan --exclude-files '(\.git|dist|build|\.venv|node_modules|tests/|package-lock\.json|uv\.lock|specs/)' > secrets.json
+          python - <<'PY'
           import json, sys
-
-          with open(".secrets.baseline") as f:
-              baseline = json.load(f)
-
-          findings = []
-          for path, secrets in baseline.get("results", {}).items():
-              for secret in secrets:
-                  if not secret.get("is_verified", False):
-                      findings.append((path, secret))
-
-          if findings:
-              print(f"::error::detect-secrets encontrou {len(findings)} possível(is) secret(s) hardcoded:")
-              for path, s in findings:
-                  print(f"  {path}:{s.get('line_number', '?')} — tipo: {s.get('type', '?')}")
+          r = json.load(open("secrets.json"))["results"]
+          if r:
+              for path, items in r.items():
+                  for s in items:
+                      print(f"::error::{path}:{s['line_number']} possível segredo ({s['type']})")
               sys.exit(1)
-
-          print("detect-secrets: nenhum secret hardcoded encontrado.")
-          EOF
-
-      - name: Upload secrets baseline
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: secrets-baseline
-          path: .secrets.baseline
+          print("detect-secrets: nenhum segredo encontrado")
+          PY
+      - name: pip-audit (dependencies)
+        run: pip-audit --skip-editable --progress-spinner off
 
   agents:
-    name: Agents
+    name: Agent definitions
     runs-on: ubuntu-latest
-
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: Install PyYAML
-        run: python -m pip install --upgrade pip pyyaml
-
-      - name: Validate development agent definitions (.claude/agents/)
+      - run: python -m pip install pyyaml
+      - name: Validate .claude/agents frontmatter
         run: |
-          python - <<'EOF'
+          python - <<'PY'
           import pathlib, sys, yaml
-
-          agents_dir = pathlib.Path(".claude/agents")
-          if not agents_dir.exists():
-              print("::error::.claude/agents/ não encontrado")
-              sys.exit(1)
-
-          agent_files = list(agents_dir.glob("*.md"))
-          if not agent_files:
-              print("::error::Nenhum agente encontrado em .claude/agents/")
-              sys.exit(1)
-
-          errors = []
-          for agent_file in sorted(agent_files):
-              content = agent_file.read_text(encoding="utf-8")
-              if not content.startswith("---"):
-                  errors.append(f"{agent_file}: sem frontmatter YAML")
+          erros = []
+          arquivos = sorted(pathlib.Path(".claude/agents").glob("*.md"))
+          for f in arquivos:
+              partes = f.read_text(encoding="utf-8").split("---", 2)
+              if len(partes) < 3:
+                  erros.append(f"{f}: sem frontmatter")
                   continue
-              parts = content.split("---", 2)
-              if len(parts) < 3:
-                  errors.append(f"{agent_file}: frontmatter incompleto")
-                  continue
-              try:
-                  meta = yaml.safe_load(parts[1])
-              except yaml.YAMLError as e:
-                  errors.append(f"{agent_file}: YAML inválido — {e}")
-                  continue
-              for field in ("name", "description", "tools"):
-                  if field not in (meta or {}):
-                      errors.append(f"{agent_file}: campo obrigatório ausente: '{field}'")
-
-          if errors:
-              for e in errors:
-                  print(f"::error::{e}")
-              sys.exit(1)
-
-          print(f"✓ {len(agent_files)} agente(s) de desenvolvimento válido(s)")
-          EOF
-
-      - name: Validate research agent templates (.claude/agents/research/)
-        run: |
-          python - <<'EOF'
-          import pathlib, sys, yaml
-
-          templates_dir = pathlib.Path(".claude/agents/research")
-          if not templates_dir.exists():
-              print("::error::.claude/agents/research/ não encontrado")
-              sys.exit(1)
-
-          template_files = list(templates_dir.glob("*.md"))
-          if not template_files:
-              print("::error::Nenhum template encontrado em .claude/agents/research/")
-              sys.exit(1)
-
-          errors = []
-          for template_file in sorted(template_files):
-              content = template_file.read_text(encoding="utf-8")
-              if not content.startswith("---"):
-                  errors.append(f"{template_file}: sem frontmatter YAML")
-                  continue
-              parts = content.split("---", 2)
-              if len(parts) < 3:
-                  errors.append(f"{template_file}: frontmatter incompleto")
-                  continue
-              try:
-                  meta = yaml.safe_load(parts[1])
-              except yaml.YAMLError as e:
-                  errors.append(f"{template_file}: YAML inválido — {e}")
-                  continue
-              for field in ("name", "description", "tools"):
-                  if field not in (meta or {}):
-                      errors.append(f"{template_file}: campo obrigatório ausente: '{field}'")
-
-          if errors:
-              for e in errors:
-                  print(f"::error::{e}")
-              sys.exit(1)
-
-          print(f"✓ {len(template_files)} template(s) de pesquisa válido(s)")
-          EOF
-
-      - name: Validate security pattern catalogues (lutz/security/*.yaml)
-        run: |
-          python - <<'EOF'
-          import pathlib, sys, yaml
-
-          security_dir = pathlib.Path("lutz/security")
-          if not security_dir.exists():
-              print("::error::lutz/security/ não encontrado")
-              sys.exit(1)
-
-          yaml_files = list(security_dir.glob("*.yaml"))
-          if not yaml_files:
-              print("::error::Nenhum YAML encontrado em lutz/security/")
-              sys.exit(1)
-
-          errors = []
-          total_patterns = 0
-          for yaml_file in sorted(yaml_files):
-              try:
-                  data = yaml.safe_load(yaml_file.read_text(encoding="utf-8"))
-                  if not isinstance(data, list):
-                      errors.append(f"{yaml_file}: deve ser uma lista de padrões")
-                      continue
-                  for i, entry in enumerate(data):
-                      if "pattern" not in entry:
-                          errors.append(f"{yaml_file}[{i}]: campo 'pattern' ausente")
-                      if "severity" not in entry:
-                          errors.append(f"{yaml_file}[{i}]: campo 'severity' ausente")
-                      if entry.get("severity") not in ("HIGH", "MEDIUM", "LOW", None):
-                          errors.append(f"{yaml_file}[{i}]: severity inválido: {entry.get('severity')!r}")
-                  total_patterns += len(data)
-                  print(f"  {yaml_file.name}: {len(data)} padrões")
-              except yaml.YAMLError as e:
-                  errors.append(f"{yaml_file}: YAML inválido — {e}")
-
-          if errors:
-              for e in errors:
-                  print(f"::error::{e}")
-              sys.exit(1)
-
-          print(f"✓ {len(yaml_files)} arquivo(s) YAML válido(s), {total_patterns} padrões no total")
-          EOF
-
-      - name: Verify audit module integrity
-        run: |
-          python - <<'EOF'
-          import pathlib, sys
-
-          audit_file = pathlib.Path("lutz/core/audit.py")
-          if not audit_file.exists():
-              print("::error::lutz/core/audit.py não encontrado")
-              sys.exit(1)
-
-          # Smoke-test: importar e instanciar em diretório temporário
-          import tempfile, pathlib as pl
-          with tempfile.TemporaryDirectory() as tmpdir:
-              import sys
-              sys.path.insert(0, ".")
-              from lutz.core.audit import AuditLog
-              log = AuditLog(pl.Path(tmpdir) / "audit")
-              sig = log.record("ci-test", "smoke_test", detail="CI validation")
-              ok, errors = log.verify_chain()
-              if not ok:
-                  print(f"::error::AuditLog chain verification failed: {errors}")
-                  sys.exit(1)
-          print("✓ lutz/core/audit.py — importação e cadeia HMAC: OK")
-          EOF
+              meta = yaml.safe_load(partes[1]) or {}
+              for campo in ("name", "description", "tools"):
+                  if campo not in meta:
+                      erros.append(f"{f}: falta '{campo}'")
+          for e in erros:
+              print(f"::error::{e}")
+          sys.exit(1 if erros or not arquivos else 0)
+          PY

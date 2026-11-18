@@ -6,135 +6,80 @@
 
 **Languages:** **English** | [Português](README.pt-BR.md) | [Español](README.es.md)
 
-> AI-powered tool for screening and analyzing academic PDF articles — browser interface and CLI.
+> Validated data extraction for systematic reviews: every cell of the extraction table comes with its quote, its page and a measured confidence level, plus a reliability report for the Methods section and the PRISMA 2020 checklist.
 
 [![DOI](https://zenodo.org/badge/1227342715.svg)](https://doi.org/10.5281/zenodo.19982571)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
-![Version](https://img.shields.io/badge/Version-0.5.8-blueviolet)
+![Version](https://img.shields.io/badge/Version-1.0.0a1-blueviolet)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
----
+Lutz 1.0 is a rewrite. It does not read 0.5.x projects; see [upgrading from 0.5](docs/upgrade-0.5-para-1.0.md). To keep 0.5: `pip install "lutz-research<1"`.
+
+## How it works
+
+1. **Import PDFs.** Lutz keeps the visible text of every page (hidden text is discarded), fixes the reading order of two-column pages, reads tables row by row and gives every sentence and table row a citable id.
+2. **Write the codebook** (the extraction form), with an Assistant, a deterministic lint and a quick test on a few articles.
+3. **Autonomous mode.** Three independent extractors (ideally from different vendors) fill every cell with a value, a verbatim quote and a page. The quote is checked against the page text without an LLM, an independent verifier judges whether the quote supports the value, and codebook rules act as a gate. Each cell gets a level: High, Medium or Low. Krippendorff's alpha per field measures agreement among extractors.
+4. **Calibrated mode (optional).** A blind pilot with one or two human raters: Cohen's kappa, weighted kappa or ICC per field with bootstrap CIs, a per-field decision, and the measured accuracy of each confidence level.
+5. **Adjudication and audit.** Low cells go to a human decision; a random sample of High cells is checked by hand.
+6. **Report.** Seven parts in Portuguese and English (Markdown and PDF): run identification, process, reliability by field, level calibration, adjudication, ready-to-paste Methods text, PRISMA 2020 map, RAISE AI-use statement, and annexes with the full log.
 
 ## Install
 
 ```bash
-pip install lutz-research
+pip install --pre lutz-research
 ```
 
-Requires Python 3.10+. A virtual environment is recommended:
-
-```bash
-python -m venv .venv && source .venv/bin/activate
-pip install lutz-research
-```
-
-### Windows: garbled or crashing output
-
-Legacy consoles (cmd.exe, PowerShell 5) run on a non-UTF-8 code page such as
-cp1252. Lutz 0.5.8+ reconfigures stdio to UTF-8 automatically and falls back to
-ASCII symbols when it cannot. On **older versions**, `lutz vectorize` may abort
-with `UnicodeEncodeError: 'charmap' codec can't encode character '\u2192'`.
-Workaround:
-
-```bat
-set PYTHONUTF8=1
-:: or, in the current console only:
-chcp 65001
-```
-
----
+Python 3.10+. Windows installer: see the releases page.
 
 ## Quick start
 
 ```bash
-# Create a project
-mkdir my-review && cd my-review
-lutz init
-
-# Configure your AI model (see .env section below)
-cp .env.example .env
-
-# Add PDFs
-lutz load --f ~/Downloads/articles --so linux
-
-# Open the browser interface
-lutz web
+lutz init my-review --pergunta "Do LLM tutors improve student engagement?"
+cd my-review
+lutz config set ANTHROPIC_API_KEY sk-ant-...   # and the keys of the other vendors
+# edit lutz.yaml: models for E1, E2, E3 (extractors) and V (verifier)
+lutz doctor --chamar
+lutz load ~/papers/
+lutz codebook new                 # or: lutz codebook import codebook.yaml
+lutz codebook test --campo sample_size
+lutz codebook freeze
+lutz extract                      # cost estimate, confirmation, run
+lutz adjudicate export            # then: lutz adjudicate import <file>
+lutz audit sample                 # then: lutz audit import <file>
+lutz report
+lutz web                          # the same flow in the browser
 ```
 
-The interface opens at `http://localhost:8765`. From there you can vectorize articles, run analyses, and generate reports.
+Local models through Docker Model Runner work without keys; see [configuration](docs/configuracao.md).
 
----
+## Interfaces
 
-## Configure your model (.env)
-
-Edit `.env` in the project root. Choose one provider:
-
-**OpenRouter** (recommended — access to hundreds of models)
-```dotenv
-EMBEDDING_PROVIDER=openai
-EMBEDDING_MODEL=openai/text-embedding-3-small
-OPENAI_BASE_URL=https://openrouter.ai/api/v1
-OPENAI_API_KEY=sk-or-...
-
-LLM_PROVIDER=openai
-LLM_MODEL=google/gemini-flash-1.5-8b
-```
-
-**OpenAI**
-```dotenv
-EMBEDDING_PROVIDER=openai
-EMBEDDING_MODEL=text-embedding-3-small
-
-LLM_PROVIDER=openai
-OPENAI_API_KEY=sk-...
-LLM_MODEL=gpt-4o-mini
-```
-
-**Anthropic**
-```dotenv
-EMBEDDING_PROVIDER=sentence_transformers
-EMBEDDING_MODEL=all-MiniLM-L6-v2
-
-LLM_PROVIDER=anthropic
-ANTHROPIC_API_KEY=sk-ant-...
-LLM_MODEL=claude-haiku-4-5-20251001
-```
-
-**Local — Ollama**
-```dotenv
-EMBEDDING_PROVIDER=sentence_transformers
-EMBEDDING_MODEL=all-MiniLM-L6-v2
-
-LLM_PROVIDER=openai
-OPENAI_BASE_URL=http://localhost:11434/v1
-OPENAI_API_KEY=ollama
-LLM_MODEL=llama3.2
-```
-
-You can also configure everything from the **Settings** page inside the web interface.
-
----
+* **CLI** `lutz` — [reference](docs/referencia-cli.md).
+* **Web** — `lutz web` (127.0.0.1 only): Library, Codebook, Pilot, Extraction, Results, Adjudication, Report, API & MCP, Settings.
+* **REST API** — OpenAPI at `/api/docs` while `lutz web` runs.
+* **MCP server** — `lutz mcp --projeto .` (stdio, read-only) for Claude Desktop, Cursor and VS Code.
 
 ## Documentation
 
-Full guides, CLI reference, and screenshots at **[jooguilhermesc.github.io/lutz](https://jooguilhermesc.github.io/lutz/)**.
-
----
+* [System specification](docs/spec-1.0.md)
+* [Statistical methods](docs/metodos-estatisticos.md)
+* [Configuration](docs/configuracao.md)
+* [End-to-end validation with a real article](docs/validacao-e2e.md)
+* Site: [jooguilhermesc.github.io/lutz](https://jooguilhermesc.github.io/lutz/)
 
 ## How to cite
 
 ```bibtex
 @software{cabral2026lutz,
   author  = {Cabral, João Guilherme Silva and Azevedo Farias, Anna Karoline},
-  title   = {{Lutz: AI-powered academic article screening and analysis tool}},
+  title   = {{Lutz: validated data extraction for systematic reviews}},
   year    = {2026},
-  version = {0.5.8},
+  version = {1.0.0a1},
   doi     = {10.5281/zenodo.19982571},
   url     = {https://github.com/jooguilhermesc/lutz}
 }
 ```
-
----
 
 ## License
 

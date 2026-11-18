@@ -1,167 +1,58 @@
 # -*- mode: python ; coding: utf-8 -*-
 #
-# PyInstaller spec for lutz — AI-powered academic article screening tool.
+# PyInstaller spec for Lutz 1.0.
 #
-# Build:
-#   pip install pyinstaller
-#   cd web && npm run build && cd ..
-#   pyinstaller lutz.spec
+#   cd web && npm ci && npm run build && cd ..
+#   rm -rf lutz/web && cp -r web/dist lutz/web
+#   pip install . pyinstaller && pyinstaller lutz.spec
 #
-# Output: dist/lutz  (Linux) or dist/lutz.exe (Windows)
+# Output: dist/lutz(.exe). No PyTorch, no OCR models, no GTK runtime: PDF reports are made with
+# PyMuPDF, so the binary stays self-contained.
 
-import sys
 from pathlib import Path
+
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 HERE = Path(SPECPATH)
 
-# Detect platform
-IS_WINDOWS = sys.platform == "win32"
-
-# ── Data files to bundle ──────────────────────────────────────────────────────
-#
-# (source_path, dest_folder_inside_bundle)
-#
-# lutz/web/  contains the pre-built React SPA (npm run build → web/dist → lutz/web)
-# lutz/      is already handled by the Analysis below, but we explicitly add web assets.
-
 datas = [
-    # React SPA static files
     (str(HERE / "lutz" / "web"), "lutz/web"),
-    # Security pattern catalogues (ATLAS T0051/T0054/T0070 + PII)
-    (str(HERE / "lutz" / "security"), "lutz/security"),
+    (str(HERE / "lutz" / "data"), "lutz/data"),
 ]
-
-# ── Hidden imports ────────────────────────────────────────────────────────────
-#
-# PyInstaller cannot always detect dynamic imports. List them explicitly.
+datas += collect_data_files("certifi")
 
 hidden_imports = [
-    # FastAPI / Starlette
-    "uvicorn",
-    "uvicorn.logging",
-    "uvicorn.loops",
-    "uvicorn.loops.auto",
-    "uvicorn.protocols",
-    "uvicorn.protocols.http",
-    "uvicorn.protocols.http.auto",
-    "uvicorn.protocols.websockets",
-    "uvicorn.protocols.websockets.auto",
-    "uvicorn.lifespan",
-    "uvicorn.lifespan.on",
-    "fastapi",
-    "starlette",
-    "starlette.routing",
-    "starlette.staticfiles",
-    "starlette.responses",
-    "starlette.middleware.cors",
-    "anyio",
-    "anyio._backends._asyncio",
-    # ML / embeddings
-    "sentence_transformers",
-    "transformers",
-    "torch",
-    "sklearn",
-    "sklearn.utils._cython_blas",
-    # PDF
-    "pypdf",
-    "pdfplumber",
-    "fitz",       # pymupdf
-    # marker-pdf (OCR + multi-column layout — bundled in binary)
-    "marker",
-    "marker.converters",
-    "marker.converters.pdf",
-    "marker.models",
-    "marker.output",
-    "surya",
-    "surya.ocr",
-    "surya.layout",
-    "surya.detection",
-    "surya.recognition",
-    # DB
-    "lancedb",
-    "pyarrow",
-    "duckdb",
-    # LLM clients
-    "openai",
-    "anthropic",
-    # Misc
-    "yaml",
-    "dotenv",
-    "rich",
-    "click",
-    "pandas",
-    "numpy",
-    "python_multipart",
-    "multipart",
+    "uvicorn.logging", "uvicorn.loops.auto", "uvicorn.protocols.http.auto",
+    "uvicorn.protocols.websockets.auto", "uvicorn.lifespan.on",
+    "anyio._backends._asyncio", "multipart", "python_multipart",
+    "pymupdf", "krippendorff", "rapidfuzz", "openai", "anthropic", "yaml", "dotenv",
 ]
-
-# ── Exclusions ────────────────────────────────────────────────────────────────
-#
-# Reduce binary size by excluding things we don't need at runtime.
+hidden_imports += collect_submodules("lutz")
+hidden_imports += collect_submodules("mcp")
 
 excludes = [
-    # GUI toolkits not needed
-    "matplotlib",
-    "IPython",
-    "jupyter",
-    "notebook",
-    "tkinter",
-    "PyQt5",
-    "wx",
-    # Test frameworks
-    "test",
-    "tests",
-    "unittest",
-    "doctest",
-    # PyTorch CUDA / GPU — we use CPU-only torch in binary builds
-    # (install with: pip install torch --index-url https://download.pytorch.org/whl/cpu)
-    "torch.cuda",
-    "torch.backends.cuda",
-    "torch.backends.cudnn",
-    "torch.backends.mps",
-    "torch.distributed",
-    "torch.fx",
-    "caffe2",
-    "functorch",
+    "matplotlib", "IPython", "jupyter", "notebook", "tkinter", "PyQt5", "wx",
+    "torch", "transformers", "sklearn", "statsmodels", "pandas", "pingouin",
+    "pytest", "test", "tests", "doctest",
 ]
 
-# ── Analysis ──────────────────────────────────────────────────────────────────
-
 a = Analysis(
-    [str(HERE / "lutz" / "cli.py")],
+    [str(HERE / "lutz" / "__main__.py")],
     pathex=[str(HERE)],
     binaries=[],
     datas=datas,
     hiddenimports=hidden_imports,
     hookspath=[],
-    hooksconfig={},
     runtime_hooks=[],
     excludes=excludes,
     noarchive=False,
 )
-
 pyz = PYZ(a.pure)
-
-# ── Single-file executable ────────────────────────────────────────────────────
-
 exe = EXE(
-    pyz,
-    a.scripts,
-    a.binaries,
-    a.datas,
-    [],
+    pyz, a.scripts, a.binaries, a.datas, [],
     name="lutz",
     debug=False,
-    bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    upx_exclude=[],
-    runtime_tmpdir=None,
-    console=True,        # CLI tool — keep console open
-    disable_windowed_traceback=False,
-    argv_emulation=False,
-    target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
-    icon=None,
+    console=True,
 )

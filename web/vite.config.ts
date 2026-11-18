@@ -6,18 +6,11 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': {
-        target: 'http://localhost:8765',
-        changeOrigin: true,
-      },
-      '/ws': {
-        target: 'ws://localhost:8765',
-        ws: true,
-        changeOrigin: true,
-      },
+      '/api': { target: 'http://127.0.0.1:8000', changeOrigin: true },
     },
   },
   build: {
     outDir: 'dist',
+    chunkSizeWarningLimit: 1600,
   },
 })

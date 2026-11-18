@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.0a1] - 2026-11-18
+
+Reescrita do zero. O Lutz passa a ter um único objetivo: a tabela de extração validada de uma revisão sistemática, com nível de confiança medido por célula e um relatório de confiabilidade para Métodos e PRISMA 2020. **Não lê projetos 0.5.x** (ver `docs/upgrade-0.5-para-1.0.md` e `docs/adr/ADR-002-reescrita-1.0.md`).
+
+### Added
+
+- **Ingestão por página** com texto visível (texto oculto descartado e listado), ordem de leitura em duas colunas, tabelas lidas célula a célula, unidades citáveis (`p4.s17`, `p8.t1.r3`), seções em pt/en/es e marcação de PDFs sem texto.
+- **Codebook** tipado e versionado com hash por versão e por campo, lint determinístico e semântico, linguagem fechada de regras entre campos, teste rápido e **Assistente de Codebook** (modelos de partida por área e sugestões por LLM).
+- **Modo Autônomo:** três extratores independentes, verificação literal da evidência sem LLM, verificador independente, regras, níveis Alta/Média/Baixa, alfa de Krippendorff com IC por bootstrap, estimativa de custo, orçamento, execução retomável por célula, cache de chamadas e recálculo sem API.
+- **Modo Calibrado:** piloto cego pré-registrado, sorteio estratificado com reserva, planilhas e formulário cego, consenso, kappa / kappa ponderado / ICC(A,1) / PABAK, decisão por campo e calibração dos níveis com IC de Wilson.
+- **Adjudicação** com fila por escore e CSV de ida e volta; **auditoria das células Alta** com n calculado.
+- **Relatório de confiabilidade** em sete partes (pt e en, Markdown e PDF), texto para Métodos, mapa PRISMA 2020, declaração RAISE e anexos A/B/C com manifesto de hashes.
+- **Interface web** nova (Biblioteca, Codebook, Piloto, Extração, Resultados, Adjudicação, Relatório, API e MCP), **API REST** local com jobs e SSE, **servidor MCP** somente leitura (`lutz mcp`), `lutz doctor`, `lutz bundle export`.
+- Registro de cada chamada LLM com modelo observado, tokens, custo e latência; provedores Anthropic (SDK oficial, saída estruturada), OpenAI, OpenRouter e Docker Model Runner.
+
+### Changed
+
+- Configuração: o `.env` guarda só chaves e URLs (lista branca, origem de cada valor, possibilidade de apagar); modelos por papel, limiares, orçamento e sementes vão para o `lutz.yaml`.
+- `lutz load PASTA` (o antigo `--f` ainda é aceito).
+
+### Removed
+
+- `lutz vectorize`/LanceDB, `lutz analysis`, `citations`, `rank`, `dedup`, `query`, `agent` e o chat; scan de segurança em seis camadas, quarentena e log HMAC; categorias de veredito e roadmap de leitura; dependências pandas, scikit-learn (agora só em testes), lancedb, weasyprint, python-docx e afins.
+
 ## [0.5.8] - 2026-09-05
 
 ### Fixed

@@ -32,18 +32,12 @@ python -m pytest tests/ \
 
 ### 3. Verificação de importações
 ```bash
-python -c "import lutz; import lutz.core.security_checker; import lutz.core.audit"
+python -c "import lutz, lutz.cli, lutz.server.app, lutz.server.mcp, lutz.report.gerar"
 ```
 
-### 4. Validação dos YAMLs de segurança (não devem quebrar na importação)
+### 4. Lint
 ```bash
-python -c "
-from lutz.core.security_checker import _EXT_INJECTION_PATTERNS, _RAG_POISON_PATTERNS
-print(f'Injection patterns: {len(_EXT_INJECTION_PATTERNS)}')
-print(f'RAG poison patterns: {len(_RAG_POISON_PATTERNS)}')
-assert len(_EXT_INJECTION_PATTERNS) > 0, 'YAML patterns failed to load'
-assert len(_RAG_POISON_PATTERNS) > 0, 'RAG patterns failed to load'
-"
+ruff check lutz tests
 ```
 
 ## Gate 3 — critérios de aprovação
@@ -53,15 +47,16 @@ assert len(_RAG_POISON_PATTERNS) > 0, 'RAG patterns failed to load'
 | Cobertura de código | ≥ 80% |
 | Falhas de teste | 0 |
 | Erros de sintaxe Python | 0 |
-| Patterns YAML carregados | > 0 cada |
+| Erros do ruff | 0 |
 
 Se qualquer critério falhar: `gate_result: FAIL`, acionar `desenvolve-lutz` para corrigir.
 
-## Cenários de segurança a verificar (se existirem testes)
+## Cenários que precisam continuar cobertos
 
-- `tests/test_security_checker.py`: testar padrões de injeção, RAG poisoning, unicode
-- `tests/test_audit.py`: testar cadeia HMAC e detecção de adulteração
-- Fixtures de PDFs maliciosos devem ser cobertas
+- `tests/test_metricas.py`: os exemplos numéricos de `docs/metodos-estatisticos.md`
+- `tests/test_ingestao.py`: texto oculto descartado, duas colunas, tabelas, PDF sem texto
+- `tests/test_consolidacao.py`: regras de nível, empate, não reportado, evidência
+- `tests/test_revisao_piloto.py`: cegamento do piloto, decisão por campo, calibração
 
 ## Restrições absolutas
 
