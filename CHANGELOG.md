@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+
+- **Só OpenRouter** ([ADR-004](docs/adr/ADR-004-somente-openrouter.md)): todos os modelos passam pelo OpenRouter, com uma chave (`OPENROUTER_API_KEY`). Saem os provedores `anthropic`, `openai` e `docker_model_runner`, a dependência `anthropic` e a tabela `lutz/data/precos.yaml`. Um `lutz.yaml` antigo é recusado com a migração na mensagem.
+- **Tela de Configurações única:** chave do OpenRouter, modelos por papel escolhidos no catálogo do OpenRouter (com preço e contexto, gravados no bloco `modelos` do `lutz.yaml`) e consumo (gasto, limite e saldo da conta no OpenRouter, e consumo do projeto).
+- **Preços:** do catálogo do OpenRouter (cache de um dia em `.lutz/`); o custo de cada chamada é o valor cobrado informado pelo OpenRouter.
+- `lutz doctor` aponta modelos que não estão no catálogo do OpenRouter.
+
+### Fixed
+
+- **Windows sem o Visual C++ Redistributable:** o PyMuPDF passa a ser carregado só quando um PDF é lido ou gerado. `lutz web`, `lutz doctor` e `lutz mcp` abrem mesmo quando ele não carrega; `lutz load`, `lutz report` e o `doctor` explicam em português o que instalar (MSVCP140.dll), em vez de um traceback.
+- **`lutz.exe`:** o build falha se o runtime do Visual C++ (MSVCP140.dll, VCRUNTIME140*.dll) não entrar no binário, e o teste de fumaça exige que o PyMuPDF carregue. O executável não depende do Redistributable instalado.
+
 ## [1.0.0a1] - 2026-11-18
 
 Reescrita do zero. O Lutz passa a ter um único objetivo: a tabela de extração validada de uma revisão sistemática, com nível de confiança medido por célula e um relatório de confiabilidade para Métodos e PRISMA 2020. **Não lê projetos 0.5.x** (ver `docs/upgrade-0.5-para-1.0.md` e `docs/adr/ADR-002-reescrita-1.0.md`).

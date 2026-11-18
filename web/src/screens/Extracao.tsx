@@ -200,7 +200,7 @@ function Detalhe({ d, onConfirmar, onAtualizar }: { d: ExecucaoDetalhe; onConfir
           {[...extratores, ...outros].map((e) => (
             <div key={e.rotulo} className="step">
               <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}><span className="tag">{e.rotulo}</span><strong>{e.provedor}</strong></span>
-              <span className="mono small">{e.modelo}{e.provedor !== 'anthropic' ? ` · temp ${e.temperatura}` : ''}</span>
+              <span className="mono small">{e.modelo}{e.temperatura != null ? ` · temp ${e.temperatura}` : ''}</span>
               <span className="faint small">{tr('observado', 'observed')}: <span className="mono">{e.modelo_observado || '—'}</span></span>
               {e.papel !== 'extrator' ? <span className="faint small">{e.papel === 'verificador' ? tr('verificador · sem o artigo', 'verifier · without the article') : e.papel}</span> : null}
             </div>

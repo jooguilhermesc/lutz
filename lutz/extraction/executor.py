@@ -225,7 +225,7 @@ TOKENS_VERIFICADOR_SAIDA = 80
 def estimar(projeto: Projeto, con, execucao_id: int) -> dict:
     """Upper-bound estimate of the remaining work. Cached requests cost nothing."""
     ctx = _carregar_ctx(projeto, con, execucao_id)
-    precos = tabela_precos(ctx.settings)
+    precos = tabela_precos(ctx.settings, projeto)
     por: dict[str, dict] = {}
     excedem: set[str] = set()
     em_cache = 0
@@ -763,5 +763,5 @@ def resumo(con, execucao_id: int) -> dict:
     }
 
 
-def preco_conhecido(cfg: ModeloPapel, settings: Settings) -> bool:
-    return preco_de(cfg, tabela_precos(settings)) is not None
+def preco_conhecido(cfg: ModeloPapel, settings: Settings, projeto: Projeto | None = None) -> bool:
+    return preco_de(cfg, tabela_precos(settings, projeto)) is not None

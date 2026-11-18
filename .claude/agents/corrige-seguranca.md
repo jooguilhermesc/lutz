@@ -41,7 +41,7 @@ API_KEY = "sk-abc123..."  # pragma: allowlist secret
 # CORRETO — ler do ambiente via load_env()
 from lutz.utils.project import load_env
 env = load_env()
-api_key = env.get("OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY")
+api_key = env.get("OPENROUTER_API_KEY") or os.environ.get("OPENROUTER_API_KEY")
 ```
 
 ### Insecure deserialization (B301 pickle)

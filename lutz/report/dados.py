@@ -10,7 +10,7 @@ import math
 from collections import Counter
 
 from lutz.calibrated import piloto as pil
-from lutz.config.settings import Settings
+from lutz.config.settings import Settings, temperatura_aplicada
 from lutz.core import codebook as cbk
 from lutz.core.db import jload, um
 from lutz.core.errors import EstadoInvalido
@@ -72,6 +72,7 @@ def coletar(projeto, con, execucao_id: int) -> dict:
         "SELECT * FROM extrator WHERE execucao_id=? ORDER BY papel, rotulo", (execucao_id,))]
     obs = {r["rotulo"]: r for r in consumo(con, execucao_id)["por_papel"]}
     for e in extratores:
+        e["temperatura"] = temperatura_aplicada(e["provedor"], e["modelo"], e["temperatura"])
         o = obs.get(e["rotulo"])
         e["modelo_observado"] = (o or {}).get("modelo_observado") or ""
     contexto = Counter()

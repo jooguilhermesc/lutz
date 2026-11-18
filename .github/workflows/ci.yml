@@ -24,7 +24,7 @@ jobs:
           pip install -e ".[dev]"
       - name: Ruff
         run: ruff check lutz tests
-      - name: Pytest with coverage (gate: 80%)
+      - name: "Pytest with coverage (gate: 80%)"
         run: python -m pytest tests --cov=lutz --cov-report=term-missing --cov-fail-under=80
 
   web:

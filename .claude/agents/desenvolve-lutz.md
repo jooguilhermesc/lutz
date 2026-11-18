@@ -64,7 +64,7 @@ lutz/
 ├── revisao/      # adjudicação e auditoria
 ├── report/       # relatório de confiabilidade e anexos
 ├── server/       # FastAPI, jobs, servidor MCP
-└── data/         # precos.yaml
+└── data/         # dados empacotados (sem tabela de preços: catálogo do OpenRouter, ADR-004)
 web/              # SPA React (consome /api/v1)
 ```
 

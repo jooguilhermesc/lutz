@@ -9,6 +9,7 @@
 # Output: dist/lutz(.exe). No PyTorch, no OCR models, no GTK runtime: PDF reports are made with
 # PyMuPDF, so the binary stays self-contained.
 
+import sys
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
@@ -25,7 +26,7 @@ hidden_imports = [
     "uvicorn.logging", "uvicorn.loops.auto", "uvicorn.protocols.http.auto",
     "uvicorn.protocols.websockets.auto", "uvicorn.lifespan.on",
     "anyio._backends._asyncio", "multipart", "python_multipart",
-    "pymupdf", "krippendorff", "rapidfuzz", "openai", "anthropic", "yaml", "dotenv",
+    "pymupdf", "krippendorff", "rapidfuzz", "openai", "yaml", "dotenv",
 ]
 hidden_imports += collect_submodules("lutz")
 hidden_imports += collect_submodules("mcp")
@@ -47,6 +48,18 @@ a = Analysis(
     excludes=excludes,
     noarchive=False,
 )
+
+# PyMuPDF on Windows needs the Visual C++ runtime (MSVCP140.dll, VCRUNTIME140*.dll). PyInstaller
+# copies these DLLs from the build machine into the binary (app-local deployment, allowed by the
+# Redistributable licence), so lutz.exe runs where the Redistributable is not installed. A build
+# machine without them would ship a lutz.exe that fails on "import pymupdf": stop the build instead.
+if sys.platform == "win32":
+    _incluidas = {Path(destino).name.lower() for destino, _origem, _tipo in a.binaries}
+    _faltam = sorted({"msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll"} - _incluidas)
+    if _faltam:
+        raise SystemExit(f"lutz.spec: {_faltam} não entraram no binário. Instale o Microsoft Visual C++ "
+                         "Redistributable (x64) na máquina de build e rode o PyInstaller de novo.")
+
 pyz = PYZ(a.pure)
 exe = EXE(
     pyz, a.scripts, a.binaries, a.datas, [],

@@ -2,22 +2,26 @@
 
 The file is part of every run: the resolved settings are stored with the run and hashed, so
 the reliability report can cite exactly which models and thresholds produced each number.
-The web interface shows this file read-only; edit it in a text editor.
+Every model runs through OpenRouter (ADR-004). The web settings screen writes only the
+``modelos`` block (one model per role, chosen from the OpenRouter catalog); everything else is
+edited in a text editor.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from lutz.core.errors import ConfigInvalida
 from lutz.core.project import Projeto
 
-Provedor = Literal["anthropic", "openai", "openrouter", "docker_model_runner", "fake"]
+Provedor = Literal["openrouter", "fake"]
+PROVEDORES_REMOVIDOS = {"anthropic": "anthropic", "openai": "openai", "docker_model_runner": None}
 VARIANTES = ("padrao", "reescrita_a", "reescrita_b")
 
 
@@ -26,7 +30,7 @@ class _Base(BaseModel):
 
 
 class ModeloPapel(_Base):
-    provedor: Provedor
+    provedor: Provedor = "openrouter"
     modelo: str = Field(min_length=1)
     temperatura: float = Field(default=0.0, ge=0.0, le=2.0)
     max_tokens: int = Field(default=4096, ge=256, le=200_000)
@@ -35,13 +39,44 @@ class ModeloPapel(_Base):
         default=None, ge=2048, description="Context window of the model, in tokens."
     )
     esforco: Literal["low", "medium", "high", "xhigh", "max"] | None = Field(
-        default=None, description="Anthropic only: output_config.effort."
+        default=None, description="Reasoning effort, sent as OpenRouter 'reasoning.effort'."
     )
     base_url: str | None = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def _provedor_removido(cls, dados):
+        """Projects created before ADR-004 name a vendor; say exactly what to write instead."""
+        if isinstance(dados, dict) and dados.get("provedor") in PROVEDORES_REMOVIDOS:
+            antigo, modelo = dados["provedor"], str(dados.get("modelo") or "MODELO")
+            prefixo = PROVEDORES_REMOVIDOS[antigo]
+            sugestao = f"{prefixo}/{modelo}" if prefixo and "/" not in modelo else "o id do modelo no catálogo"
+            raise ValueError(
+                f"o provedor '{antigo}' saiu do Lutz: todos os modelos passam pelo OpenRouter. "
+                f"Use 'provedor: openrouter' e 'modelo: {sugestao}' (confira o id na tela de Configurações)."
+            )
+        return dados
+
+    @property
+    def fornecedor(self) -> str:
+        """Vendor behind the model: the prefix of the OpenRouter id (``anthropic/...``)."""
+        return self.modelo.split("/")[0] if "/" in self.modelo else self.provedor
+
     def temperatura_efetiva(self) -> float | None:
         """Anthropic models do not accept sampling parameters; the value is not sent."""
-        return None if self.provedor == "anthropic" else self.temperatura
+        return None if self.fornecedor == "anthropic" else self.temperatura
+
+
+def temperatura_aplicada(provedor: str, modelo: str, temperatura: float | None) -> float | None:
+    """Temperature a recorded role really ran with; None ("n/a") for Anthropic models.
+
+    The ``extrator`` table stores the configured value (NOT NULL). Anthropic models never get
+    sampling parameters, whether called directly (runs before ADR-004) or through OpenRouter
+    (``anthropic/...``), so the report and the API must not print that value as if applied.
+    """
+    if provedor == "anthropic" or str(modelo).startswith("anthropic/"):
+        return None
+    return temperatura
 
 
 class Modelos(_Base):
@@ -152,14 +187,15 @@ def hash_obj(obj) -> str:
 def estrategia_diversidade(modelos: Modelos) -> str:
     """Derived automatically; the researcher never types it.
 
-    * ``fornecedores_diferentes``: three different providers (strongest);
-    * ``modelos_diferentes``: different models, some sharing a provider;
+    * ``fornecedores_diferentes``: three different vendors (strongest), e.g. ``anthropic/``,
+      ``openai/`` and ``google/`` models on OpenRouter;
+    * ``modelos_diferentes``: different models, some sharing a vendor;
     * ``instrucoes_reescritas``: same model, different prompt variants;
     * ``nenhuma``: same model and same prompt three times (reported as a limitation).
     """
     ex = list(modelos.extratores().values())
-    provedores = {m.provedor if m.provedor != "openrouter" else m.modelo.split("/")[0] for m in ex}
-    if len(provedores) == 3 and len({m.modelo for m in ex}) == 3:
+    fornecedores = {m.fornecedor for m in ex}
+    if len(fornecedores) == 3 and len({m.modelo for m in ex}) == 3:
         return "fornecedores_diferentes"
     if len({(m.provedor, m.modelo) for m in ex}) == 3:
         return "modelos_diferentes"
@@ -177,7 +213,7 @@ def avisos(s: Settings) -> list[str]:
     if est == "nenhuma":
         out.append(
             "E1, E2 e E3 usam o mesmo modelo e a mesma instrução: os erros serão correlacionados. "
-            "Use fornecedores diferentes ou variantes de prompt diferentes."
+            "Escolha modelos de fornecedores diferentes ou variantes de prompt diferentes."
         )
     elif est == "instrucoes_reescritas":
         out.append(
@@ -193,7 +229,7 @@ def avisos(s: Settings) -> list[str]:
         if (s.modelos.V.provedor, s.modelos.V.modelo) in ex:
             out.append("O verificador usa o mesmo modelo de um extrator; prefira um modelo diferente.")
     for rot, m in s.modelos.extratores().items():
-        if m.provedor != "anthropic" and m.temperatura > 0.3:
+        if m.temperatura_efetiva() is not None and m.temperatura > 0.3:
             out.append(f"{rot} usa temperatura {m.temperatura}; extração costuma usar 0.")
     if s.custo.orcamento_usd is None:
         out.append("Sem orçamento (custo.orcamento_usd): nenhuma execução será interrompida por custo.")
@@ -206,20 +242,17 @@ LUTZ_YAML_MODELO = """\
 # reliability report. Secrets (API keys) go in .env, never here.
 versao: 1
 
-# Three independent extractors. Different providers give the strongest diversity:
-# their errors are less correlated. The verifier (V) should differ from the extractors.
+# Three independent extractors, all through OpenRouter (one key: OPENROUTER_API_KEY).
+# Models from different vendors (anthropic/, openai/, google/...) give the strongest
+# diversity: their errors are less correlated. The verifier (V) should differ from the
+# extractors. Pick the models in the web interface (Settings) or write the OpenRouter ids here.
 modelos:
-# Model names are examples: check them against your provider before the first run
-# ('lutz doctor' makes one small call per role). Anthropic models ignore 'temperatura'.
-  E1: {provedor: anthropic, modelo: claude-opus-5-5}
-  E2: {provedor: openai, modelo: gpt-4.1-mini, temperatura: 0}
+# Model ids are examples: check them in the OpenRouter catalog before the first run
+# ('lutz doctor --chamar' makes one small call per role). Anthropic models ignore 'temperatura'.
+  E1: {provedor: openrouter, modelo: anthropic/claude-opus-5.5}
+  E2: {provedor: openrouter, modelo: openai/gpt-4.1-mini, temperatura: 0}
   E3: {provedor: openrouter, modelo: google/gemini-2.5-flash, temperatura: 0}
-  V:  {provedor: anthropic, modelo: claude-sonnet-5-5}
-  # Local models through Docker Model Runner (no key, no cost). Set janela_tokens to the
-  # context size configured in Docker (docker model configure --context-size 32768 ai/qwen2.5).
-  # E1: {provedor: docker_model_runner, modelo: ai/qwen2.5:3B-Q4_K_M, janela_tokens: 32768}
-  # E2: {provedor: docker_model_runner, modelo: ai/gemma3:4B-Q4_K_M, janela_tokens: 32768}
-  # E3: {provedor: docker_model_runner, modelo: ai/llama3.2:3B-Q4_0, janela_tokens: 32768}
+  V:  {provedor: openrouter, modelo: anthropic/claude-sonnet-5.5}
 
 custo:
   orcamento_usd: 20        # the run pauses when the project spend reaches this value
@@ -246,9 +279,10 @@ relatorio:
 #   decisao_medio: 0.60
 #   calibracao_alta_minima: 0.95
 
-# Prices in USD per million tokens, to override or extend lutz/data/precos.yaml.
+# Prices come from the OpenRouter catalog (and the billed cost of each call). To override
+# one, in USD per million tokens:
 # precos:
-#   gpt-4.1-mini: {entrada: 0.4, saida: 1.6}
+#   openai/gpt-4.1-mini: {entrada: 0.4, saida: 1.6}
 """
 
 
@@ -271,3 +305,81 @@ def validar_yaml(texto: str) -> Settings:
             onde = ".".join(str(p) for p in err["loc"])
             linhas.append(f"  {onde}: {err['msg']}")
         raise ConfigInvalida("lutz.yaml inválido:\n" + "\n".join(linhas)) from exc
+
+
+# ── writing the 'modelos' block from the web settings screen ──────────────────
+
+PAPEIS_EDITAVEIS = ("E1", "E2", "E3", "V")
+_ORDEM_PAPEIS = ("E1", "E2", "E3", "V", "J")
+
+
+def _linha_papel(rotulo: str, dados: dict) -> str:
+    corpo = yaml.safe_dump(dados, default_flow_style=True, allow_unicode=True, sort_keys=False,
+                           width=10_000).strip()
+    return f"  {rotulo}:{' ' * (3 - len(rotulo))}{corpo}"
+
+
+def _bloco_modelos(linhas: list[str]) -> tuple[int, int] | None:
+    """(first, last) line indexes of the top-level 'modelos' block, or None."""
+    ini = next((i for i, ln in enumerate(linhas) if re.match(r"modelos\s*:", ln)), None)
+    if ini is None:
+        return None
+    if linhas[ini].split(":", 1)[1].split("#", 1)[0].strip():  # inline mapping: one line
+        return ini, ini
+    fim = ini
+    for j in range(ini + 1, len(linhas)):
+        ln = linhas[j]
+        if ln and not ln[0].isspace() and not ln.startswith("#"):
+            break
+        if ln.strip() and ln[0].isspace():  # entries and indented comments (old commented roles)
+            fim = j
+    return ini, fim
+
+
+def gravar_modelos(projeto: Projeto, escolhas: dict[str, str | None]) -> Settings:
+    """Set the OpenRouter model of each role in *escolhas* (``None`` removes V).
+
+    Other options of a role (temperature, max_tokens, prompt variant...) are kept, as are the
+    rest of the file and its comments. The result is validated before it is written, so a
+    failed save leaves lutz.yaml untouched.
+    """
+    desconhecidos = sorted(set(escolhas) - set(PAPEIS_EDITAVEIS))
+    if desconhecidos:
+        raise ConfigInvalida(f"Papéis que a tela não edita: {', '.join(desconhecidos)}.")
+    for rot in ("E1", "E2", "E3"):
+        if rot in escolhas and not (escolhas[rot] or "").strip():
+            raise ConfigInvalida(f"{rot} precisa de um modelo.")
+    texto = projeto.yaml.read_text(encoding="utf-8") if projeto.yaml.exists() else LUTZ_YAML_MODELO
+    try:
+        bruto = yaml.safe_load(texto) or {}
+    except yaml.YAMLError as exc:
+        raise ConfigInvalida(f"lutz.yaml não é um YAML válido: {exc}") from exc
+    atuais = dict((bruto.get("modelos") or {}) if isinstance(bruto, dict) else {})
+    for rot, modelo in escolhas.items():
+        if modelo is None or not modelo.strip():
+            atuais.pop(rot, None)
+            continue
+        anterior = {k: v for k, v in dict(atuais.get(rot) or {}).items()
+                    if k not in ("provedor", "modelo", "base_url")}
+        atuais[rot] = {"provedor": "openrouter", "modelo": modelo.strip(), **anterior}
+    novas = [_linha_papel(rot, atuais[rot]) for rot in _ORDEM_PAPEIS if atuais.get(rot)]
+
+    linhas = texto.splitlines()
+    pos = _bloco_modelos(linhas)
+    if pos is None:
+        resultado = linhas + ["", "modelos:", *novas]
+    else:
+        ini, fim = pos
+        cabecalho = []
+        for ln in linhas[ini + 1:fim + 1]:
+            if ln.startswith("#"):
+                cabecalho.append(ln)
+            elif ln.strip():
+                break
+        resultado = linhas[:ini] + ["modelos:", *cabecalho, *novas] + linhas[fim + 1:]
+    novo_texto = "\n".join(resultado) + "\n"
+    s = validar_yaml(novo_texto)
+    tmp = projeto.yaml.with_suffix(".yaml.tmp")
+    tmp.write_text(novo_texto, encoding="utf-8")
+    tmp.replace(projeto.yaml)
+    return s

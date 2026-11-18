@@ -16,7 +16,7 @@ RUN pip install --no-cache-dir . && rm -rf /app/web
 
 # The project folder is mounted at runtime. The API has no authentication: publish the port
 # on the loopback interface only, e.g.  docker run -p 127.0.0.1:8765:8765 -v "$PWD":/project lutz
-# Docker Model Runner inside a container: DOCKER_MODEL_HOST=http://model-runner.docker.internal/engines/v1
+# Models run through OpenRouter (ADR-004): pass OPENROUTER_API_KEY at runtime, never bake it in.
 VOLUME ["/project"]
 WORKDIR /project
 EXPOSE 8765

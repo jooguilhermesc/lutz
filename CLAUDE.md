@@ -12,7 +12,7 @@ Fonte única de requisitos: `docs/spec-1.0.md` (decisões em `docs/designs/lutz-
 - CLI: Click + Rich (`lutz/cli/`)
 - Estado: SQLite por projeto (`lutz.db`, migrações em `lutz/core/db.py`, WAL, lock de escrita em `.lutz/lock`)
 - PDF: PyMuPDF (texto visível por página, colunas, tabelas, unidades citáveis)
-- LLM: Anthropic (SDK oficial), OpenAI, OpenRouter, Docker Model Runner, via `lutz/llm/cliente.py`
+- LLM: só OpenRouter (ADR-004), via `lutz/llm/cliente.py`; catálogo e consumo da conta em `lutz/llm/openrouter.py`
 - Estatística: numpy, krippendorff, rapidfuzz (scikit-learn e statsmodels só como oráculo nos testes)
 - Web: FastAPI (`lutz/server/app.py`, só 127.0.0.1) + SPA React/Vite (`web/`); MCP somente leitura (`lutz/server/mcp.py`)
 - Sem índice vetorial e sem Postgres na 1.0.0

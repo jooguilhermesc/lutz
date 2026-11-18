@@ -18,7 +18,7 @@ flowchart TB
     end
     AUTO --> GW["Gateway LLM<br/>cache · retentativas · custo · modelo observado"]
     CB --> GW
-    GW --> PROV["Anthropic · OpenAI · OpenRouter · Docker Model Runner"]
+    GW --> PROV["OpenRouter (ADR-004)"]
     subgraph Disco["Pasta do projeto"]
         DB[("lutz.db<br/>SQLite WAL")]
         TXT[["texto/ por página"]]

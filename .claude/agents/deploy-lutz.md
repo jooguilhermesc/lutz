@@ -25,16 +25,16 @@ import tomllib, re, pathlib, sys
 with open("pyproject.toml", "rb") as f:
     pyproject_version = tomllib.load(f)["project"]["version"]
 
-# installer/windows/lutz.iss
-iss_content = pathlib.Path("installer/windows/lutz.iss").read_text()
-iss_match = re.search(r'#define AppVersion\s+"([^"]+)"', iss_content)
-iss_version = iss_match.group(1) if iss_match else "NOT FOUND"
+# lutz/__init__.py (the Windows binary is built by lutz.spec and reads the same package)
+init_content = pathlib.Path("lutz/__init__.py").read_text(encoding="utf-8")
+init_match = re.search(r'__version__\s*=\s*"([^"]+)"', init_content)
+init_version = init_match.group(1) if init_match else "NOT FOUND"
 
 print(f"pyproject.toml: {pyproject_version}")
-print(f"lutz.iss: {iss_version}")
+print(f"lutz/__init__.py: {init_version}")
 
-if pyproject_version != iss_version:
-    print("ERRO: versões inconsistentes entre pyproject.toml e lutz.iss")
+if pyproject_version != init_version:
+    print("ERRO: versões inconsistentes entre pyproject.toml e lutz/__init__.py")
     sys.exit(1)
 print("Versões consistentes.")
 EOF
@@ -98,7 +98,6 @@ required_agents = [
 required_security = [
     "docs/spec-1.0.md",
     "docs/metodos-estatisticos.md",
-    "lutz/data/precos.yaml",
     "web/dist/index.html",
 ]
 

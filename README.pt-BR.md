@@ -32,13 +32,15 @@ pip install --pre lutz-research
 
 Python 3.10+. Instalador para Windows na página de releases.
 
+**Windows com `pip`:** o PyMuPDF, que lê os PDFs, precisa do [Microsoft Visual C++ Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe). A maioria das máquinas já tem; num Windows recém-instalado, use `winget install --id Microsoft.VCRedist.2015+.x64 -e`. Se faltar, o `lutz doctor` avisa. O `lutz.exe` da página de releases já leva essas DLLs e não precisa de mais nada.
+
 ## Início rápido
 
 ```bash
 lutz init minha-revisao --pergunta "Tutores com LLM melhoram o engajamento?"
 cd minha-revisao
-lutz config set ANTHROPIC_API_KEY sk-ant-...   # e as chaves dos outros fornecedores
-# edite o lutz.yaml: modelos de E1, E2, E3 (extratores) e V (verificador)
+lutz config set OPENROUTER_API_KEY sk-or-...   # uma chave para todos os modelos (https://openrouter.ai/keys)
+# escolha E1, E2, E3 (extratores) e V (verificador) em lutz web > Configurações, ou no lutz.yaml
 lutz doctor --chamar
 lutz load ~/artigos/
 lutz codebook new                 # ou: lutz codebook import codebook.yaml
@@ -51,7 +53,7 @@ lutz report
 lutz web                          # o mesmo fluxo no navegador
 ```
 
-Modelos locais do Docker Model Runner funcionam sem chave; veja [configuração](docs/configuracao.md).
+Todos os modelos passam pelo [OpenRouter](https://openrouter.ai): uma chave, o catálogo inteiro, preços e consumo na tela de Configurações; veja [configuração](docs/configuracao.md).
 
 ## Interfaces
 

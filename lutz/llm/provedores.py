@@ -1,18 +1,15 @@
-"""Provider adapters. One function per vendor family, all returning :class:`Resposta`.
+"""Provider adapters, all returning :class:`Resposta` (ADR-004: OpenRouter only).
 
-* ``anthropic``: official Anthropic SDK. JSON is enforced with structured outputs
-  (``output_config.format``). Sampling parameters are not sent: current Claude models reject
-  them, so the configured temperature is recorded as "not applicable".
-* ``openai`` / ``openrouter`` / ``docker_model_runner``: OpenAI-compatible Chat Completions.
-  JSON uses ``response_format`` (``json_schema`` on OpenAI, ``json_object`` elsewhere) and falls
-  back to plain text plus parsing when the endpoint rejects it.
+* ``openrouter``: OpenAI-compatible Chat Completions on OpenRouter. JSON uses ``response_format``
+  (``json_schema``, then ``json_object``) and falls back to plain text plus parsing when the
+  model rejects it. Anthropic models get no sampling parameters (they reject them), so their
+  temperature is recorded as "not applicable". The billed cost reported by OpenRouter is kept.
 * ``fake``: deterministic in-process responders for tests and demos.
 """
 
 from __future__ import annotations
 
 import json
-import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -86,95 +83,32 @@ def _fake(cfg: ModeloPapel, req: Requisicao) -> Resposta:
     )
 
 
-# ── anthropic ────────────────────────────────────────────────────────────────
+# ── openrouter ───────────────────────────────────────────────────────────────
 
 
-def _anthropic(cfg: ModeloPapel, req: Requisicao, env: dict[str, str], timeout: float) -> Resposta:
-    import anthropic
-
-    kwargs = {"api_key": env.get("ANTHROPIC_API_KEY") or None, "timeout": timeout, "max_retries": 0}
-    base = cfg.base_url or env.get("ANTHROPIC_BASE_URL")
-    if base:
-        kwargs["base_url"] = base
-    cliente = anthropic.Anthropic(**kwargs)
-    params: dict = {
-        "model": cfg.modelo,
-        "max_tokens": cfg.max_tokens,
-        "system": req.sistema,
-        "messages": [{"role": "user", "content": req.usuario}],
-    }
-    output_config: dict = {}
-    if req.schema is not None:
-        output_config["format"] = {"type": "json_schema", "schema": req.schema}
-    if cfg.esforco:
-        output_config["effort"] = cfg.esforco
-    if output_config:
-        params["output_config"] = output_config
-    t0 = time.perf_counter()
-    try:
-        r = cliente.messages.create(**params)
-    except anthropic.RateLimitError as exc:
-        espera = _retry_after(getattr(exc, "response", None))
-        raise ErroTransitorio(f"limite de requisições: {exc.message}", espera) from exc
-    except (anthropic.InternalServerError, anthropic.APITimeoutError,
-            anthropic.APIConnectionError) as exc:
-        raise ErroTransitorio(f"erro transitório da Anthropic: {exc}") from exc
-    except anthropic.APIStatusError as exc:
-        if exc.status_code in (408, 409, 529):
-            raise ErroTransitorio(f"erro transitório da Anthropic ({exc.status_code})") from exc
-        raise ErroDefinitivo(f"Anthropic recusou a requisição ({exc.status_code}): {exc.message}") from exc
-    lat = int((time.perf_counter() - t0) * 1000)
-    if r.stop_reason == "refusal":
-        cat = getattr(getattr(r, "stop_details", None), "category", None)
-        raise ErroDefinitivo(f"o modelo recusou a requisição (categoria: {cat})")
-    texto = "".join(b.text for b in r.content if getattr(b, "type", "") == "text")
-    if r.stop_reason == "max_tokens":
-        raise ErroDefinitivo(
-            f"resposta cortada em max_tokens={cfg.max_tokens}; aumente max_tokens no lutz.yaml"
-        )
-    return Resposta(
-        texto=texto,
-        tokens_entrada=getattr(r.usage, "input_tokens", 0) or 0,
-        tokens_saida=getattr(r.usage, "output_tokens", 0) or 0,
-        modelo_observado=r.model,
-        fingerprint=getattr(r, "id", "") or "",
-        latencia_ms=lat,
-    )
-
-
-# ── openai-compatible ────────────────────────────────────────────────────────
-
-_BASES = {
-    "openai": ("OPENAI_BASE_URL", None),
-    "openrouter": ("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
-    "docker_model_runner": ("DOCKER_MODEL_HOST", "http://localhost:12434/engines/v1"),
-}
-_CHAVES = {"openai": "OPENAI_API_KEY", "openrouter": "OPENROUTER_API_KEY"}
-
-
-def _openai_compat(cfg: ModeloPapel, req: Requisicao, env: dict[str, str], timeout: float) -> Resposta:
+def _openrouter(cfg: ModeloPapel, req: Requisicao, env: dict[str, str], timeout: float) -> Resposta:
     import openai
 
-    var_base, padrao = _BASES[cfg.provedor]
-    base = cfg.base_url or env.get(var_base) or padrao
-    chave = env.get(_CHAVES.get(cfg.provedor, ""), "") or (
-        "docker-model-runner" if cfg.provedor == "docker_model_runner" else ""
-    )
+    from lutz.llm.openrouter import base_url
+
+    base = cfg.base_url or base_url(env)
+    chave = env.get("OPENROUTER_API_KEY", "")
     if not chave:
-        raise ErroDefinitivo(f"Defina {_CHAVES[cfg.provedor]} no .env para usar {cfg.provedor}.")
-    cliente = openai.OpenAI(api_key=chave, base_url=base, timeout=timeout, max_retries=0)
+        raise ErroDefinitivo("Defina OPENROUTER_API_KEY no .env (ou na tela de Configurações).")
+    cliente = openai.OpenAI(api_key=chave, base_url=base, timeout=timeout, max_retries=0,
+                            default_headers={"X-Title": "Lutz"})
     mensagens = [{"role": "system", "content": req.sistema}, {"role": "user", "content": req.usuario}]
-    params: dict = {"model": cfg.modelo, "messages": mensagens, "temperature": cfg.temperatura}
-    if cfg.provedor == "openai":
-        params["max_completion_tokens"] = cfg.max_tokens
-        params["seed"] = 42
-    else:
-        params["max_tokens"] = cfg.max_tokens
+    params: dict = {"model": cfg.modelo, "messages": mensagens, "max_tokens": cfg.max_tokens, "seed": 42}
+    if cfg.temperatura_efetiva() is not None:
+        params["temperature"] = cfg.temperatura
+    extra: dict = {"usage": {"include": True}}  # OpenRouter reports the billed cost of the call
+    if cfg.esforco:
+        extra["reasoning"] = {"effort": cfg.esforco}
+    params["extra_body"] = extra
     formatos: list[dict] = []
     if req.schema is not None:
-        schema = req.schema if cfg.provedor == "openai" else _limitar_schema(req.schema)
         formatos = [
-            {"type": "json_schema", "json_schema": {"name": req.nome_schema, "schema": schema, "strict": True}},
+            {"type": "json_schema", "json_schema": {"name": req.nome_schema, "schema": req.schema, "strict": True}},
             {"type": "json_object"},
         ]
         params["response_format"] = formatos.pop(0)
@@ -189,7 +123,7 @@ def _openai_compat(cfg: ModeloPapel, req: Requisicao, env: dict[str, str], timeo
             msg = str(exc).lower()
             tentativas_param += 1
             if tentativas_param > 3:
-                raise ErroDefinitivo(f"{cfg.provedor} recusou a requisição: {exc}") from exc
+                raise ErroDefinitivo(f"o OpenRouter recusou a requisição: {exc}") from exc
             if ("response_format" in msg or "json" in msg or "schema" in msg) and "response_format" in params:
                 if formatos:
                     params["response_format"] = formatos.pop(0)
@@ -207,19 +141,22 @@ def _openai_compat(cfg: ModeloPapel, req: Requisicao, env: dict[str, str], timeo
                     f"o texto excede a janela de contexto de {cfg.modelo}; ajuste janela_tokens "
                     f"no lutz.yaml ({exc})"
                 ) from exc
-            raise ErroDefinitivo(f"{cfg.provedor} recusou a requisição: {exc}") from exc
+            raise ErroDefinitivo(f"o OpenRouter recusou a requisição: {exc}") from exc
         except openai.RateLimitError as exc:
             raise ErroTransitorio(f"limite de requisições: {exc}",
                                   _retry_after(getattr(exc, "response", None))) from exc
         except (openai.InternalServerError, openai.APITimeoutError, openai.APIConnectionError) as exc:
-            raise ErroTransitorio(f"erro transitório de {cfg.provedor}: {exc}") from exc
+            raise ErroTransitorio(f"erro transitório do OpenRouter: {exc}") from exc
         except openai.APIStatusError as exc:
             if exc.status_code in (408, 409, 425, 503, 529):
-                raise ErroTransitorio(f"erro transitório ({exc.status_code})") from exc
-            raise ErroDefinitivo(f"{cfg.provedor} recusou a requisição ({exc.status_code}): {exc}") from exc
+                raise ErroTransitorio(f"erro transitório do OpenRouter ({exc.status_code})") from exc
+            if exc.status_code == 402:
+                raise ErroDefinitivo("sem créditos no OpenRouter (402): adicione créditos ou aumente o "
+                                     "limite da chave") from exc
+            raise ErroDefinitivo(f"o OpenRouter recusou a requisição ({exc.status_code}): {exc}") from exc
     lat = int((time.perf_counter() - t0) * 1000)
     if not r.choices:
-        raise ErroTransitorio(f"{cfg.provedor} devolveu resposta vazia")
+        raise ErroTransitorio("o OpenRouter devolveu resposta vazia")
     escolha = r.choices[0]
     texto = escolha.message.content or ""
     if escolha.finish_reason == "length":
@@ -227,43 +164,16 @@ def _openai_compat(cfg: ModeloPapel, req: Requisicao, env: dict[str, str], timeo
             f"resposta cortada em max_tokens={cfg.max_tokens}; aumente max_tokens no lutz.yaml"
         )
     uso = r.usage
-    observado = getattr(r, "model", "") or ""
-    digest = re.search(r"sha256[:/]([0-9a-f]{12})", observado)
-    if digest:  # Docker Model Runner answers with the bundle path; keep the model name and digest
-        observado = f"{cfg.modelo}@sha256:{digest.group(1)}"
+    custo = getattr(uso, "cost", None)
     return Resposta(
         texto=texto,
         tokens_entrada=getattr(uso, "prompt_tokens", 0) or 0,
         tokens_saida=getattr(uso, "completion_tokens", 0) or 0,
-        modelo_observado=observado,
-        fingerprint=getattr(r, "system_fingerprint", "") or getattr(r, "provider", "") or "",
+        modelo_observado=getattr(r, "model", "") or "",
+        fingerprint=getattr(r, "provider", "") or getattr(r, "system_fingerprint", "") or "",
         latencia_ms=lat,
+        extra={"custo_usd": float(custo)} if isinstance(custo, (int, float)) else {},
     )
-
-
-def _limitar_schema(schema: dict) -> dict:
-    """Bounded copy of a JSON schema for grammar-constrained local models (llama.cpp).
-
-    Small models loop on open-ended arrays; ``maxItems`` and ``maxLength`` keep them finite.
-    """
-    import copy
-
-    s = copy.deepcopy(schema)
-
-    def visitar(no):
-        if isinstance(no, dict):
-            if no.get("type") == "array" and "maxItems" not in no and no.get("items", {}).get("type") == "string":
-                no["maxItems"] = 3
-            if no.get("type") == "string" and "enum" not in no and "maxLength" not in no:
-                no["maxLength"] = 600
-            for v in no.values():
-                visitar(v)
-        elif isinstance(no, list):
-            for v in no:
-                visitar(v)
-
-    visitar(s)
-    return s
 
 
 def _retry_after(resp) -> float | None:
@@ -277,9 +187,7 @@ def _retry_after(resp) -> float | None:
 def completar(cfg: ModeloPapel, req: Requisicao, env: dict[str, str], timeout: float) -> Resposta:
     if cfg.provedor == "fake":
         return _fake(cfg, req)
-    if cfg.provedor == "anthropic":
-        return _anthropic(cfg, req, env, timeout)
-    return _openai_compat(cfg, req, env, timeout)
+    return _openrouter(cfg, req, env, timeout)
 
 
 def extrair_json(texto: str) -> dict:

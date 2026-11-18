@@ -220,7 +220,7 @@ export interface Extrator {
   provedor: string
   modelo: string
   modelo_observado: string
-  temperatura: number
+  temperatura: number | null
   variante_prompt: string
 }
 export interface JobPublico {
@@ -463,6 +463,16 @@ export interface Config {
     formatos?: string[]
     limiares?: Record<string, number | boolean>
   }
+}
+export interface ModeloOR {
+  id: string; nome: string; fornecedor: string; contexto: number | null
+  entrada: number | null; saida: number | null; parametros: string[]; criado: number | null
+}
+export interface CatalogoOR { modelos: ModeloOR[]; atualizado_em: string | null; origem: 'rede' | 'cache' | 'vazio'; erro: string }
+export interface ContaOR {
+  rotulo: string; uso_usd: number | null; uso_dia_usd: number | null; uso_semana_usd: number | null; uso_mes_usd: number | null
+  limite_usd: number | null; limite_restante_usd: number | null; gratuito: boolean
+  creditos_usd: number | null; creditos_usados_usd: number | null; saldo_usd: number | null
 }
 export interface Consumo {
   total: { chamadas: number; tokens_entrada: number; tokens_saida: number; custo_usd: number | null; em_cache: number | null;

@@ -17,7 +17,7 @@ Um artigo real passa por importar → codebook (Assistente, lint, teste rápido,
 
 * Uma pessoa pesquisadora, sozinha, no próprio computador.
 * Tudo fica em arquivos locais na pasta do projeto. A API só escuta em `127.0.0.1` e não tem autenticação.
-* Só o texto necessário vai ao provedor de LLM escolhido; modelos locais (Docker Model Runner) são suportados.
+* Só o texto necessário vai ao modelo escolhido, sempre pelo OpenRouter (uma chave; ADR-004). Não há modelos locais.
 
 ### 1.3 Não-objetivos
 
@@ -86,17 +86,19 @@ Todos os caminhos no banco são relativos à raiz. `lutz bundle export` gera um 
 
 ### 3.3 Provedores e registro de chamadas
 
-`lutz.llm.provedores`: `anthropic` (SDK oficial, saída estruturada por `output_config.format`, sem parâmetros de amostragem), `openai`, `openrouter`, `docker_model_runner` (Chat Completions; `json_schema` com recuo para `json_object` e texto livre; para endpoints locais o schema ganha `maxItems`/`maxLength`), e `fake` (testes).
+`lutz.llm.provedores`: `openrouter` (Chat Completions compatível com OpenAI; `json_schema` com recuo para `json_object` e texto livre; modelos `anthropic/` sem parâmetros de amostragem; `reasoning.effort` a partir de `esforco`; o custo cobrado, `usage.cost`, é guardado) e `fake` (testes). ADR-004.
 
-`lutz.llm.cliente.ClienteLLM` grava cada chamada em `chamada_llm` (requisição, resposta, modelo pedido e **observado**, fingerprint, tokens, custo, latência, tentativas, cache). Erros transitórios (429, 5xx, timeout, conexão) têm backoff exponencial com `retry-after`; erros definitivos (400, autenticação, modelo inexistente, recusa, corte por `max_tokens`) não se repetem. Semáforo por provedor (`concorrencia.por_provedor`). Custo sem preço conhecido fica `NULL`, nunca 0.
+`lutz.llm.openrouter` lê, fora do `ClienteLLM` e sem enviar texto de artigos, o catálogo de modelos (`GET /models`, em cache por um dia em `.lutz/openrouter_modelos.json`) e o consumo da chave (`GET /key` e, quando permitido, `GET /credits`).
+
+`lutz.llm.cliente.ClienteLLM` grava cada chamada em `chamada_llm` (requisição, resposta, modelo pedido e **observado**, fingerprint, tokens, custo, latência, tentativas, cache). Erros transitórios (429, 5xx, timeout, conexão) têm backoff exponencial com `retry-after`; erros definitivos (400, autenticação, modelo inexistente, recusa, corte por `max_tokens`) não se repetem. Semáforo por provedor (`concorrencia.por_provedor`). Custo: o valor cobrado informado pelo OpenRouter; sem ele, tokens × preço do catálogo (ou de `precos` no `lutz.yaml`, que tem prioridade); sem preço conhecido fica `NULL`, nunca 0.
 
 ## 4. Configuração
 
 Detalhes em `docs/configuracao.md`.
 
-* **`.env`** (mecanismo mantido da 0.5): chaves e URLs. Variáveis do ambiente do terminal têm precedência. Lista branca de chaves; um valor pode ser apagado; a web e `lutz config show` mostram a origem de cada valor (`processo`, `.env`, `padrao`, `ausente`).
-* **`lutz.yaml`** (schema Pydantic): papéis `E1`, `E2`, `E3` (obrigatórios), `V` e `J` (opcionais) com provedor, modelo, temperatura, `max_tokens`, `variante_prompt`, `janela_tokens`, `esforco`; `limiares`; `custo`; `sementes`; `concorrencia`; `contexto`; `auditoria`; `relatorio`; `metricas`; `precos`. A web mostra o arquivo somente leitura.
-* A **estratégia de diversidade** é derivada: `fornecedores_diferentes`, `modelos_diferentes`, `instrucoes_reescritas` ou `nenhuma`.
+* **`.env`** (mecanismo mantido da 0.5): `OPENROUTER_API_KEY` e `OPENROUTER_BASE_URL`. Variáveis do ambiente do terminal têm precedência. Lista branca de chaves; um valor pode ser apagado; a web e `lutz config show` mostram a origem de cada valor (`processo`, `.env`, `padrao`, `ausente`).
+* **`lutz.yaml`** (schema Pydantic): papéis `E1`, `E2`, `E3` (obrigatórios), `V` e `J` (opcionais) com provedor (`openrouter`, padrão, ou `fake`), modelo (id do catálogo do OpenRouter), temperatura, `max_tokens`, `variante_prompt`, `janela_tokens`, `esforco`; `limiares`; `custo`; `sementes`; `concorrencia`; `contexto`; `auditoria`; `relatorio`; `metricas`; `precos`. A tela de Configurações grava só o bloco `modelos` (um modelo do catálogo por papel, mantendo o resto do arquivo e validando antes de gravar); o restante é editado à mão. Um provedor removido pelo ADR-004 é recusado com a migração na mensagem.
+* A **estratégia de diversidade** é derivada do prefixo do id do modelo (o fornecedor): `fornecedores_diferentes`, `modelos_diferentes`, `instrucoes_reescritas` ou `nenhuma`.
 * Cada execução grava a configuração **resolvida** e seu hash; uma execução retomada usa a configuração registrada nela, nunca a atual.
 
 ### 4.1 Limiares (IDs canônicos)
@@ -207,7 +209,7 @@ Campo: `nome`, `rotulo`, `tipo` (`categorico`, `ordinal`, `numerico`, `texto`), 
 
 Markdown e PDF (PyMuPDF), pt e en, sete partes fixas:
 
-1. Identificação: versão, modelos pedidos e observados, temperatura (n/a para Anthropic), variantes de prompt, diversidade, contexto usado, hashes de configuração e prompts, sementes, chamadas e custo.
+1. Identificação: versão, modelos pedidos e observados, temperatura (n/a para modelos Anthropic), variantes de prompt, diversidade, contexto usado, hashes de configuração e prompts, sementes, chamadas e custo.
 2. Processo: parágrafo gerado, tabela de limiares, artigos com leitura limitada (sem texto, excedeu a janela, índice de legibilidade baixo) e texto oculto descartado.
 3. Tabela por campo, ordenada para quem avalia: Lutz × padrão-ouro (IC), % concordância, humano × humano, decisão, alteradas na adjudicação, % A/M/B, evidência exata, não reportado, α (ou % unânimes). Notas de PABAK, erros numéricos e alertas.
 4. Calibração dos níveis (ou o motivo de não haver).
@@ -219,7 +221,7 @@ Anexos: A (codebook, histórico, origem dos campos), B (tabelas longa e larga), 
 
 ## 12. Interfaces
 
-* **Web:** Biblioteca, Codebook, Piloto, Extração, Resultados, Adjudicação, Relatório, API e MCP, e o modal de Configurações (`.env`, `lutz.yaml` somente leitura, idioma, consumo).
+* **Web:** Biblioteca, Codebook, Piloto, Extração, Resultados, Adjudicação, Relatório, API e MCP, e a tela de Configurações (chave do OpenRouter, modelos por papel escolhidos no catálogo, consumo da conta e do projeto, idioma).
 * **CLI:** ver `docs/referencia-cli.md`.
 * **REST:** `/api/v1/...`; OpenAPI em `/api/docs`. Execuções longas respondem `202` com `job_id`; progresso por SSE em `/api/v1/jobs/{id}/eventos`. Erros de domínio: `{"erro": ...}` com 400, 409 (estado) ou 422 (validação).
 * **MCP** (somente leitura): `listar_projeto`, `ler_codebook`, `consultar_celulas`, `detalhe_celula`, `metricas_execucao`, `buscar_trechos`, `ler_relatorio`. Nenhuma ferramenta escreve, roda extração ou revela células do piloto cego.
@@ -229,7 +231,7 @@ Anexos: A (codebook, histórico, origem dos campos), B (tabelas longa e larga), 
 * **Repetível e registrado:** cada execução guarda configuração resolvida, hashes, versão e todas as requisições e respostas; métricas e relatório se refazem sem API (`recompute`, `report`, `bundle`).
 * **Privacidade:** dados locais; `.env` nunca entra em bundle.
 * **Testes:** suíte com PDFs sintéticos (uma coluna, duas colunas, tabela, texto oculto, escaneado), provedor falso roteirizado, os exemplos numéricos de `docs/metodos-estatisticos.md` como asserções e oráculos (scikit-learn, statsmodels). Cobertura mínima 80%.
-* **Windows:** saída do console nunca quebra por codificação.
+* **Windows:** saída do console nunca quebra por codificação. O PyMuPDF é carregado só quando um PDF é lido ou gerado: sem o Visual C++ Redistributable, `lutz web`, `lutz doctor` e `lutz mcp` abrem, e a leitura de PDFs falha com mensagem que diz o que instalar. O `lutz.exe` leva o runtime do Visual C++ (o build falha se ele não entrar).
 
 ## 14. Fases de entrega (todas implementadas nesta versão)
 
