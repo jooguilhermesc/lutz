@@ -2,43 +2,34 @@
 layout: home
 
 hero:
-  name: Lutz
-  text: Triagem de artigos acadêmicos com IA
-  tagline: Organize, vetorize e analise coleções de PDFs científicos usando RAG e modelos de linguagem — na linha de comando ou pelo navegador.
+  name: Lutz 1.0
+  text: Extração validada para revisões sistemáticas
+  tagline: Cada célula da tabela com o trecho, a página e um nível de confiança medido. Um relatório de confiabilidade pronto para a seção de Métodos e o PRISMA 2020.
   image:
     src: /logo.png
-    alt: Lutz logo
+    alt: Lutz
   actions:
     - theme: brand
-      text: Começar agora
+      text: Começar
       link: /guide/getting-started
     - theme: alt
-      text: Interface Web
-      link: /guide/interface/home
+      text: Especificação
+      link: /spec-1.0
     - theme: alt
       text: GitHub
       link: https://github.com/jooguilhermesc/lutz
 
 features:
-  - icon: 📄
-    title: Vetorização de PDFs
-    details: Extrai texto, detecta seções (abstract, metodologia, resultados…) e armazena embeddings em um banco vetorial local via LanceDB.
-  - icon: 🔍
-    title: Busca semântica (RAG)
-    details: Recupera os trechos mais relevantes para cada prompt usando similaridade de embeddings, reduzindo o contexto enviado ao LLM.
-  - icon: 🤖
-    title: Análise com LLM
-    details: Suporta OpenAI, Anthropic, Docker Model Runner, Ollama e qualquer API compatível com OpenAI.
-  - icon: 🛡️
-    title: Verificação de segurança
-    details: Detecta JavaScript embutido, ações automáticas, XFA e padrões de prompt injection antes de processar os PDFs.
-  - icon: 🌐
-    title: Interface Web
-    details: Dashboard React completo com FastAPI — vetorize, analise, converse via Chat, gerencie relatórios e configure modelos sem sair do navegador.
-  - icon: 📊
-    title: Analytics para Revisão Sistemática
-    details: Deduplicação por similaridade semântica, ranking de relevância, clustering temático reprodutível e detecção de outliers — sem depender de LLM no caminho crítico.
-  - icon: 🔬
-    title: Open Science
-    details: Projeto de código aberto, nomeado em homenagem a Bertha Lutz, cientista e pesquisadora brasileira.
+  - title: Três extratores independentes
+    details: Modelos de fornecedores diferentes extraem cada célula sem ver as respostas uns dos outros.
+  - title: Evidência conferida sem LLM
+    details: O trecho citado precisa existir no texto visível da página indicada; números precisam estar no trecho.
+  - title: Níveis Alta, Média e Baixa
+    details: Concordância, evidência, verificador independente e regras do codebook decidem o nível; as células Baixa vão para adjudicação humana.
+  - title: Piloto cego com humanos
+    details: Kappa, kappa ponderado ou ICC por campo, com IC por bootstrap, decisão por campo e calibração dos níveis.
+  - title: Relatório de confiabilidade
+    details: Sete partes, pt e en, texto para Métodos, mapa PRISMA 2020, declaração RAISE e anexos com todo o registro.
+  - title: Tudo local
+    details: Um projeto é uma pasta (SQLite + texto por página). CLI, interface web, API REST e servidor MCP somente leitura.
 ---

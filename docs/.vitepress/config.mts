@@ -2,7 +2,7 @@ import { defineConfig } from 'vitepress'
 
 export default defineConfig({
   title: 'Lutz',
-  description: 'Triagem de artigos acadêmicos com IA — documentação oficial',
+  description: 'Extração validada para revisões sistemáticas — documentação oficial',
   base: '/lutz/',
 
   head: [
@@ -15,34 +15,26 @@ export default defineConfig({
 
     nav: [
       { text: 'Guia', link: '/guide/getting-started' },
-      { text: 'Interface Web', link: '/guide/interface/home' },
+      { text: 'Especificação', link: '/spec-1.0' },
       { text: 'GitHub', link: 'https://github.com/jooguilhermesc/lutz' },
     ],
 
     sidebar: [
       {
-        text: 'Início',
+        text: 'Uso',
         items: [
-          { text: 'Introdução', link: '/guide/getting-started' },
-          { text: 'Configuração do Ambiente', link: '/guide/configuration' },
+          { text: 'Começar', link: '/guide/getting-started' },
+          { text: 'Configuração', link: '/configuracao' },
+          { text: 'Referência da CLI', link: '/referencia-cli' },
+          { text: 'Do 0.5 para o 1.0', link: '/upgrade-0.5-para-1.0' },
         ],
       },
       {
-        text: 'Análise Semântica',
+        text: 'Referência',
         items: [
-          { text: 'Visão geral', link: '/guide/analytics' },
-        ],
-      },
-      {
-        text: 'Interface Web',
-        items: [
-          { text: 'Visão Geral', link: '/guide/interface/home' },
-          { text: 'Biblioteca', link: '/guide/interface/vetorizacao' },
-          { text: 'Análise e Resultados', link: '/guide/interface/analise' },
-          { text: 'Relatórios', link: '/guide/interface/relatorios' },
-          { text: 'Configurações', link: '/guide/interface/configuracoes' },
-          { text: 'Vector Store (CLI)', link: '/guide/interface/vector-store' },
-          { text: 'Citações (CLI)', link: '/guide/interface/citacoes' },
+          { text: 'Especificação 1.0', link: '/spec-1.0' },
+          { text: 'Métodos estatísticos', link: '/metodos-estatisticos' },
+          { text: 'Validação com artigo real', link: '/validacao-e2e' },
         ],
       },
     ],

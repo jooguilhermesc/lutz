@@ -93,14 +93,13 @@ required_agents = [
     ".claude/agents/testa-lutz.md",
     ".claude/agents/explora-vulnerabilidades.md",
     ".claude/agents/corrige-seguranca.md",
-    ".claude/agents/auditor-dev.md",
     ".claude/agents/deploy-lutz.md",
 ]
 required_security = [
-    "lutz/security/injection_patterns.yaml",
-    "lutz/security/rag_poison_patterns.yaml",
-    "lutz/security/pii_patterns.yaml",
-    "lutz/core/audit.py",
+    "docs/spec-1.0.md",
+    "docs/metodos-estatisticos.md",
+    "lutz/data/precos.yaml",
+    "web/dist/index.html",
 ]
 
 missing = [f for f in required_agents + required_security

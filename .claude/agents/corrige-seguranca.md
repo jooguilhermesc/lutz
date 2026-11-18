@@ -13,7 +13,7 @@ Aplicar correções cirúrgicas para findings HIGH/CRITICAL identificados por `e
 - `Read`, `Edit`, `Grep`, `Glob`: acesso de leitura e edição ao código
 - `Write`: criar arquivos de ADR em `docs/adr/` quando necessário
 - `Bash`: compilação e validação local apenas
-- **Proibido**: `git push`, escrita em `.lutz/audit/`, skip de hooks
+- **Proibido**: `git push`, skip de hooks
 
 ## Princípios de correção
 

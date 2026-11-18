@@ -1,40 +1,23 @@
 # ── Stage 1: build the React frontend ────────────────────────────────────────
 FROM node:20-slim AS frontend
-
 WORKDIR /app/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
-
 COPY web/ ./
 RUN npm run build
 
-# ── Stage 2: final Python image ───────────────────────────────────────────────
+# ── Stage 2: Python image ─────────────────────────────────────────────────────
 FROM python:3.12-slim
-
-# System deps required by lutz's heavier Python packages
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        libgl1 \
-        libglib2.0-0 \
-        poppler-utils \
-    && rm -rf /var/lib/apt/lists/*
-
 WORKDIR /app
-
-# Install the package first (deps layer — changes rarely)
 COPY pyproject.toml README.md ./
 COPY lutz/ ./lutz/
+COPY --from=frontend /app/web/dist ./web/dist/
+RUN pip install --no-cache-dir . && rm -rf /app/web
 
-# Copy the pre-built React SPA where hatchling expects it
-COPY --from=frontend /app/web/dist ./lutz/web/
-
-RUN pip install --no-cache-dir .
-
-# Project directory mounted at runtime
+# The project folder is mounted at runtime. The API has no authentication: publish the port
+# on the loopback interface only, e.g.  docker run -p 127.0.0.1:8765:8765 -v "$PWD":/project lutz
+# Docker Model Runner inside a container: DOCKER_MODEL_HOST=http://model-runner.docker.internal/engines/v1
 VOLUME ["/project"]
 WORKDIR /project
-
 EXPOSE 8765
-
-ENV LUTZ_PROJECT_ROOT=/project
-
-ENTRYPOINT ["lutz", "web", "--host", "0.0.0.0", "--no-browser"]
+ENTRYPOINT ["lutz", "web", "--host", "0.0.0.0", "--permitir-rede", "--porta", "8765", "--sem-navegador", "--projeto", "/project"]

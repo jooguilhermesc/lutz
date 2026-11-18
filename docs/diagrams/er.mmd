@@ -1,0 +1,118 @@
+%% Lutz 1.0 — lutz.db (SQLite). Gerado a partir de lutz/core/db.py (esquema 1).
+erDiagram
+    ARTIGO ||--o{ PAGINA : tem
+    ARTIGO ||--o{ UNIDADE : "frases e linhas de tabela"
+    CODEBOOK ||--|{ CAMPO : define
+    CODEBOOK |o--o| CODEBOOK : "versao anterior"
+    CODEBOOK ||--o{ EXECUCAO : "usado em"
+    PILOTO |o--o{ EXECUCAO : "ajuste / validacao"
+    EXECUCAO ||--o{ EXTRATOR : "E1 E2 E3 V J"
+    EXECUCAO ||--o{ CHAMADA_LLM : registra
+    EXECUCAO ||--o{ CELULA : produz
+    ARTIGO ||--o{ CELULA : linha
+    CAMPO ||--o{ CELULA : coluna
+    CELULA ||--o{ EXTRACAO_BRUTA : "uma por extrator"
+    CHAMADA_LLM |o--o{ EXTRACAO_BRUTA : origem
+    CELULA ||--o{ ADJUDICACAO : recebe
+    CELULA |o--o| ENVIO_MANUAL : ""
+    EXECUCAO ||--o{ AUDITORIA : ""
+    AUDITORIA ||--|{ AUDITORIA_ITEM : ""
+    CELULA ||--o{ AUDITORIA_ITEM : ""
+    PILOTO ||--o{ PILOTO_AMOSTRA : sorteia
+    ARTIGO ||--o{ PILOTO_AMOSTRA : sorteado
+    PILOTO ||--o{ EXTRACAO_HUMANA : recebe
+    AVALIADOR ||--o{ EXTRACAO_HUMANA : preenche
+    ARTIGO ||--o{ EXTRACAO_HUMANA : ""
+    PILOTO ||--o{ DECISAO_CAMPO : decide
+    EXECUCAO ||--o{ METRICA : calcula
+    EXECUCAO ||--o{ RELATORIO : gera
+    ARTIGO ||--o{ TESTE_RAPIDO : "fora do sorteio"
+
+    ARTIGO {
+        int id PK
+        text chave UK
+        text hash_pdf UK
+        int n_paginas
+        bool duas_colunas
+        real frac_oculto
+        text status "pronto, sem_texto, erro"
+    }
+    PAGINA {
+        int numero "fisico 1..N"
+        text rotulo "pagina impressa"
+        text caminho_texto
+        text texto_oculto
+    }
+    UNIDADE {
+        text uid PK "p4.s17 / p8.t1.r3"
+        int pagina
+        text tipo "frase, linha_tabela"
+        text secao
+    }
+    CODEBOOK {
+        int versao UK
+        text hash
+        bool congelado
+    }
+    CAMPO {
+        text chave "estavel"
+        text tipo
+        text hash "semantico"
+        text origem "manual, assistente"
+    }
+    EXECUCAO {
+        text tipo "autonoma, piloto, teste"
+        text conjunto_piloto
+        text estrategia_diversidade
+        json config "resolvida"
+        text hash_config
+        text hash_prompts
+        text status
+    }
+    CHAMADA_LLM {
+        text papel
+        text modelo_pedido
+        text modelo_observado
+        int tokens_entrada
+        int tokens_saida
+        real custo_usd "nulo se sem preco"
+        text hash_requisicao "cache"
+        text requisicao
+        text resposta
+    }
+    CELULA {
+        text estado
+        text valor_final
+        real a
+        real e
+        real v
+        real escore
+        text nivel
+        text origem "maioria, adjudicacao"
+    }
+    EXTRACAO_BRUTA {
+        text rotulo "E1 E2 E3"
+        text valor_normalizado
+        bool nao_reportado
+        text trecho
+        int pagina
+        real e
+        bool regras_ok
+    }
+    PILOTO {
+        text hash_plano
+        int semente
+        bool cegamento_aberto
+    }
+    EXTRACAO_HUMANA {
+        text campo_chave
+        text campo_hash
+    }
+    METRICA {
+        text escopo "autonomo, calibrado, nivel"
+        text nome
+        real valor
+        real ic_inf
+        real ic_sup
+        text par "lutz x ouro, A x B"
+    }

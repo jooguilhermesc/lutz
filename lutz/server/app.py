@@ -1,2906 +1,862 @@
-"""FastAPI server for the lutz web UI.
+"""Local REST API (FastAPI) and the web interface.
 
-Serves the pre-built React SPA from lutz/web/ and exposes /api/* endpoints
-that delegate to lutz's Python internals directly (no subprocess for data calls)
-or stream subprocess output as Server-Sent Events for long-running operations.
+Binds to 127.0.0.1 only (no authentication: single researcher on her own computer). The web
+SPA consumes this API; the CLI and the MCP server call the same domain modules in-process.
+Long operations (import, extraction, quick test, report) run as background jobs and answer
+``202`` with a job id; progress is streamed with Server-Sent Events.
 """
+
 from __future__ import annotations
 
 import asyncio
+import csv
+import io
 import json
-import os
+import math
 import re
-import shutil
-import sys
 import tempfile
-import uuid
-from collections import deque
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from importlib import resources
 from pathlib import Path
-from contextlib import asynccontextmanager
-from typing import AsyncIterator, Literal
+from typing import Any
 
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, Response, StreamingResponse
-from fastapi.routing import APIRouter
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from lutz.core.vector_store import VectorStore
-from lutz.core.context_store import ContextStore
-from lutz.utils.project import find_project_root, load_env
-from lutz.agent.conversation import ConversationManager
-
-# Singleton ConversationManager — session state lives in the process.
-_conversation_manager = ConversationManager()
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-_ANSI = re.compile(r"\x1b\[[0-9;]*[mK]")
-
-# Resolve the web frontend directory.
-# Priority: web/dist/ (source checkout / editable install) > lutz/web/ (installed wheel)
-# This ensures `npm run build` in web/ is picked up immediately without any copy step.
-_PACKAGE_DIR = Path(__file__).parent.parent  # .../lutz/
-_source_dist = _PACKAGE_DIR.parent / "web" / "dist"
-WEB_DIR = _source_dist if _source_dist.exists() else _PACKAGE_DIR / "web"
-
-
-def _get_root() -> Path:
-    # LUTZ_PROJECT_ROOT is set by `lutz web` at startup — reliable regardless
-    # of what uvicorn does with the working directory.
-    env_root = os.environ.get("LUTZ_PROJECT_ROOT")
-    if env_root:
-        return Path(env_root)
-    # Fallback: walk up from cwd (useful when app is imported directly in tests)
-    root = find_project_root()
-    if root is None:
-        raise HTTPException(
-            status_code=404,
-            detail="No lutz project found. Run 'lutz init' first.",
-        )
-    return root
-
-
-def _safe_child(parent: Path, name: str) -> Path:
-    """Resolve ``parent / name`` and raise 400 if it escapes ``parent``."""
-    resolved = (parent / name).resolve()
-    if not resolved.is_relative_to(parent.resolve()):
-        raise HTTPException(status_code=400, detail="Invalid filename")
-    return resolved
-
-
-def _lutz_bin() -> str:
-    """Resolve the lutz executable path."""
-    b = shutil.which("lutz")
-    if b:
-        return b
-    # Same interpreter's scripts directory (works in venvs)
-    scripts = Path(sys.executable).parent
-    for name in ("lutz", "lutz.exe"):
-        candidate = scripts / name
-        if candidate.exists():
-            return str(candidate)
-    raise RuntimeError("lutz binary not found. Make sure lutz-research is installed.")
-
-
-async def _sse_stream(args: list[str], project_root: Path) -> AsyncIterator[str]:
-    """Run a lutz CLI command and yield SSE-formatted lines."""
-    # Merge .env into the subprocess environment
-    env = {**os.environ}
-    env_file = project_root / ".env"
-    if env_file.exists():
-        from dotenv import dotenv_values
-        for k, v in dotenv_values(env_file).items():
-            if v is not None and k not in os.environ:
-                env[k] = v
-
-    lutz = _lutz_bin()
-    proc = await asyncio.create_subprocess_exec(
-        lutz,
-        *args,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
-        cwd=str(project_root),
-        env=env,
-    )
-    assert proc.stdout is not None
-
-    async for raw in proc.stdout:
-        text = _ANSI.sub("", raw.decode(errors="replace")).strip()
-        if text:
-            yield f"data: {text}\n\n"
-
-    code = await proc.wait()
-    if code == 0:
-        yield "data: __done__\n\n"
-    else:
-        yield f"data: __error__:{code}\n\n"
-
-
-# ---------------------------------------------------------------------------
-# Background job manager + WebSocket notifications
-# ---------------------------------------------------------------------------
-
-JobType = Literal["vectorize", "analysis", "citations", "roadmap"]
-JobStatus = Literal["queued", "running", "done", "error", "cancelled"]
-
-_MAX_JOBS = 50
-_MAX_LOG_LINES = 2000
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-@dataclass
-class Job:
-    id: str
-    type: str
-    status: str
-    title: str
-    params: dict
-    started_at: str | None = None
-    ended_at: str | None = None
-    error_code: int | None = None
-    logs: deque = field(default_factory=lambda: deque(maxlen=_MAX_LOG_LINES))
-    _proc: object | None = field(default=None, repr=False)
-    _tmp_prompt: str | None = field(default=None, repr=False)
-
-    def to_dict(self, include_logs: bool = False) -> dict:
-        d = {
-            "id": self.id,
-            "type": self.type,
-            "status": self.status,
-            "title": self.title,
-            "started_at": self.started_at,
-            "ended_at": self.ended_at,
-            "error_code": self.error_code,
-        }
-        if include_logs:
-            d["logs"] = list(self.logs)
-        return d
-
-
-class JobManager:
-    def __init__(self) -> None:
-        self._jobs: dict[str, Job] = {}
-
-    def _evict(self) -> None:
-        terminal = [
-            jid for jid, j in self._jobs.items()
-            if j.status in ("done", "error", "cancelled")
-        ]
-        while len(self._jobs) >= _MAX_JOBS and terminal:
-            del self._jobs[terminal.pop(0)]
-
-    def create(self, type_: str, title: str, params: dict) -> Job:
-        self._evict()
-        job = Job(id=str(uuid.uuid4()), type=type_, status="queued", title=title, params=params)
-        self._jobs[job.id] = job
-        return job
-
-    def get(self, job_id: str) -> Job | None:
-        return self._jobs.get(job_id)
-
-    def list_all(self) -> list[dict]:
-        return [j.to_dict() for j in reversed(list(self._jobs.values()))]
-
-    def remove(self, job_id: str) -> bool:
-        job = self._jobs.get(job_id)
-        if not job:
-            return False
-        if job.status in ("running", "queued") and job._proc:
-            try:
-                job._proc.terminate()  # type: ignore[union-attr]
-            except Exception:
-                pass
-        del self._jobs[job_id]
-        return True
-
-
-_job_manager = JobManager()
-
-
-class WSManager:
-    def __init__(self) -> None:
-        self._clients: set[WebSocket] = set()
-
-    async def connect(self, ws: WebSocket) -> None:
-        await ws.accept()
-        self._clients.add(ws)
-
-    def disconnect(self, ws: WebSocket) -> None:
-        self._clients.discard(ws)
-
-    async def broadcast(self, payload: dict) -> None:
-        dead: set[WebSocket] = set()
-        msg = json.dumps(payload)
-        for ws in list(self._clients):
-            try:
-                await ws.send_text(msg)
-            except Exception:
-                dead.add(ws)
-        for ws in dead:
-            self._clients.discard(ws)
-
-
-_ws_manager = WSManager()
-
-
-async def _run_job(job: Job, args: list[str], project_root: Path) -> None:
-    """Execute a lutz CLI subprocess for a background job."""
-    job.status = "running"
-    job.started_at = _now_iso()
-    await _ws_manager.broadcast({"event": "job_update", "job": job.to_dict()})
-
-    env = {**os.environ}
-    env_file = project_root / ".env"
-    if env_file.exists():
-        from dotenv import dotenv_values
-        for k, v in dotenv_values(env_file).items():
-            if v is not None and k not in os.environ:
-                env[k] = v
-
-    try:
-        lutz = _lutz_bin()
-        proc = await asyncio.create_subprocess_exec(
-            lutz, *args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-            cwd=str(project_root),
-            env=env,
-        )
-        job._proc = proc
-
-        batch: list[str] = []
-        assert proc.stdout is not None
-        async for raw in proc.stdout:
-            if job.status == "cancelled":
-                proc.terminate()
-                break
-            text = _ANSI.sub("", raw.decode(errors="replace")).strip()
-            if not text:
-                continue
-            job.logs.append(text)
-            batch.append(text)
-            if len(batch) >= 5:
-                await _ws_manager.broadcast({"event": "job_log", "job_id": job.id, "lines": batch})
-                batch = []
-
-        if batch:
-            await _ws_manager.broadcast({"event": "job_log", "job_id": job.id, "lines": batch})
-
-        if job.status != "cancelled":
-            code = await proc.wait()
-            job._proc = None
-            job.ended_at = _now_iso()
-            job.status = "done" if code == 0 else "error"
-            if code != 0:
-                job.error_code = code
-    except Exception as exc:
-        job.status = "error"
-        job.ended_at = _now_iso()
-        job.logs.append(f"[internal error] {exc}")
-    finally:
-        if job._tmp_prompt:
-            try:
-                Path(job._tmp_prompt).unlink(missing_ok=True)
-            except Exception:
-                pass
-            job._tmp_prompt = None
-
-    await _ws_manager.broadcast({"event": "job_update", "job": job.to_dict()})
-
-
-def _build_job_args(job_type: str, body: dict, root: Path) -> tuple[list[str], str]:
-    """Build CLI args and a human-readable title for a job."""
-    import tempfile
-
-    if job_type == "vectorize":
-        args: list[str] = ["vectorize"]
-        if body.get("chunk_size"):
-            args += ["--chunk-size", str(body["chunk_size"])]
-        if body.get("chunk_overlap"):
-            args += ["--chunk-overlap", str(body["chunk_overlap"])]
-        if body.get("skip_security"):
-            args.append("--skip-security")
-        if body.get("section_parse"):
-            args.append("--section-parse")
-        if body.get("quarantine"):
-            args.append("--quarantine")
-        extraction = body.get("extraction_backend") or body.get("extraction")
-        if extraction and extraction in ("pymupdf", "marker", "auto"):
-            args += ["--extraction", extraction]
-        return args, "Processar biblioteca"
-
-    if job_type == "analysis":
-        prompts_dir = root / "prompts"
-        prompts_dir.mkdir(parents=True, exist_ok=True)
-
-        inline = body.get("inline_prompt", "").strip()
-        prompt_name = body.get("prompt", "")
-
-        if inline:
-            tmp = tempfile.NamedTemporaryFile(
-                mode="w", suffix=".md", delete=False, encoding="utf-8",
-                dir=prompts_dir,
-            )
-            tmp.write(inline)
-            tmp.close()
-            prompt_path = tmp.name
-            title = "Análise (prompt personalizado)"
-        elif prompt_name:
-            prompt_path_obj = _safe_child(prompts_dir, f"{prompt_name}.md")
-            if not prompt_path_obj.exists():
-                raise HTTPException(status_code=404, detail=f"Prompt '{prompt_name}' not found")
-            prompt_path = str(prompt_path_obj)
-            title = f"Análise: {prompt_name}"
-        else:
-            raise HTTPException(status_code=400, detail="prompt or inline_prompt required")
-
-        args = ["analysis", "--p", prompt_path]
-        language = body.get("language", "pt")
-        if language in ("pt", "en", "es"):
-            args += ["--language", language]
-        if body.get("analysis_criteria"):
-            args += ["--analysis-criteria", str(body["analysis_criteria"])]
-        if body.get("verdict_categories"):
-            args += ["--verdict-categories", str(body["verdict_categories"])]
-        mode = body.get("mode", "per_article")
-        if mode == "per_article":
-            args.append("--per-article")
-            if body.get("workers"):
-                args += ["--workers", str(body["workers"])]
-            if body.get("max_chunks"):
-                args += ["--max-chunks-per-article", str(body["max_chunks"])]
-        else:
-            if body.get("workers"):
-                args += ["--top-k", str(body["workers"])]
-
-        return args, title
-
-    if job_type == "citations":
-        report_name = body.get("report", "")
-        if not report_name:
-            raise HTTPException(status_code=400, detail="report required")
-        report_path = _safe_child(root / "analysis" / "execution_reports", f"{report_name}.json")
-        if not report_path.exists():
-            raise HTTPException(status_code=404, detail="Report not found")
-        args = ["citations", "--analysis", str(report_path)]
-        if body.get("only_relevant"):
-            args.append("--only-relevant")
-        language = body.get("language", "pt")
-        if language in ("pt", "en", "es"):
-            args += ["--language", language]
-        if body.get("citation_instructions"):
-            args += ["--citation-instructions", str(body["citation_instructions"])]
-        if body.get("extract_citations_labels"):
-            args += ["--extract-citations-labels", str(body["extract_citations_labels"])]
-        return args, f"Citações: {report_name}"
-
-    if job_type == "roadmap":
-        report_name = body.get("report", "")
-        if not report_name:
-            raise HTTPException(status_code=400, detail="report required")
-        report_path = _safe_child(root / "analysis" / "execution_reports", f"{report_name}.json")
-        if not report_path.exists():
-            raise HTTPException(status_code=404, detail="Report not found")
-        args = ["citations", "--analysis", str(report_path), "--reading-roadmap"]
-        if body.get("only_relevant"):
-            args.append("--only-relevant")
-        language = body.get("language", "pt")
-        if language in ("pt", "en", "es"):
-            args += ["--language", language]
-        user_instructions = body.get("user_instructions", "").strip()
-        if user_instructions:
-            args += ["--user-instructions", user_instructions]
-        return args, f"Roteiro: {report_name}"
-
-    raise HTTPException(status_code=400, detail=f"Unknown job type: {job_type}")
-
-
-# ---------------------------------------------------------------------------
-# App + API router
-# ---------------------------------------------------------------------------
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    from lutz.server import db as _db
-    try:
-        root = _get_root()
-        _db.init_db(root)
-    except Exception:
-        pass  # root may not exist yet (first run before lutz init)
-    yield
-
-
-app = FastAPI(docs_url=None, redoc_url=None, title="lutz", lifespan=lifespan)
-api = APIRouter(prefix="/api")
-
-# ── Project ──────────────────────────────────────────────────────────────────
-
-
-@api.get("/project")
-async def get_project() -> dict:
-    root = _get_root()
-    articles_dir = root / "articles"
-    reports_dir = root / "analysis" / "execution_reports"
-    articles = len(list(articles_dir.glob("*.pdf"))) if articles_dir.exists() else 0
-    reports = len(list(reports_dir.glob("*.json"))) if reports_dir.exists() else 0
-    return {"root": str(root), "articles": articles, "reports": reports}
-
-
-# ── Articles ─────────────────────────────────────────────────────────────────
-
-
-@api.get("/articles")
-async def list_articles() -> dict:
-    root = _get_root()
-    arts_dir = root / "articles"
-    if not arts_dir.exists():
-        return {"articles": []}
-    arts = [
-        {"name": f.name, "size": f.stat().st_size}
-        for f in sorted(arts_dir.glob("*.pdf"))
-    ]
-    return {"articles": arts}
-
-
-@api.post("/articles/upload")
-async def upload_articles(files: list[UploadFile] = File(...)) -> dict:
-    root = _get_root()
-    arts_dir = root / "articles"
-    arts_dir.mkdir(parents=True, exist_ok=True)
-    uploaded = []
-    for f in files:
-        safe_name = Path(f.filename or "upload.pdf").name  # strip any directory component
-        dest = _safe_child(arts_dir, safe_name)
-        with dest.open("wb") as fh:
-            shutil.copyfileobj(f.file, fh)
-        uploaded.append(dest.name)
-    return {"uploaded": uploaded}
-
-
-@api.delete("/articles/{name}")
-async def delete_article(name: str) -> dict:
-    root = _get_root()
-    target = _safe_child(root / "articles", name)
-    if not target.exists():
-        raise HTTPException(status_code=404, detail="Article not found")
-    target.unlink()
-    return {"ok": True}
-
-
-@api.delete("/articles")
-async def delete_all_articles() -> dict:
-    """Delete every PDF in the articles directory."""
-    root = _get_root()
-    arts_dir = root / "articles"
-    if not arts_dir.exists():
-        return {"deleted": 0}
-    count = 0
-    for f in arts_dir.glob("*.pdf"):
-        f.unlink()
-        count += 1
-    return {"deleted": count}
-
-
-@api.post("/articles/{name}/suggest-rename")
-async def suggest_article_rename(name: str) -> dict:
-    """Use the LLM to suggest a clean filename by reading the PDF's first pages directly."""
-    import re as _re
-
-    root = _get_root()
-    target = _safe_child(root / "articles", name)
-    if not target.exists():
-        raise HTTPException(status_code=404, detail="Article not found")
-
-    def _suggest() -> str:
-        from lutz.core.llm_client import LLMClient
-        from lutz.utils.project import load_env
-
-        # Extract text from the first 3 pages of the PDF directly — no vector store needed
-        sample_text = ""
-        try:
-            try:
-                import pymupdf as fitz
-            except ImportError:  # pymupdf < 1.24.3 ships only the legacy module
-                import fitz
-            doc = fitz.open(str(target))
-            pages_text = []
-            for page_num in range(min(3, len(doc))):
-                text = doc[page_num].get_text("text").strip()
-                if text:
-                    pages_text.append(text)
-            doc.close()
-            sample_text = "\n\n---\n\n".join(pages_text)
-        except Exception:
-            try:
-                import pdfplumber
-                with pdfplumber.open(str(target)) as pdf:
-                    pages_text = []
-                    for page in pdf.pages[:3]:
-                        text = (page.extract_text() or "").strip()
-                        if text:
-                            pages_text.append(text)
-                    sample_text = "\n\n---\n\n".join(pages_text)
-            except Exception as exc:
-                raise RuntimeError(f"Could not extract text from PDF: {exc}") from exc
-
-        if not sample_text.strip():
-            raise RuntimeError("PDF appears to have no extractable text (may be scanned image).")
-
-        # Truncate to ~3000 chars — enough for title, authors, abstract
-        sample_text = sample_text[:3000]
-
-        env = load_env(root)
-        llm = LLMClient.from_env(env)
-        system = (
-            "You suggest concise, descriptive filenames for academic PDF files. "
-            "Rules: use only ASCII letters, digits, underscores and hyphens; "
-            "no spaces, no dots, no extension; max 80 characters. "
-            "Derive the name from: paper title keywords, first author surname, and year if visible. "
-            "Return ONLY the filename string, nothing else — no quotes, no explanation."
-        )
-        user_msg = (
-            f"Original filename: {name}\n\n"
-            f"First pages of the PDF:\n\n{sample_text}\n\n"
-            "Suggest a filename (no extension, no quotes):"
-        )
-        raw, _ = llm.complete_messages(system=system, messages=[{"role": "user", "content": user_msg}])
-        suggested = raw.strip().strip("\"'").removesuffix(".pdf")
-        suggested = _re.sub(r"[^a-zA-Z0-9_\-]", "_", suggested)
-        suggested = _re.sub(r"_+", "_", suggested).strip("_")
-        suggested = (suggested or "article")[:80]
-        return suggested + ".pdf"
-
-    suggested = await asyncio.get_event_loop().run_in_executor(None, _suggest)
-    return {"original": name, "suggested": suggested}
-
-
-@api.post("/articles/{name}/rename")
-async def rename_article(name: str, body: dict) -> dict:
-    """Rename an article file and update all vector store references."""
-    root = _get_root()
-    new_name = (body.get("new_name") or "").strip()
-    if not new_name:
-        raise HTTPException(status_code=400, detail="new_name required")
-    if not new_name.lower().endswith(".pdf"):
-        new_name += ".pdf"
-
-    src = _safe_child(root / "articles", name)
-    dst = _safe_child(root / "articles", new_name)
-
-    if not src.exists():
-        raise HTTPException(status_code=404, detail="Article not found")
-    if dst.exists() and dst != src:
-        raise HTTPException(status_code=409, detail="A file with this name already exists")
-
-    src.rename(dst)
-    VectorStore(root / ".lutz" / "vector_store").rename_filename(name, new_name)
-
-    return {"ok": True, "new_name": new_name}
-
-
-@api.get("/articles/{name}/file")
-async def get_article_file(name: str):
-    """Serve the raw PDF file for in-browser viewing."""
-    root = _get_root()
-    target = _safe_child(root / "articles", name)
-    if not target.exists():
-        raise HTTPException(status_code=404, detail="Article not found")
-    return FileResponse(
-        path=str(target),
-        media_type="application/pdf",
-        filename=name,
-        headers={"Content-Disposition": f'inline; filename="{name}"'},
-    )
-
-
-# ── Vector Store ──────────────────────────────────────────────────────────────
-
-
-@api.get("/vector-store")
-async def get_vector_store() -> dict:
-    root = _get_root()
-    db_path = root / ".lutz" / "vector_store"
-    store = VectorStore(db_path)
-    return store.summarize()
-
-
-@api.delete("/vector-store")
-async def reset_vector_store() -> dict:
-    root = _get_root()
-    db_path = root / ".lutz" / "vector_store"
-    if db_path.exists():
-        shutil.rmtree(db_path)
-    return {"ok": True}
-
-
-_VS_COLUMNS = ["filename", "chunk_index", "page", "section", "text",
-               "vectorized_at", "embedding_model", "embedding_provider"]
-
-
-def _json_val(v: object) -> object:
-    """Serialize a single DataFrame cell to a JSON-safe Python value.
-
-    Handles numpy scalar types and list columns produced by lutz UDFs
-    (e.g. ``pca_project``, ``embedding_normalize``) so they reach the
-    frontend as proper JSON arrays rather than string representations.
-    """
-    if v is None:
-        return None
-    if isinstance(v, bool):        # bool before int — it's a subclass
-        return v
-    if isinstance(v, (int, float, str)):
-        return v
-    if isinstance(v, list):
-        return v                   # UDF list outputs: pass through as JSON array
-    # numpy scalars — avoid top-level import
-    mod = type(v).__module__
-    if mod == "numpy" or mod.startswith("numpy."):
-        import numpy as _np
-        if isinstance(v, _np.integer):
-            return int(v)
-        if isinstance(v, _np.floating):
-            return float(v)
-        if isinstance(v, _np.bool_):
-            return bool(v)
-        if isinstance(v, _np.ndarray):
-            return v.tolist()
-    return str(v)
-
-
-_SQL_BLOCKED_STATEMENTS = re.compile(
-    r"""^\s*(COPY|ATTACH|DETACH|LOAD|INSTALL|IMPORT|EXPORT|INSERT|UPDATE|DELETE|
-          CREATE|DROP|ALTER|TRUNCATE|REPLACE|MERGE|CALL|PRAGMA|SET|RESET|
-          USE|SHOW|DESCRIBE|EXPLAIN|ANALYZE|VACUUM|CHECKPOINT|TRANSACTION|
-          BEGIN|COMMIT|ROLLBACK|SAVEPOINT|RELEASE)\b""",
-    re.IGNORECASE | re.VERBOSE,
+from lutz import __version__
+from lutz.calibrated import piloto as pil
+from lutz.config.env import salvar_env, valores_com_origem
+from lutz.config.settings import avisos, carregar_settings, estrategia_diversidade, validar_yaml
+from lutz.core import assistente
+from lutz.core import codebook as cbk
+from lutz.core import metricas as M
+from lutz.core.db import conectar, jload, um
+from lutz.core.errors import (
+    CodebookInvalido,
+    ConfigInvalida,
+    EstadoInvalido,
+    LutzError,
+    ProjetoOcupado,
 )
+from lutz.core.ingestao import importar_pdf, legibilidade
+from lutz.core.inicializar import info_projeto
+from lutz.core.lock import bloqueio
+from lutz.core.project import Projeto
+from lutz.extraction import executor as ex
+from lutz.extraction.metricas_autonomo import metricas
+from lutz.llm.cliente import consumo
+from lutz.report import render
+from lutz.report.dados import coletar
+from lutz.report.gerar import gerar, tabela_larga, tabela_longa
+from lutz.revisao import adjudicacao as adj
+from lutz.revisao import auditoria as aud
+from lutz.server.jobs import GerenciadorJobs
 
-_SQL_BLOCKED_FUNCTIONS = re.compile(
-    r"""\b(read_csv|read_parquet|read_json|read_text|read_blob|glob|
-          parquet_scan|csv_scan|json_scan|delta_scan|iceberg_scan|
-          read_csv_auto|read_json_auto|scan_csv|scan_parquet)\s*\(""",
-    re.IGNORECASE | re.VERBOSE,
-)
+
+def _limpo(obj: Any) -> Any:
+    """JSON-safe: NaN/inf become null."""
+    if isinstance(obj, float):
+        return None if math.isnan(obj) or math.isinf(obj) else obj
+    if isinstance(obj, dict):
+        return {k: _limpo(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_limpo(v) for v in obj]
+    return obj
 
 
-def _validate_select_only(sql: str) -> None:
-    """Raise ValueError if sql is not a safe single SELECT statement.
-
-    Uses sqlglot for structural parse when available; falls back to
-    regex keyword blocking if sqlglot is not installed.
-    """
+def _dist_web() -> Path | None:
     try:
-        import sqlglot
-        import sqlglot.exp as exp
-
-        statements = sqlglot.parse(sql)
-        if not statements or len(statements) != 1:
-            raise ValueError("Exactly one SQL statement is required")
-        stmt = statements[0]
-        if not isinstance(stmt, exp.Select):
-            raise ValueError("Only SELECT statements are allowed")
-        _BLOCKED_FUNCS = {
-            "read_csv", "read_parquet", "read_json", "read_text", "read_blob",
-            "glob", "parquet_scan", "csv_scan", "delta_scan", "iceberg_scan",
-            "read_csv_auto", "read_json_auto", "scan_csv", "scan_parquet",
-        }
-        for func in stmt.find_all(exp.Anonymous):
-            if func.name.lower() in _BLOCKED_FUNCS:
-                raise ValueError(f"Function '{func.name}' is not allowed")
-        for func in stmt.find_all(exp.Func):
-            if type(func).__name__.lower() in _BLOCKED_FUNCS:
-                raise ValueError(f"Function '{type(func).__name__}' is not allowed")
-    except ImportError:
-        # sqlglot not available — fall back to regex-based validation
-        if _SQL_BLOCKED_STATEMENTS.match(sql):
-            raise ValueError("Only SELECT statements are allowed")
-        if _SQL_BLOCKED_FUNCTIONS.search(sql):
-            raise ValueError("SQL contains a disallowed table-valued function")
-        # Require the query to start with SELECT (after optional comments/whitespace)
-        clean = re.sub(r"--[^\n]*", "", sql)   # strip line comments
-        clean = re.sub(r"/\*.*?\*/", "", clean, flags=re.DOTALL)  # strip block comments
-        if not re.match(r"^\s*SELECT\b", clean, re.IGNORECASE):
-            raise ValueError("Only SELECT statements are allowed")
+        p = Path(str(resources.files("lutz").joinpath("web")))
+        if (p / "index.html").is_file():
+            return p
+    except (ModuleNotFoundError, FileNotFoundError):  # pragma: no cover
+        pass
+    dev = Path(__file__).resolve().parents[2] / "web" / "dist"
+    return dev if (dev / "index.html").is_file() else None
 
 
-@api.post("/vector-store/query")
-async def query_vector_store(body: dict) -> dict:
-    """Execute a DuckDB SQL query against the main vector store table.
+def criar_app(projeto: Projeto) -> FastAPI:
+    app = FastAPI(title="Lutz", version=__version__, docs_url="/api/docs", openapi_url="/api/openapi.json")
+    jobs = GerenciadorJobs(projeto)
+    app.state.projeto = projeto
+    app.state.jobs = jobs
 
-    The table is named ``vectors``.  By default the ``embedding`` column is
-    excluded for performance; pass ``"include_embeddings": true`` in the
-    request body to expose it.
+    if not (projeto.estado / "lock").exists():
+        con0 = conectar(projeto)
+        ex.reparar_interrompidas(con0)
+        con0.close()
 
-    Returns columns, rows, count and elapsed time in ms.
-    """
-    import asyncio
+    from pydantic import ValidationError as _ErroValidacao
 
-    sql: str = (body.get("sql") or "").strip()
-    if not sql:
-        raise HTTPException(status_code=400, detail="sql required")
+    @app.exception_handler(_ErroValidacao)
+    async def _erro_validacao(_: Request, exc: _ErroValidacao):
+        msgs = [f"{'.'.join(str(x) for x in e['loc'])}: {e['msg']}" for e in exc.errors()]
+        return JSONResponse({"erro": "Dados inválidos:\n" + "\n".join(msgs)}, status_code=422)
 
-    try:
-        _validate_select_only(sql)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+    @app.exception_handler(LutzError)
+    async def _erro_dominio(_: Request, exc: LutzError):
+        status = 409 if isinstance(exc, (EstadoInvalido, ProjetoOcupado)) else 422 if isinstance(
+            exc, (CodebookInvalido, ConfigInvalida)) else 400
+        return JSONResponse({"erro": str(exc)}, status_code=status)
 
-    include_embeddings: bool = bool(body.get("include_embeddings", False))
-    root = _get_root()
+    def con():
+        return conectar(projeto)
 
-    def _run() -> dict:
-        import time
-        import duckdb
-        import pyarrow as pa
-        from lutz.core.vector_store import VectorStore
-
-        vs = VectorStore(root / ".lutz" / "vector_store")
-        if "articles" not in vs._db.list_tables().tables:
-            return {"columns": [], "rows": [], "count": 0, "elapsed_ms": 0.0,
-                    "error": "Vector store is empty — vectorize some articles first."}
-
-        tbl = vs._db.open_table("articles")
-        arrow_tbl = tbl.to_arrow()
-        available = set(arrow_tbl.schema.names)
-
-        # Build the column list: metadata always included, embeddings optional.
-        cols = [c for c in _VS_COLUMNS if c in available]
-        if include_embeddings and "embedding" in available:
-            # Cast from list<float32> → list<float64> so the lutz UDFs
-            # (which expect DOUBLE[]) can operate without implicit coercion.
-            emb_col = arrow_tbl.column("embedding")
-            emb_f64 = emb_col.cast(pa.list_(pa.float64()))
-            # Drop the original float32 column and append the cast version.
-            emb_idx = arrow_tbl.schema.get_field_index("embedding")
-            arrow_tbl = (
-                arrow_tbl
-                .remove_column(emb_idx)
-                .append_column(pa.field("embedding", pa.list_(pa.float64())), emb_f64)
-            )
-            cols = cols + ["embedding"]
-
-        arrow_tbl = arrow_tbl.select(cols)
-
-        con = duckdb.connect()
-        con.register("vectors", arrow_tbl)
-
-        t0 = time.perf_counter()
+    def ler(fn):
+        c = con()
         try:
-            rel = con.execute(sql)
-            df = rel.fetchdf()
-        except Exception as exc:
-            return {"columns": [], "rows": [], "count": 0, "elapsed_ms": 0.0,
-                    "error": str(exc)}
-        elapsed = round((time.perf_counter() - t0) * 1000, 1)
-
-        columns = list(df.columns)
-        rows: list[list] = []
-        for row in df.itertuples(index=False):
-            rows.append([
-                _json_val(v)
-                for v in row
-            ])
-
-        return {"columns": columns, "rows": rows, "count": len(rows), "elapsed_ms": elapsed}
-
-    result = await asyncio.get_event_loop().run_in_executor(None, _run)
-    return result
-
-
-# ── Prompts ───────────────────────────────────────────────────────────────────
-
-
-@api.get("/prompts")
-async def list_prompts() -> dict:
-    root = _get_root()
-    prompts_dir = root / "prompts"
-    if not prompts_dir.exists():
-        return {"prompts": []}
-    prompts = [
-        {"name": f.stem, "path": str(f.relative_to(root))}
-        for f in sorted(prompts_dir.glob("*.md"))
-    ]
-    return {"prompts": prompts}
-
-
-@api.get("/prompts/{name}")
-async def get_prompt(name: str) -> dict:
-    root = _get_root()
-    f = _safe_child(root / "prompts", f"{name}.md")
-    if not f.exists():
-        raise HTTPException(status_code=404, detail="Prompt not found")
-    return {"name": name, "content": f.read_text(encoding="utf-8")}
-
-
-@api.put("/prompts/{name}")
-async def save_prompt(name: str, body: dict) -> dict:
-    root = _get_root()
-    prompts_dir = root / "prompts"
-    prompts_dir.mkdir(parents=True, exist_ok=True)
-    f = _safe_child(prompts_dir, f"{name}.md")
-    f.write_text(body.get("content", ""), encoding="utf-8")
-    return {"ok": True}
-
-
-# ── Context files ─────────────────────────────────────────────────────────────
-
-_CONTEXT_ACCEPT = {".pdf", ".docx", ".xlsx", ".xls", ".pptx"}
-
-
-@api.get("/context")
-async def list_context_files() -> dict:
-    root = _get_root()
-    ctx_dir = root / "context"
-    store = ContextStore(root / ".lutz" / "context_store")
-    chunk_counts = store.count_by_filename()
-
-    if not ctx_dir.exists():
-        return {"files": []}
-
-    files = []
-    for f in sorted(ctx_dir.iterdir()):
-        if f.suffix.lower() in _CONTEXT_ACCEPT:
-            files.append({
-                "name": f.name,
-                "size": f.stat().st_size,
-                "vectorized": f.name in chunk_counts,
-                "chunks": chunk_counts.get(f.name, 0),
-            })
-    return {"files": files}
-
-
-@api.post("/context/upload")
-async def upload_context_files(files: list[UploadFile] = File(...)) -> dict:
-    """Upload reference files and vectorize them immediately."""
-    import asyncio
-    root = _get_root()
-    ctx_dir = root / "context"
-    ctx_dir.mkdir(parents=True, exist_ok=True)
-
-    saved = []
-    errors = []
-    for f in files:
-        safe_name = Path(f.filename or "upload.bin").name
-        if Path(safe_name).suffix.lower() not in _CONTEXT_ACCEPT:
-            errors.append(f"{safe_name}: unsupported format")
-            continue
-        dest = _safe_child(ctx_dir, safe_name)
-        with dest.open("wb") as fh:
-            shutil.copyfileobj(f.file, fh)
-        saved.append(dest)
-
-    if not saved:
-        raise HTTPException(status_code=400, detail="; ".join(errors) or "No valid files uploaded")
-
-    # Vectorize in a thread (CPU-bound embedding, not async-friendly)
-    uploaded_names = await asyncio.get_event_loop().run_in_executor(
-        None, _vectorize_context_files, root, saved
-    )
-
-    return {"uploaded": uploaded_names, "errors": errors}
-
-
-def _vectorize_context_files(root: Path, paths: list[Path]) -> list[str]:
-    """Extract, chunk, embed and store context files. Runs in a thread."""
-    from datetime import datetime, timezone
-    from lutz.utils.document_reader import extract_pages
-    from lutz.core.embedding_client import EmbeddingClient
-
-    env = load_env(root)
-    embedding_client = EmbeddingClient.from_env(env)
-    store = ContextStore(root / ".lutz" / "context_store")
-    now = datetime.now(timezone.utc).isoformat()
-
-    _CHUNK_WORDS = 400
-    uploaded = []
-
-    for path in paths:
-        try:
-            pages = extract_pages(path)
-        except Exception as e:
-            raise HTTPException(status_code=422, detail=f"{path.name}: {e}")
-
-        # Simple word-based chunking (no overlap needed for context files)
-        chunks_text: list[tuple[int, str]] = []
-        for page_num, text in pages:
-            words = text.split()
-            for i in range(0, max(len(words), 1), _CHUNK_WORDS):
-                chunk = " ".join(words[i : i + _CHUNK_WORDS])
-                if chunk.strip():
-                    chunks_text.append((page_num, chunk))
-
-        if not chunks_text:
-            continue
-
-        texts = [t for _, t in chunks_text]
-        embeddings, _ = embedding_client.embed(texts)
-
-        records = [
-            {
-                "filename": path.name,
-                "chunk_index": idx,
-                "page": page_num,
-                "text": text,
-                "embedding": emb,
-                "vectorized_at": now,
-                "embedding_model": embedding_client.model_id,
-                "embedding_provider": embedding_client.provider,
-            }
-            for idx, ((page_num, text), emb) in enumerate(zip(chunks_text, embeddings))
-        ]
-        # Remove old vectors for this file before inserting new ones
-        store.delete_by_filename(path.name)
-        store.upsert(records)
-        uploaded.append(path.name)
-
-    return uploaded
-
-
-@api.delete("/context/{name}")
-async def delete_context_file(name: str) -> dict:
-    root = _get_root()
-    ctx_dir = root / "context"
-    target = _safe_child(ctx_dir, name)
-
-    store = ContextStore(root / ".lutz" / "context_store")
-    store.delete_by_filename(name)
-
-    if target.exists():
-        target.unlink()
-
-    return {"ok": True}
-
-
-# ── Chat ──────────────────────────────────────────────────────────────────────
-
-_CHAT_ACCEPT = {".pdf", ".docx", ".xlsx", ".xls", ".pptx", ".txt", ".md", ".markdown", ".csv"}
-
-
-@api.get("/chat/files")
-async def list_chat_files() -> dict:
-    root = _get_root()
-    store = ContextStore(root / ".lutz" / "chat_store")
-    counts = store.count_by_filename()
-    return {"files": [{"name": k, "chunks": v} for k, v in sorted(counts.items())]}
-
-
-@api.post("/chat/files/upload")
-async def upload_chat_files(files: list[UploadFile] = File(...)) -> dict:
-    """Upload files to the chat vector store and vectorize them immediately."""
-    import asyncio
-    root = _get_root()
-
-    saved: list[Path] = []
-    errors: list[str] = []
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        tmp_path = Path(tmp_dir)
-        for f in files:
-            safe_name = Path(f.filename or "upload.bin").name
-            if Path(safe_name).suffix.lower() not in _CHAT_ACCEPT:
-                errors.append(f"{safe_name}: formato não suportado")
-                continue
-            dest = tmp_path / safe_name
-            with dest.open("wb") as fh:
-                shutil.copyfileobj(f.file, fh)
-            saved.append(dest)
-
-        if not saved:
-            raise HTTPException(status_code=400, detail="; ".join(errors) or "Nenhum arquivo válido")
-
-        uploaded_names = await asyncio.get_event_loop().run_in_executor(
-            None, _vectorize_chat_files, root, saved
-        )
-
-    return {"uploaded": uploaded_names, "errors": errors}
-
-
-def _vectorize_chat_files(root: Path, paths: list[Path]) -> list[str]:
-    """Extract, chunk, embed and store files in the chat vector store."""
-    from datetime import datetime, timezone
-    from lutz.utils.document_reader import extract_pages
-    from lutz.core.embedding_client import EmbeddingClient
-
-    env = load_env(root)
-    embedding_client = EmbeddingClient.from_env(env)
-    store = ContextStore(root / ".lutz" / "chat_store")
-    now = datetime.now(timezone.utc).isoformat()
-
-    _CHUNK_WORDS = 400
-    uploaded = []
-
-    for path in paths:
-        try:
-            pages = extract_pages(path)
-        except Exception as e:
-            raise HTTPException(status_code=422, detail=f"{path.name}: {e}")
-
-        chunks_text: list[tuple[int, str]] = []
-        for page_num, text in pages:
-            words = text.split()
-            for i in range(0, max(len(words), 1), _CHUNK_WORDS):
-                chunk = " ".join(words[i : i + _CHUNK_WORDS])
-                if chunk.strip():
-                    chunks_text.append((page_num, chunk))
-
-        if not chunks_text:
-            continue
-
-        texts = [t for _, t in chunks_text]
-        embeddings, _ = embedding_client.embed(texts)
-
-        records = [
-            {
-                "filename": path.name,
-                "chunk_index": idx,
-                "page": page_num,
-                "text": text,
-                "embedding": emb,
-                "vectorized_at": now,
-                "embedding_model": embedding_client.model_id,
-                "embedding_provider": embedding_client.provider,
-            }
-            for idx, ((page_num, text), emb) in enumerate(zip(chunks_text, embeddings))
-        ]
-        store.delete_by_filename(path.name)
-        store.upsert(records)
-        uploaded.append(path.name)
-
-    return uploaded
-
-
-@api.delete("/chat/files/{name}")
-async def delete_chat_file(name: str) -> dict:
-    root = _get_root()
-    store = ContextStore(root / ".lutz" / "chat_store")
-    store.delete_by_filename(name)
-    return {"ok": True}
-
-
-@api.delete("/chat/store")
-async def reset_chat_store() -> dict:
-    root = _get_root()
-    store = ContextStore(root / ".lutz" / "chat_store")
-    store.drop_all()
-    return {"ok": True}
-
-
-def _filter_chunks_by_active_files(chunks: list[dict], active_names: set[str] | None) -> list[dict]:
-    """Post-filter RAG chunks to exclude inactive files.
-
-    active_names semantics (from db.get_active_filenames):
-    - None  → no files registered for session → pass all chunks through unchanged
-    - set   → filter to only chunks whose filename is in active_names
-    """
-    if active_names is None:
-        return chunks
-    return [c for c in chunks if c.get("filename") in active_names]
-
-
-@api.patch("/chat/sessions/{session_id}/files/{file_id}")
-async def patch_chat_file_active(session_id: str, file_id: int, body: dict) -> dict:
-    """Toggle a file's active state for RAG retrieval within a session."""
-    from lutz.server import db as _db
-
-    if "active" not in body:
-        raise HTTPException(status_code=400, detail="'active' field is required")
-    active_val = body["active"]
-    if not isinstance(active_val, bool):
-        raise HTTPException(status_code=400, detail="'active' must be a boolean")
-
-    root = _get_root()
-    record = _db.get_chat_file(root, file_id, session_id)
-    if record is None:
-        raise HTTPException(status_code=404, detail="File not found in this session")
-
-    _db.set_file_active(root, file_id, active_val)
-    return {"id": file_id, "active": 1 if active_val else 0}
-
-
-# ── Chat sessions ──────────────────────────────────────────────────────────────
-
-def _sessions_dir(root: Path) -> Path:
-    d = root / ".lutz" / "chat_sessions"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
-
-
-def _memory_path(root: Path) -> Path:
-    return root / ".lutz" / "chat_memory.json"
-
-
-def _read_session(path: Path) -> dict:
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def _write_session(path: Path, data: dict) -> None:
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-def _read_memory(root: Path) -> list[dict]:
-    p = _memory_path(root)
-    if not p.exists():
-        return []
-    return json.loads(p.read_text(encoding="utf-8")).get("memories", [])
-
-
-def _write_memory(root: Path, memories: list[dict]) -> None:
-    _memory_path(root).write_text(
-        json.dumps({"memories": memories}, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-
-
-def _auto_extract_memories(root: Path, session_id: str, messages: list[dict]) -> None:
-    """Extract key facts from the conversation and save as auto-memories.
-
-    Runs in a background thread after each message exchange.
-    Facts are tagged with source='auto' so they can be distinguished from pinned ones.
-    Only triggers every 4 messages (2 user+assistant pairs) to avoid excessive calls.
-    """
-    # Only extract when conversation has at least 4 messages
-    if len(messages) < 4:
-        return
-
-    # Check if we already extracted at this message count to avoid duplicates
-    from lutz.server import db as _db
-    existing = _db.list_memory(root)
-    already_extracted_at = {
-        m.get("extracted_at_count")
-        for m in existing
-        if m.get("source") == "auto" and m.get("session_id") == session_id
-    }
-    if len(messages) in already_extracted_at:
-        return
-
-    try:
-        from lutz.core.llm_client import LLMClient
-        from lutz.utils.project import load_env
-
-        env = load_env(root)
-        llm = LLMClient.from_env(env)
-
-        # Build a compact conversation transcript for extraction
-        transcript = "\n".join(
-            f"{'Usuário' if m['role'] == 'user' else 'Assistente'}: {m['content'][:400]}"
-            for m in messages[-10:]  # last 10 messages to keep prompt short
-        )
-
-        system = (
-            "You extract memorable facts from conversations for a research assistant. "
-            "Return ONLY a JSON array of short strings (max 120 chars each), e.g.: "
-            '[\"fact 1\", \"fact 2\"]. '
-            "Extract 1-3 facts that would be useful for future conversations — "
-            "things like: the researcher's topic, decisions made, preferences, key findings mentioned. "
-            "Omit trivial or generic content. If nothing is worth remembering, return []."
-        )
-        user_msg = f"Conversation:\n\n{transcript}\n\nExtract memorable facts as JSON array:"
-
-        raw, _ = llm.complete_messages(system=system, messages=[{"role": "user", "content": user_msg}])
-
-        # Parse JSON array from response
-        import re as _re
-        match = _re.search(r'\[.*?\]', raw, _re.DOTALL)
-        if not match:
-            return
-        facts: list[str] = json.loads(match.group())
-        if not isinstance(facts, list):
-            return
-
-        from datetime import datetime, timezone
-        import uuid
-
-        from lutz.server import db as _db
-        _db.replace_auto_memory(root, session_id, facts, len(messages))
-    except Exception:
-        pass  # Never crash the main request on background extraction failure
-
-
-
-@api.get("/chat/sessions")
-async def list_chat_sessions() -> dict:
-    from lutz.server import db as _db
-    root = _get_root()
-    return {"sessions": _db.list_sessions(root)}
-
-
-@api.post("/chat/sessions")
-async def create_chat_session(body: dict = {}) -> dict:
-    from lutz.server import db as _db
-    root = _get_root()
-    title = body.get("title", "Nova conversa")
-    session = _db.create_session(root, title)
-    return {"session": session}
-
-
-@api.get("/chat/sessions/{session_id}")
-async def get_chat_session(session_id: str) -> dict:
-    from lutz.server import db as _db
-    root = _get_root()
-    session = _db.get_session(root, session_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
-    return {"session": session}
-
-
-@api.put("/chat/sessions/{session_id}/title")
-async def rename_chat_session(session_id: str, body: dict) -> dict:
-    from lutz.server import db as _db
-    root = _get_root()
-    session = _db.get_session(root, session_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
-    _db.update_session_title(root, session_id, body.get("title", session["title"]))
-    return {"ok": True}
-
-
-@api.delete("/chat/sessions/{session_id}")
-async def delete_chat_session(session_id: str) -> dict:
-    from lutz.server import db as _db
-    root = _get_root()
-    _db.delete_session(root, session_id)
-    return {"ok": True}
-
-
-# ── Chat memory ────────────────────────────────────────────────────────────────
-
-@api.get("/chat/memory")
-async def list_chat_memory() -> dict:
-    from lutz.server import db as _db
-    root = _get_root()
-    return {"memories": _db.list_memory(root)}
-
-
-@api.post("/chat/memory")
-async def add_chat_memory(body: dict) -> dict:
-    from lutz.server import db as _db
-    root = _get_root()
-    text = (body.get("text") or "").strip()
-    if not text:
-        raise HTTPException(status_code=400, detail="text required")
-    entry = _db.add_memory(
-        root,
-        text,
-        body.get("session_id") or None,
-        "manual",  # always manual via API — 'auto' is created only by _auto_extract_memories
-    )
-    return {"memory": entry}
-
-
-@api.put("/chat/memory/{memory_id}")
-async def update_chat_memory(memory_id: str, body: dict) -> dict:
-    from lutz.server import db as _db
-    root = _get_root()
-    content = (body.get("content") or "").strip()
-    if not content:
-        raise HTTPException(status_code=400, detail="content required")
-    try:
-        updated = _db.update_memory(root, memory_id, content)
-    except KeyError:
-        raise HTTPException(status_code=404, detail="Memory not found")
-    return updated
-
-
-@api.delete("/chat/memory/{memory_id}")
-async def delete_chat_memory(memory_id: str) -> dict:
-    from lutz.server import db as _db
-    root = _get_root()
-    _db.delete_memory(root, memory_id)
-    return {"ok": True}
-
-
-@api.get("/chat/sessions/{session_id}/memory")
-async def get_session_memory(session_id: str) -> dict:
-    from lutz.server import db as _db
-    root = _get_root()
-    memories = _db.get_memories(root, session_id=session_id)
-    estimated_tokens = int(sum(len(m["content"].split()) * 1.3 for m in memories))
-    return {
-        "memories": memories,
-        "count": len(memories),
-        "estimated_tokens": estimated_tokens,
-    }
-
-
-def _get_llm_for_compaction(root: Path):
-    """Return an LLMClient for memory compaction. Extracted for testability."""
-    from lutz.core.llm_client import LLMClient
-    from lutz.utils.project import load_env
-    env = load_env(root)
-    return LLMClient.from_env(env)
-
-
-def _compact_memories(root: Path, session_id: str) -> bool:
-    """Compact session memories when total token count exceeds 1500 tokens.
-
-    Returns True if compaction was performed, False if skipped.
-    """
-    from lutz.server import db as _db
-
-    memories = _db.get_memories(root, session_id=session_id)
-    if not memories:
-        return False
-
-    estimated_tokens = sum(len(m["content"].split()) * 1.3 for m in memories)
-    if estimated_tokens <= 1500:
-        return False
-
-    try:
-        llm = _get_llm_for_compaction(root)
-        all_text = "\n".join(f"- {m['content']}" for m in memories)
-        system = (
-            "You are a memory compactor for a research assistant. "
-            "Summarize the following memory entries into at most 5 concise bullet points. "
-            "Preserve the most important facts. Return ONLY bullet points, one per line, "
-            "starting each with '- '."
-        )
-        user_msg = f"Memory entries to summarize:\n\n{all_text}\n\nSummarized bullets:"
-        raw, _ = llm.complete(system, user_msg)
-
-        bullets = [
-            line.lstrip("- ").strip()
-            for line in raw.splitlines()
-            if line.strip().startswith("-")
-        ]
-        if not bullets:
-            bullets = [raw.strip()[:500]]
-
-        # Replace all session memories with compacted ones
-        now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
-        with _db.get_db(root) as conn:
-            conn.execute(
-                "DELETE FROM chat_memory WHERE session_id=?",
-                (session_id,),
-            )
-            for bullet in bullets:
-                conn.execute(
-                    "INSERT INTO chat_memory "
-                    "(id, text, session_id, source, extracted_at_count, created_at, content, updated_at) "
-                    "VALUES (?, ?, ?, 'auto', NULL, ?, ?, ?)",
-                    (str(uuid.uuid4()), bullet, session_id, now, bullet, now),
-                )
-        return True
-    except Exception:
-        return False
-
-
-# ── Chat LLM core ─────────────────────────────────────────────────────────────
-
-_CHAT_LANG_INSTRUCTIONS: dict[str, str] = {
-    "pt": "Responda sempre em português (pt-BR).",
-    "en": "Always respond in English.",
-    "es": "Responde siempre en español.",
-}
-
-
-_REASONING_SETTINGS: dict[str, dict] = {
-    "fast": {"temperature": 0.1, "system_append": None},
-    "balanced": {
-        "temperature": 0.2,
-        "system_append": "Justifique brevemente sua resposta.",
-    },
-    "deep": {
-        "temperature": 0.3,
-        "system_append": (
-            "Antes de responder, analise o problema passo a passo, considere múltiplas "
-            "perspectivas e argumente contra as premissas quando relevante."
-        ),
-    },
-}
-
-
-_REPORT_CONTEXT_MAX_CHARS = 8000
-
-
-def _build_report_context(root: Path, report_ids: list[str]) -> tuple[str, list[dict]]:
-    """Carrega JSONs de relatórios e monta texto estruturado para injeção no prompt.
-
-    Retorna (texto_contexto, lista_fontes).
-    O texto é limitado a _REPORT_CONTEXT_MAX_CHARS caracteres.
-    IDs de relatórios que não existem ou falham ao carregar são ignorados silenciosamente.
-    """
-    reports_dir = root / "analysis" / "execution_reports"
-    lines: list[str] = []
-    sources: list[dict] = []
-    total_chars = 0
-
-    for report_id in report_ids:
-        try:
-            report_path = _safe_child(reports_dir, f"{report_id}.json")
-        except HTTPException:
-            continue  # ID fora do diretório — ignora silenciosamente
-        try:
-            data = json.loads(report_path.read_text(encoding="utf-8"))
-        except Exception:
-            continue  # arquivo ausente ou inválido — ignora silenciosamente
-
-        analysis_type = str(data.get("analysis_type") or data.get("type") or "analysis")[:50]
-        created_at = data.get("created_at") or ""
-        results = data.get("results") or []
-
-        header = f"[Relatório: {report_id}.json — {created_at}]"
-        header += f"\nTipo: {analysis_type} | Artigos: {len(results)}\n"
-
-        block_lines: list[str] = [header]
-        for item in results:
-            filename = str(item.get("filename", ""))[:200]
-            decision = str(item.get("decision", ""))[:50]
-            justification = str(item.get("justification", ""))[:500]
-            title = str(item.get("title", ""))[:200]
-            entry = f"- [DATA: filename] {filename}"
-            if title:
-                entry += f' [DATA: title] "{title}"'
-            entry += f" [DATA: decision] [{decision}]"
-            if justification:
-                entry += f" [DATA: justification] {justification}"
-            block_lines.append(entry)
-
-        block = "\n".join(block_lines)
-
-        # Truncar se ultrapassar o limite de caracteres
-        remaining = _REPORT_CONTEXT_MAX_CHARS - total_chars
-        if remaining <= 0:
-            break
-        if len(block) > remaining:
-            block = block[:remaining] + "\n[... truncado ...]"
-            lines.append(block)
-            sources.append({"filename": f"{report_id}.json", "page": 0})
-            break
-
-        lines.append(block)
-        sources.append({"filename": f"{report_id}.json", "page": 0})
-        total_chars += len(block)
-
-    if not lines:
-        return "", []
-
-    return "\n\n---\n\n".join(lines), sources
-
-
-def _build_chat_context(
-    root: Path,
-    messages: list[dict],
-    options: dict,
-    language: str,
-    memories: list[dict],
-) -> dict:
-    """Build system prompt, retrieve RAG chunks, and return context dict.
-
-    Returns a dict with keys:
-        system: str — the system prompt
-        temperature: float
-        sources: list[dict] — all RAG/library/report source chunks
-        thinking_config: dict | None
-    """
-    from lutz.core.embedding_client import EmbeddingClient
-
-    use_rag: bool = options.get("use_rag", True)
-    use_model_knowledge: bool = options.get("use_model_knowledge", True)
-    use_context_files: bool = options.get("use_context_files", False)
-    use_library: bool = options.get("use_library", False)
-    top_k: int = int(options.get("top_k", 5))
-    reasoning_level: str = options.get("reasoning_level", "balanced")
-    selected_report_ids: list[str] = options.get("selected_report_ids") or []
-    VALID_REASONING_LEVELS = {"fast", "balanced", "deep"}
-    if reasoning_level not in VALID_REASONING_LEVELS:
-        reasoning_level = "balanced"
-    current_query = messages[-1]["content"]
-
-    env = load_env(root)
-
-    rag_chunks: list[dict] = []
-    library_chunks: list[dict] = []
-    query_emb: list[float] | None = None
-
-    if use_rag or use_context_files or use_library:
-        emb_client = EmbeddingClient.from_env(env)
-        query_emb, _ = emb_client.embed([current_query])
-        query_emb = query_emb[0]
-
-    if use_rag and query_emb is not None:
-        chat_store = ContextStore(root / ".lutz" / "chat_store")
-        if not chat_store.is_empty():
-            rag_chunks += chat_store.search(query_emb, top_k=top_k)
-
-    if use_context_files and query_emb is not None:
-        ctx_store = ContextStore(root / ".lutz" / "context_store")
-        if not ctx_store.is_empty():
-            rag_chunks += ctx_store.search(query_emb, top_k=3)
-
-    if use_library and query_emb is not None:
-        try:
-            lib_store = VectorStore(root / ".lutz" / "vector_store")
-            library_chunks = lib_store.search(query_emb, top_k=top_k) or []
-        except Exception:
-            library_chunks = []
-
-    parts: list[str] = [
-        "You are a helpful research assistant that helps researchers understand "
-        "and discuss academic literature."
-    ]
-    if not use_model_knowledge:
-        parts.append(
-            "Important: only use the information provided in the context below. "
-            "If the context does not contain enough information to answer, say so clearly."
-        )
-    if memories:
-        mem_text = "\n".join(f"- {m['text']}" for m in memories)
-        parts.append(f"## Persistent memory (facts from previous conversations)\n\n{mem_text}")
-
-    report_sources: list[dict] = []
-    if selected_report_ids:
-        report_context, report_sources = _build_report_context(root, selected_report_ids)
-        if report_context:
-            parts.append(f"## Relatórios de Análise\n\n{report_context}")
-
-    if rag_chunks:
-        ctx_text = "\n\n---\n\n".join(
-            f"[{c['filename']} — page {c['page']}]\n{c['text']}"
-            for c in rag_chunks
-        )
-        parts.append(f"## Context from uploaded files\n\n{ctx_text}")
-
-    if library_chunks:
-        lib_text = "\n\n---\n\n".join(
-            f"[Biblioteca: {c['filename']} — p.{c['page']}]\n{c['text']}"
-            for c in library_chunks
-        )
-        parts.append(f"## Biblioteca de artigos\n\n{lib_text}")
-
-    lang_instr = _CHAT_LANG_INSTRUCTIONS.get(language, _CHAT_LANG_INSTRUCTIONS["pt"])
-    parts.append(f"## Language\n\n{lang_instr}")
-
-    reasoning = _REASONING_SETTINGS.get(reasoning_level, _REASONING_SETTINGS["balanced"])
-    if reasoning["system_append"]:
-        parts.append(reasoning["system_append"])
-
-    system = "\n\n".join(parts)
-    temperature: float = reasoning["temperature"]
-
-    thinking_config: dict | None = None
-    if env.get("LLM_PROVIDER", "").lower() == "anthropic" and reasoning_level == "deep":
-        thinking_config = {"type": "enabled", "budget_tokens": 8000}
-
-    return {
-        "system": system,
-        "temperature": temperature,
-        "sources": rag_chunks + library_chunks + report_sources,
-        "thinking_config": thinking_config,
-    }
-
-
-def _run_chat(
-    root: Path,
-    messages: list[dict],
-    options: dict,
-    language: str,
-    memories: list[dict],
-) -> dict:
-    from lutz.core.llm_client import LLMClient
-
-    context = _build_chat_context(root, messages, options, language, memories)
-    system: str = context["system"]
-    temperature: float = context["temperature"]
-    all_sources: list[dict] = context["sources"]
-    thinking_config: dict | None = context.get("thinking_config")
-
-    env = load_env(root)
-    llm = LLMClient.from_env(env)
-
-    text, usage = llm.complete_messages(
-        system=system,
-        messages=messages,
-        temperature=temperature,
-        thinking=thinking_config,
-    )
-
-    thinking_content: str | None = usage.pop("thinking_content", None)
-
-    result = {
-        "response": text,
-        "usage": usage,
-        "sources": [{"filename": c["filename"], "page": c["page"]} for c in all_sources],
-    }
-    if thinking_content is not None:
-        result["thinking_content"] = thinking_content
-    return result
-
-
-@api.post("/chat/sessions/{session_id}/message")
-async def chat_session_message(session_id: str, body: dict) -> dict:
-    """Send a message in a session — saves history and returns LLM response."""
-    import asyncio
-
-    from lutz.server import db as _db
-
-    root = _get_root()
-    session = _db.get_session(root, session_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    user_content: str = (body.get("content") or "").strip()
-    if not user_content:
-        raise HTTPException(status_code=400, detail="content required")
-
-    options: dict = body.get("options", {})
-    language: str = body.get("language", "pt")
-
-    _db.add_message(root, session_id, "user", user_content)
-
-    # Auto-title from first user message
-    current_title: str = session["title"]
-    if current_title in ("Nova conversa", "New conversation", "Nueva conversación", ""):
-        current_title = user_content[:60] + ("…" if len(user_content) > 60 else "")
-        _db.update_session_title(root, session_id, current_title)
-
-    # Build full message list for LLM context
-    chat_messages = _db.get_messages(root, session_id)
-    llm_messages = [{"role": m["role"], "content": m["content"]} for m in chat_messages]
-
-    memories = _db.list_memory(root)
-    result = await asyncio.get_event_loop().run_in_executor(
-        None, _run_chat, root, llm_messages, options, language, memories
-    )
-
-    sources = result.get("sources")
-    _db.add_message(root, session_id, "assistant", result["response"], sources=sources)
-    _db.update_session_updated_at(root, session_id)
-
-    # Background: extract memorable facts from this conversation
-    final_messages = _db.get_messages(root, session_id)
-    plain_messages = [{"role": m["role"], "content": m["content"]} for m in final_messages]
-    asyncio.get_event_loop().run_in_executor(
-        None, _auto_extract_memories, root, session_id, plain_messages
-    )
-
-    return {**result, "title": current_title}
-
-
-@api.post("/chat/sessions/{session_id}/message/stream")
-async def chat_session_message_stream(session_id: str, body: dict) -> StreamingResponse:
-    """Send a message in a session and stream the LLM response via SSE."""
-    from lutz.server import db as _db
-
-    root = _get_root()
-    session = _db.get_session(root, session_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    user_content: str = (body.get("message") or body.get("content") or "").strip()
-    if not user_content:
-        raise HTTPException(status_code=400, detail="message required")
-
-    options: dict = body.get("options", {})
-    language: str = body.get("language", "pt")
-
-    _db.add_message(root, session_id, "user", user_content)
-
-    current_title: str = session["title"]
-    if current_title in ("Nova conversa", "New conversation", "Nueva conversación", ""):
-        current_title = user_content[:60] + ("\u2026" if len(user_content) > 60 else "")
-        _db.update_session_title(root, session_id, current_title)
-
-    chat_messages = _db.get_messages(root, session_id)
-    llm_messages = [{"role": m["role"], "content": m["content"]} for m in chat_messages]
-    memories = _db.list_memory(root)
-
-    async def _generate():
-        import json as _json
-
-        # Run context-building (RAG, embedding) in executor — it's blocking
-        loop = asyncio.get_event_loop()
-        context = await loop.run_in_executor(
-            None, _build_chat_context, root, llm_messages, options, language, memories
-        )
-
-        system: str = context["system"]
-        temperature: float = context["temperature"]
-        all_sources: list[dict] = context["sources"]
-        thinking_config: dict | None = context.get("thinking_config")
-
-        from lutz.core.llm_client import LLMClient
-        env = load_env(root)
-        llm = LLMClient.from_env(env)
-
-        accumulated = ""
-        try:
-            for chunk in llm.stream_messages(system, llm_messages, temperature=temperature):
-                accumulated += chunk
-                event = _json.dumps({"type": "token", "content": chunk})
-                yield f"data: {event}\n\n"
-        except Exception:
-            # Fallback: call complete_messages if streaming fails
-            text, _ = await loop.run_in_executor(
-                None,
-                lambda: llm.complete_messages(
-                    system=system,
-                    messages=llm_messages,
-                    temperature=temperature,
-                    thinking=thinking_config,
-                ),
-            )
-            accumulated = text
-            event = _json.dumps({"type": "token", "content": text})
-            yield f"data: {event}\n\n"
-
-        # Persist assistant message with sources
-        sources_simple = [{"filename": c["filename"], "page": c["page"]} for c in all_sources]
-        _db.add_message(root, session_id, "assistant", accumulated, sources=sources_simple)
-        _db.update_session_updated_at(root, session_id)
-
-        # Emit sources event
-        if sources_simple:
-            event = _json.dumps({"type": "sources", "sources": sources_simple})
-            yield f"data: {event}\n\n"
-
-        # Emit done event
-        event = _json.dumps({"type": "done", "title": current_title})
-        yield f"data: {event}\n\n"
-
-        # Background: extract memories
-        final_messages = _db.get_messages(root, session_id)
-        plain_messages = [{"role": m["role"], "content": m["content"]} for m in final_messages]
-        asyncio.get_event_loop().run_in_executor(
-            None, _auto_extract_memories, root, session_id, plain_messages
-        )
-
-    return StreamingResponse(
-        _generate(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
-
-
-@api.post("/chat/message")
-async def chat_message(body: dict) -> dict:
-    """Stateless chat — no session persistence. Kept for backwards compatibility."""
-    import asyncio
-
-    from lutz.server import db as _db
-
-    messages: list[dict] = body.get("messages", [])
-    if not messages or not messages[-1].get("content", "").strip():
-        raise HTTPException(status_code=400, detail="messages required")
-    root = _get_root()
-    memories = _db.list_memory(root)
-    result = await asyncio.get_event_loop().run_in_executor(
-        None, _run_chat, root, messages, body.get("options", {}), body.get("language", "pt"), memories
-    )
-    return result
-
-
-# ── Reports ───────────────────────────────────────────────────────────────────
-
-
-def _parse_report_meta(f: Path) -> dict:
-    try:
-        data = json.loads(f.read_text(encoding="utf-8"))
-        meta = data.get("metadata", {})
-        llm = meta.get("llm", {})
-        arts = data.get("articles", [])
-        report_type = meta.get("report_type", "")
-        # Use generated_at for roadmap/citations reports (no started_at)
-        started_at = meta.get("started_at", "") or meta.get("generated_at", "")
-        provider = llm.get("provider", "")
-        prompt_t = int(llm.get("prompt_tokens") or 0)
-        completion_t = int(llm.get("completion_tokens") or 0)
-        return {
-            "name": f.stem,
-            "mode": meta.get("mode", ""),
-            "report_type": report_type,
-            "started_at": started_at,
-            "articles": len(arts) if arts else meta.get("relevant", 0),
-            "tokens": llm.get("total_tokens", 0),
-            "elapsed": meta.get("elapsed_seconds", 0.0),
-            "model": llm.get("model", ""),
-            "provider": provider,
-            "estimated_cost_usd": _lookup_cost_cached(provider, llm.get("model", ""), prompt_t, completion_t),
-        }
-    except Exception:
-        return {
-            "name": f.stem,
-            "mode": "",
-            "report_type": "",
-            "started_at": "",
-            "articles": 0,
-            "tokens": 0,
-            "elapsed": 0.0,
-            "model": "",
-            "provider": "",
-            "estimated_cost_usd": None,
-        }
-
-
-@api.get("/chat/reports")
-async def list_chat_reports() -> dict:
-    """Lista os relatórios disponíveis para injeção no chat.
-
-    Retorna uma lista de { id, filename, timestamp, analysis_type, article_count }.
-    Se o diretório não existe, retorna {"reports": []}.
-    """
-    root = _get_root()
-    reports_dir = root / "analysis" / "execution_reports"
-    if not reports_dir.exists():
-        return {"reports": []}
-
-    reports: list[dict] = []
-    for f in sorted(reports_dir.glob("*.json"), reverse=True):
-        try:
-            data = json.loads(f.read_text(encoding="utf-8"))
-        except Exception:
-            data = {}
-
-        analysis_type = (
-            data.get("analysis_type")
-            or data.get("type")
-            or "analysis"
-        )
-        results = data.get("results")
-        article_count = len(results) if isinstance(results, list) else 0
-        timestamp = data.get("created_at") or ""
-        if not timestamp:
-            import datetime as _dt
-            timestamp = _dt.datetime.fromtimestamp(
-                f.stat().st_mtime, tz=_dt.timezone.utc
-            ).isoformat()
-
-        reports.append({
-            "id": f.stem,
-            "filename": f.name,
-            "timestamp": timestamp,
-            "analysis_type": analysis_type,
-            "article_count": article_count,
-        })
-
-    return {"reports": reports}
-
-
-@api.get("/reports")
-async def list_reports(mode: str = "") -> dict:
-    """List analysis reports.
-
-    By default returns only per_article and rag reports (analysis runs).
-    Pass ``?mode=all`` to include citations/roadmap reports too.
-    """
-    root = _get_root()
-    reports_dir = root / "analysis" / "execution_reports"
-    if not reports_dir.exists():
-        return {"reports": []}
-    all_reports = [
-        _parse_report_meta(f)
-        for f in sorted(reports_dir.glob("*.json"), reverse=True)
-    ]
-    if mode == "all":
-        return {"reports": all_reports}
-    # Default: only analysis reports (per_article / rag)
-    analysis_reports = [r for r in all_reports if r["mode"] in ("per_article", "rag")]
-    return {"reports": analysis_reports}
-
-
-# ---------------------------------------------------------------------------
-# Usage / cost tracking
-# ---------------------------------------------------------------------------
-
-# Static input/output prices ($/M tokens) for common models.
-# Kept separate so they can be updated independently of OpenRouter fetches.
-_STATIC_PRICES: dict[str, tuple[float, float]] = {
-    # Anthropic
-    "claude-haiku-4-5-20251001": (0.80, 4.00),
-    "claude-haiku-4-5": (0.80, 4.00),
-    "claude-sonnet-4-6": (3.00, 15.00),
-    "claude-opus-4-8": (15.00, 75.00),
-    "claude-3-5-haiku-20241022": (0.80, 4.00),
-    "claude-3-5-sonnet-20241022": (3.00, 15.00),
-    "claude-3-opus-20240229": (15.00, 75.00),
-    # OpenAI
-    "gpt-4o": (2.50, 10.00),
-    "gpt-4o-mini": (0.15, 0.60),
-    "gpt-4-turbo": (10.00, 30.00),
-    "gpt-4": (30.00, 60.00),
-    "gpt-3.5-turbo": (0.50, 1.50),
-    "o1": (15.00, 60.00),
-    "o1-mini": (3.00, 12.00),
-    "o3-mini": (1.10, 4.40),
-}
-
-# Cache: {"provider:model": (price_input_per_m, price_output_per_m), ...}
-# Populated on first usage call. Refreshed when the entry is older than 1h.
-_price_cache: dict[str, tuple[float, float]] = {}
-_price_cache_ts: float = 0.0  # unix timestamp of last OpenRouter fetch
-
-
-def _lookup_cost_cached(
-    provider: str, model: str, prompt_tokens: int, completion_tokens: int
-) -> float | None:
-    """Cost estimate using only the in-memory cache — no API calls.
-
-    Returns None if the model price is not yet cached (e.g. OpenRouter models
-    before the first /api/usage call). Safe to call in sync contexts.
-    """
-    if not _price_cache:
-        for m_id, prices in _STATIC_PRICES.items():
-            for p in ("anthropic", "openai"):
-                _price_cache[f"{p}:{m_id}"] = prices
-    prices = _price_cache.get(f"{provider}:{model}")
-    if prices is None:
-        return None
-    price_in, price_out = prices
-    return round((prompt_tokens / 1_000_000 * price_in) + (completion_tokens / 1_000_000 * price_out), 6)
-
-
-def _estimate_cost(
-    provider: str, model: str, prompt_tokens: int, completion_tokens: int
-) -> float | None:
-    """Return estimated cost in USD, fetching OpenRouter pricing if needed."""
-    import time
-
-    key = f"{provider}:{model}"
-
-    # Ensure static prices are seeded
-    _lookup_cost_cached(provider, model, 0, 0)
-
-    # For OpenRouter: fetch model list if this model is not yet cached
-    if provider == "openrouter" and key not in _price_cache:
-        global _price_cache_ts  # noqa: PLW0603
-        now = time.time()
-        if now - _price_cache_ts > 3600:
-            try:
-                import urllib.request as _urlreq
-                root = _get_root()
-                env = load_env(root)
-                api_key = env.get("OPENROUTER_API_KEY", "")
-                req = _urlreq.Request(
-                    "https://openrouter.ai/api/v1/models",
-                    headers={"Authorization": f"Bearer {api_key}"} if api_key else {},
-                )
-                with _urlreq.urlopen(req, timeout=8) as resp:  # noqa: S310
-                    data = json.loads(resp.read())
-                _price_cache_ts = now
-                for m in data.get("data", []):
-                    pricing = m.get("pricing", {})
-                    p_in = pricing.get("prompt")
-                    p_out = pricing.get("completion")
-                    if p_in is not None and p_out is not None:
-                        _price_cache[f"openrouter:{m['id']}"] = (
-                            float(p_in) * 1_000_000,
-                            float(p_out) * 1_000_000,
-                        )
-            except Exception:
-                pass
-
-    return _lookup_cost_cached(provider, model, prompt_tokens, completion_tokens)
-
-
-def _build_usage_records(root: Path) -> list[dict]:
-    reports_dir = root / "analysis" / "execution_reports"
-    if not reports_dir.exists():
-        return []
-    records = []
-    for f in sorted(reports_dir.glob("*.json"), reverse=True):
-        try:
-            data = json.loads(f.read_text(encoding="utf-8"))
-        except Exception:
-            continue
-        meta = data.get("metadata", {})
-        llm = meta.get("llm", {})
-        provider = llm.get("provider", "")
-        model = llm.get("model", "")
-        prompt_t = int(llm.get("prompt_tokens") or 0)
-        completion_t = int(llm.get("completion_tokens") or 0)
-        records.append({
-            "name": f.stem,
-            "report_type": meta.get("report_type") or "analysis",
-            "started_at": meta.get("started_at") or meta.get("generated_at") or "",
-            "provider": provider,
-            "model": model,
-            "prompt_tokens": prompt_t,
-            "completion_tokens": completion_t,
-            "total_tokens": int(llm.get("total_tokens") or 0),
-            "elapsed_seconds": float(meta.get("elapsed_seconds") or 0.0),
-            "estimated_cost_usd": _estimate_cost(provider, model, prompt_t, completion_t),
-        })
-    return records
-
-
-@api.get("/usage")
-async def list_usage() -> dict:
-    root = _get_root()
-    records = _build_usage_records(root)
-    known_costs = [r["estimated_cost_usd"] for r in records if r["estimated_cost_usd"] is not None]
-    return {
-        "records": records,
-        "totals": {
-            "total_tokens": sum(r["total_tokens"] for r in records),
-            "total_cost_usd": round(sum(known_costs), 6) if known_costs else None,
-        },
-    }
-
-
-@api.get("/usage/export")
-async def export_usage(format: str = "csv") -> Response:  # noqa: A002
-    import io
-    import duckdb
-    import pandas as pd
-
-    root = _get_root()
-    records = _build_usage_records(root)
-
-    df = pd.DataFrame(records) if records else pd.DataFrame(columns=[
-        "name", "report_type", "started_at", "provider", "model",
-        "prompt_tokens", "completion_tokens", "total_tokens",
-        "elapsed_seconds", "estimated_cost_usd",
-    ])
-
-    if format == "parquet":
-        buf = io.BytesIO()
-        df.to_parquet(buf, index=False)
-        return Response(
-            content=buf.getvalue(),
-            media_type="application/octet-stream",
-            headers={"Content-Disposition": 'attachment; filename="lutz_usage.parquet"'},
-        )
-
-    # Default: CSV via DuckDB (handles type coercion and quoting correctly)
-    con = duckdb.connect()
-    con.register("df", df)
-    csv_str: str = con.execute("SELECT * FROM df").df().to_csv(index=False)
-    return Response(
-        content=csv_str,
-        media_type="text/csv",
-        headers={"Content-Disposition": 'attachment; filename="lutz_usage.csv"'},
-    )
-
-
-@api.get("/reports/{name}")
-async def get_report(name: str) -> dict:
-    root = _get_root()
-    reports_dir = root / "analysis" / "execution_reports"
-    f = _safe_child(reports_dir, f"{name}.json")
-    if not f.exists():
-        raise HTTPException(status_code=404, detail="Report not found")
-    return json.loads(f.read_text(encoding="utf-8"))
-
-
-@api.delete("/reports/{name}")
-async def delete_report(name: str) -> dict:
-    root = _get_root()
-    reports_dir = root / "analysis" / "execution_reports"
-    f = _safe_child(reports_dir, f"{name}.json")
-    if not f.exists():
-        raise HTTPException(status_code=404, detail="Report not found")
-    f.unlink()
-    return {"ok": True}
-
-
-@api.delete("/reports")
-async def delete_all_reports(also_vector_store: bool = False) -> dict:
-    """Delete every report JSON file. Optionally also wipe the vector store."""
-    root = _get_root()
-    reports_dir = root / "analysis" / "execution_reports"
-    deleted = 0
-    if reports_dir.exists():
-        for f in reports_dir.glob("*.json"):
-            f.unlink()
-            deleted += 1
-    dropped = 0
-    if also_vector_store:
-        vs = VectorStore(root / ".lutz" / "vector_store")
-        dropped = vs.drop_all()
-    return {"deleted": deleted, "vector_store_dropped": dropped}
-
-
-# ── Config ────────────────────────────────────────────────────────────────────
-
-_CONFIG_KEYS = [
-    "LLM_PROVIDER",
-    "LLM_MODEL",
-    "LLM_MAX_TOKENS",
-    "LLM_TEMPERATURE",
-    "EMBEDDING_PROVIDER",
-    "EMBEDDING_MODEL",
-    "OPENAI_BASE_URL",
-    "DOCKER_MODEL_HOST",
-    "REPORT_LANGUAGE",
-    "ANALYSIS_WORKERS",
-]
-
-
-@api.get("/config")
-async def get_config() -> dict:
-    root = _get_root()
-    env = load_env(root)
-    cfg: dict = {k: env.get(k, "") for k in _CONFIG_KEYS}
-    cfg["has_openai_key"] = bool(env.get("OPENAI_API_KEY"))
-    cfg["has_anthropic_key"] = bool(env.get("ANTHROPIC_API_KEY"))
-    cfg["has_openrouter_key"] = bool(env.get("OPENROUTER_API_KEY"))
-    return cfg
-
-
-@api.get("/providers/models")
-async def list_provider_models(provider: str, kind: str = "llm") -> dict:
-    """Return available models for a provider. Falls back to curated lists on error."""
-    root = _get_root()
-    env = load_env(root)
-
-    _FALLBACKS: dict[str, dict[str, list[dict]]] = {
-        "openai": {
-            "llm": [
-                {"id": "gpt-4o", "name": "gpt-4o", "price": 5.0},
-                {"id": "gpt-4o-mini", "name": "gpt-4o-mini", "price": 0.6},
-                {"id": "o3", "name": "o3", "price": 10.0},
-                {"id": "o4-mini", "name": "o4-mini", "price": 1.1},
-            ],
-            "embedding": [
-                {"id": "text-embedding-3-small", "name": "text-embedding-3-small"},
-                {"id": "text-embedding-3-large", "name": "text-embedding-3-large"},
-                {"id": "text-embedding-ada-002", "name": "text-embedding-ada-002"},
-            ],
-        },
-        "anthropic": {
-            "llm": [
-                {"id": "claude-opus-4-8", "name": "claude-opus-4-8", "price": 15.0},
-                {"id": "claude-sonnet-4-6", "name": "claude-sonnet-4-6", "price": 3.0},
-                {"id": "claude-haiku-4-5", "name": "claude-haiku-4-5", "price": 0.8},
-            ],
-            "embedding": [],
-        },
-        "openrouter": {"llm": [], "embedding": []},
-        "docker_model_runner": {
-            "llm": [{"id": "ai/llama3.2", "name": "llama3.2", "price": 0}],
-            "embedding": [{"id": "nomic-embed-text", "name": "nomic-embed-text", "price": 0}],
-        },
-        "sentence_transformers": {
-            "llm": [],
-            "embedding": [
-                {"id": "all-MiniLM-L6-v2", "name": "all-MiniLM-L6-v2"},
-                {"id": "all-mpnet-base-v2", "name": "all-mpnet-base-v2"},
-                {"id": "paraphrase-multilingual-MiniLM-L12-v2", "name": "paraphrase-multilingual-MiniLM-L12-v2"},
-                {"id": "BAAI/bge-m3", "name": "BAAI/bge-m3"},
-            ],
-        },
-    }
-    fallback = _FALLBACKS.get(provider, {}).get(kind, [])
-
-    try:
-        if provider == "openrouter":
-            import aiohttp
-            api_key = env.get("OPENROUTER_API_KEY", "")
-            headers: dict[str, str] = {}
-            if api_key:
-                headers["Authorization"] = f"Bearer {api_key}"
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    "https://openrouter.ai/api/v1/models",
-                    headers=headers,
-                    timeout=aiohttp.ClientTimeout(total=15),
-                ) as r:
-                    r.raise_for_status()
-                    data = await r.json()
-                    models: list[dict] = []
-                    for m in data.get("data", []):
-                        raw_price = m.get("pricing", {}).get("prompt")
-                        price = round(float(raw_price) * 1_000_000, 4) if raw_price else None
-                        entry: dict = {"id": m["id"], "name": m.get("name", m["id"])}
-                        if price is not None:
-                            entry["price"] = price
-                        models.append(entry)
-                    models.sort(key=lambda x: x["name"].lower())
-                    return {"models": models}
-
-        elif provider == "openai":
-            api_key = env.get("OPENAI_API_KEY", "")
-            if not api_key:
-                return {"models": fallback}
-
-            base_url = env.get("OPENAI_BASE_URL") or None
-
-            def _fetch_openai() -> list:
-                from openai import OpenAI
-                kwargs: dict = {"api_key": api_key}
-                if base_url:
-                    kwargs["base_url"] = base_url
-                return list(OpenAI(**kwargs).models.list())
-
-            all_models = await asyncio.get_event_loop().run_in_executor(None, _fetch_openai)
-            if kind == "embedding":
-                filtered = [{"id": m.id, "name": m.id} for m in all_models if "embedding" in m.id.lower()]
-            else:
-                prefixes = ("gpt-4", "gpt-3.5", "o1", "o3", "o4")
-                filtered = [{"id": m.id, "name": m.id} for m in all_models
-                            if any(m.id.startswith(p) for p in prefixes)]
-            filtered.sort(key=lambda x: x["id"])
-            return {"models": filtered or fallback}
-
-        elif provider == "anthropic":
-            api_key = env.get("ANTHROPIC_API_KEY", "")
-            if not api_key:
-                return {"models": fallback}
-
-            def _fetch_anthropic() -> list:
-                import anthropic as _ant
-                return list(_ant.Anthropic(api_key=api_key).models.list())
-
-            models_raw = await asyncio.get_event_loop().run_in_executor(None, _fetch_anthropic)
-            models = [{"id": m.id, "name": getattr(m, "display_name", None) or m.id} for m in models_raw]
-            return {"models": models or fallback}
-
-        else:
-            return {"models": fallback}
-
-    except Exception:
-        return {"models": fallback}
-
-
-@api.put("/config")
-async def save_config(body: dict) -> dict:
-    root = _get_root()
-    env_file = root / ".env"
-    from dotenv import dotenv_values
-    existing: dict[str, str] = {}
-    if env_file.exists():
-        existing = {k: v for k, v in dotenv_values(env_file).items() if v is not None}
-    for k, v in body.items():
-        if isinstance(v, str) and v:
-            existing[k] = v
-    lines = [f"{k}={v}" for k, v in existing.items()]
-    env_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return {"ok": True}
-
-
-# ── SSE streaming ─────────────────────────────────────────────────────────────
-
-
-@api.post("/vectorize/stream")
-async def vectorize_stream(body: dict) -> StreamingResponse:
-    root = _get_root()
-    args: list[str] = ["vectorize"]
-    if body.get("chunk_size"):
-        args += ["--chunk-size", str(body["chunk_size"])]
-    if body.get("chunk_overlap"):
-        args += ["--chunk-overlap", str(body["chunk_overlap"])]
-    if body.get("skip_security"):
-        args.append("--skip-security")
-    if body.get("section_parse"):
-        args.append("--section-parse")
-    if body.get("quarantine"):
-        args.append("--quarantine")
-    extraction = body.get("extraction_backend") or body.get("extraction")
-    if extraction and extraction in ("pymupdf", "marker", "auto"):
-        args += ["--extraction", extraction]
-
-    return StreamingResponse(
-        _sse_stream(args, root),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
-
-
-@api.post("/analysis/stream")
-async def analysis_stream(body: dict) -> StreamingResponse:
-    import tempfile
-    root = _get_root()
-
-    inline = body.get("inline_prompt", "").strip()
-    prompt_name = body.get("prompt", "")
-
-    prompts_dir = root / "prompts"
-    prompts_dir.mkdir(parents=True, exist_ok=True)
-
-    if inline:
-        # Write the inline prompt to a temp file so the CLI can read it
-        tmp = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".md", delete=False, encoding="utf-8",
-            dir=prompts_dir,
-        )
-        tmp.write(inline)
-        tmp.close()
-        prompt_path = Path(tmp.name)
-    elif prompt_name:
-        prompt_path = _safe_child(prompts_dir, f"{prompt_name}.md")
-        if not prompt_path.exists():
-            raise HTTPException(status_code=404, detail=f"Prompt '{prompt_name}' not found")
-    else:
-        raise HTTPException(status_code=400, detail="prompt or inline_prompt required")
-
-    args: list[str] = ["analysis", "--p", str(prompt_path)]
-
-    language = body.get("language", "pt")
-    if language in ("pt", "en", "es"):
-        args += ["--language", language]
-
-    mode = body.get("mode", "per_article")
-    if mode == "per_article":
-        args.append("--per-article")
-        if body.get("workers"):
-            args += ["--workers", str(body["workers"])]
-        if body.get("max_chunks"):
-            args += ["--max-chunks-per-article", str(body["max_chunks"])]
-    else:
-        if body.get("workers"):
-            args += ["--top-k", str(body["workers"])]
-
-    async def _stream_and_cleanup():
-        try:
-            async for chunk in _sse_stream(args, root):
-                yield chunk
+            return _limpo(fn(c))
         finally:
-            if inline:
-                Path(prompt_path).unlink(missing_ok=True)
+            c.close()
 
-    return StreamingResponse(
-        _stream_and_cleanup(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
-
-
-@api.post("/citations/stream")
-async def citations_stream(body: dict) -> StreamingResponse:
-    root = _get_root()
-    report_name = body.get("report", "")
-    if not report_name:
-        raise HTTPException(status_code=400, detail="report required")
-    report_path = _safe_child(root / "analysis" / "execution_reports", f"{report_name}.json")
-    if not report_path.exists():
-        raise HTTPException(status_code=404, detail="Report not found")
-    args: list[str] = ["citations", "--analysis", str(report_path)]
-    if body.get("only_relevant"):
-        args.append("--only-relevant")
-    language = body.get("language", "pt")
-    if language in ("pt", "en", "es"):
-        args += ["--language", language]
-
-    return StreamingResponse(
-        _sse_stream(args, root),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
-
-
-@api.post("/roadmap/stream")
-async def roadmap_stream(body: dict) -> StreamingResponse:
-    root = _get_root()
-    report_name = body.get("report", "")
-    if not report_name:
-        raise HTTPException(status_code=400, detail="report required")
-    report_path = _safe_child(root / "analysis" / "execution_reports", f"{report_name}.json")
-    if not report_path.exists():
-        raise HTTPException(status_code=404, detail="Report not found")
-    args: list[str] = ["citations", "--analysis", str(report_path), "--reading-roadmap"]
-    if body.get("only_relevant"):
-        args.append("--only-relevant")
-    language = body.get("language", "pt")
-    if language in ("pt", "en", "es"):
-        args += ["--language", language]
-    user_instructions = body.get("user_instructions", "").strip()
-    if user_instructions:
-        args += ["--user-instructions", user_instructions]
-
-    return StreamingResponse(
-        _sse_stream(args, root),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
-
-
-@api.get("/reports/{name}/html")
-async def get_report_html(name: str):
-    """Serve the pre-generated HTML report file."""
-    from fastapi.responses import HTMLResponse
-    root = _get_root()
-    reports_dir = root / "analysis" / "execution_reports"
-    f = _safe_child(reports_dir, f"{name}.html")
-    if not f.exists():
-        raise HTTPException(
-            status_code=404,
-            detail="HTML report not found. Run the analysis/citations first to generate it.",
-        )
-    return HTMLResponse(content=f.read_text(encoding="utf-8"))
-
-
-@api.get("/reports/{name}/pdf")
-async def get_report_pdf(name: str):
-    """Convert the pre-generated HTML report to PDF via WeasyPrint and stream it."""
-    from fastapi.responses import Response
-    try:
-        import weasyprint
-    except ImportError:
-        raise HTTPException(
-            status_code=501,
-            detail="PDF export requires WeasyPrint. Install it with: uv pip install weasyprint",
-        )
-    root = _get_root()
-    reports_dir = root / "analysis" / "execution_reports"
-    f = _safe_child(reports_dir, f"{name}.html")
-    if not f.exists():
-        raise HTTPException(
-            status_code=404,
-            detail="HTML report not found. Run the analysis/citations first to generate it.",
-        )
-    html = weasyprint.HTML(filename=str(f))
-    pdf_bytes = html.write_pdf()
-    return Response(
-        content=pdf_bytes,
-        media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{name}.pdf"'},
-    )
-
-
-# ── Background jobs ────────────────────────────────────────────────────────────
-
-
-@api.post("/jobs")
-async def create_job(body: dict) -> dict:
-    root = _get_root()
-    job_type = body.get("type", "")
-    if job_type not in ("vectorize", "analysis", "citations", "roadmap"):
-        raise HTTPException(status_code=400, detail="Invalid job type")
-
-    args, title = _build_job_args(job_type, body, root)
-    job = _job_manager.create(job_type, title, body)
-
-    # Store tempfile path in job so _run_job can clean it up
-    if job_type == "analysis" and body.get("inline_prompt", "").strip():
-        # args[-1] for inline is the temp file path (last non-flag arg after --p)
-        p_idx = args.index("--p") + 1 if "--p" in args else None
-        if p_idx is not None:
-            job._tmp_prompt = args[p_idx]
-
-    asyncio.create_task(_run_job(job, args, root))
-    return {"job_id": job.id, "job": job.to_dict()}
-
-
-@api.get("/jobs")
-async def list_jobs() -> dict:
-    return {"jobs": _job_manager.list_all()}
-
-
-@api.get("/jobs/{job_id}")
-async def get_job(job_id: str) -> dict:
-    job = _job_manager.get(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    return {"job": job.to_dict(include_logs=True)}
-
-
-@api.delete("/jobs/{job_id}")
-async def cancel_or_remove_job(job_id: str) -> dict:
-    job = _job_manager.get(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    if job.status in ("running", "queued"):
-        # Cancel: update status and terminate process, keep in list
-        if job._proc:
+    def escrever(comando: str, fn):
+        with bloqueio(projeto, f"lutz web: {comando}"):
+            c = con()
             try:
-                job._proc.terminate()  # type: ignore[union-attr]
-            except Exception:
-                pass
-        job.status = "cancelled"
-        job.ended_at = _now_iso()
-        await _ws_manager.broadcast({"event": "job_update", "job": job.to_dict()})
-    else:
-        # Remove terminal job from list entirely
-        _job_manager.remove(job_id)
-        await _ws_manager.broadcast({"event": "job_removed", "job_id": job_id})
-    return {"ok": True}
+                return _limpo(fn(c))
+            finally:
+                c.close()
 
+    def iniciar_job(tipo, descricao, fn, execucao_id=None):
+        job = jobs.iniciar(tipo, descricao, fn, execucao_id)
+        return JSONResponse({"job_id": job.id, "execucao_id": execucao_id}, status_code=202)
 
-@api.get("/jobs/{job_id}/stream")
-async def job_log_stream(job_id: str) -> StreamingResponse:
-    """SSE: replay buffered logs, then tail live output until the job finishes."""
-    job = _job_manager.get(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+    api = "/api/v1"
 
-    async def _gen() -> AsyncIterator[str]:
-        for line in list(job.logs):
-            yield f"data: {line}\n\n"
-        last_len = len(job.logs)
-        while job.status in ("queued", "running"):
-            await asyncio.sleep(0.3)
-            current = list(job.logs)
-            for line in current[last_len:]:
-                yield f"data: {line}\n\n"
-            last_len = len(current)
-        if job.status == "done":
-            yield "data: __done__\n\n"
-        else:
-            yield f"data: __error__:{job.error_code or 1}\n\n"
+    # ── project ─────────────────────────────────────────────────────────────
 
-    return StreamingResponse(
-        _gen(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
-
-
-# ── Store catalog metadata ────────────────────────────────────────────────────
-
-_CATALOG_COLUMN_DESCRIPTIONS: dict[str, dict[str, str]] = {
-    "articles": {
-        "filename": "Nome do arquivo PDF",
-        "chunk_index": "Índice do chunk no documento",
-        "page": "Página do PDF",
-        "char_start": "Posição do caractere inicial no texto",
-        "section": "Seção inferida do documento",
-        "text": "Conteúdo textual do chunk",
-        "embedding": "Vetor de embedding semântico",
-        "vectorized_at": "Timestamp de vetorização (ISO 8601)",
-        "embedding_model": "Modelo usado para gerar o embedding",
-        "embedding_provider": "Provedor do modelo de embedding",
-        "extraction_backend": "Backend usado para extrair texto do PDF",
-    },
-    "context": {
-        "filename": "Nome do arquivo de contexto",
-        "chunk_index": "Índice do chunk",
-        "page": "Página do arquivo",
-        "text": "Conteúdo do chunk",
-        "embedding": "Vetor de embedding",
-        "vectorized_at": "Timestamp de vetorização (ISO 8601)",
-        "embedding_model": "Modelo usado para gerar o embedding",
-        "embedding_provider": "Provedor do modelo de embedding",
-    },
-    "chat_files": {
-        "filename": "Nome do arquivo carregado no chat",
-        "chunk_index": "Índice do chunk",
-        "page": "Página do arquivo",
-        "text": "Conteúdo do chunk",
-        "embedding": "Vetor de embedding",
-        "vectorized_at": "Timestamp de vetorização (ISO 8601)",
-        "embedding_model": "Modelo usado para gerar o embedding",
-        "embedding_provider": "Provedor do modelo de embedding",
-    },
-}
-
-_CATALOG_TABLE_DESCRIPTIONS: dict[str, str] = {
-    "articles": "Chunks de artigos científicos vetorizados",
-    "context": "Arquivos de contexto para análise",
-    "chat_files": "Arquivos carregados em sessões de chat",
-}
-
-_CATALOG_FALLBACK_COLUMNS: dict[str, list[tuple[str, str]]] = {
-    "articles": [
-        ("filename", "string"),
-        ("chunk_index", "int32"),
-        ("page", "int32"),
-        ("char_start", "int32"),
-        ("section", "string"),
-        ("text", "string"),
-        ("embedding", "float32[N]"),
-        ("vectorized_at", "string"),
-        ("embedding_model", "string"),
-        ("embedding_provider", "string"),
-        ("extraction_backend", "string"),
-    ],
-    "context": [
-        ("filename", "string"),
-        ("chunk_index", "int32"),
-        ("page", "int32"),
-        ("text", "string"),
-        ("embedding", "float32[N]"),
-        ("vectorized_at", "string"),
-        ("embedding_model", "string"),
-        ("embedding_provider", "string"),
-    ],
-    "chat_files": [
-        ("filename", "string"),
-        ("chunk_index", "int32"),
-        ("page", "int32"),
-        ("text", "string"),
-        ("embedding", "float32[N]"),
-        ("vectorized_at", "string"),
-        ("embedding_model", "string"),
-        ("embedding_provider", "string"),
-    ],
-}
-
-
-def _pa_type_to_str(field) -> str:
-    """Convert a PyArrow field type to a human-readable string."""
-    import pyarrow as pa
-
-    t = field.type
-    if pa.types.is_string(t) or pa.types.is_large_string(t):
-        return "string"
-    if pa.types.is_int32(t):
-        return "int32"
-    if pa.types.is_int64(t):
-        return "int64"
-    if pa.types.is_float32(t):
-        return "float32"
-    if pa.types.is_float64(t):
-        return "float64"
-    if pa.types.is_boolean(t):
-        return "bool"
-    if pa.types.is_list(t) or pa.types.is_large_list(t) or pa.types.is_fixed_size_list(t):
-        vtype = t.value_type
-        if pa.types.is_float32(vtype):
-            return "float32[N]"
-        if pa.types.is_float64(vtype):
-            return "float64[N]"
-        return f"list[{vtype}]"
-    return str(t)
-
-
-def _build_catalog_table(
-    table_key: str,
-    db_path: Path,
-    lancedb_table_name: str,
-) -> dict:
-    """Build a single catalog table entry, falling back to static metadata on error."""
-    desc_map = _CATALOG_COLUMN_DESCRIPTIONS.get(table_key, {})
-    fallback_cols = _CATALOG_FALLBACK_COLUMNS.get(table_key, [])
-    table_description = _CATALOG_TABLE_DESCRIPTIONS.get(table_key, table_key)
-
-    try:
-        import lancedb
-
-        db = lancedb.connect(str(db_path))
-        if lancedb_table_name not in db.list_tables().tables:
-            raise ValueError("table not present")
-
-        tbl = db.open_table(lancedb_table_name)
-        record_count: int = tbl.count_rows()
-
-        last_updated: str | None = None
-        schema = tbl.schema
-        if "vectorized_at" in schema.names:
-            arrow_tbl = tbl.to_arrow().select(["vectorized_at"])
-            timestamps = [v for v in arrow_tbl.column("vectorized_at").to_pylist() if v]
-            last_updated = max(timestamps) if timestamps else None
-
-        columns = [
-            {
-                "name": field.name,
-                "type": _pa_type_to_str(field),
-                "description": desc_map.get(field.name, ""),
+    @app.get(f"{api}/projeto")
+    def projeto_info():
+        def f(c):
+            info = info_projeto(c)
+            cont = {r[0]: r[1] for r in c.execute("SELECT status, count(*) FROM artigo GROUP BY status")}
+            cb_row = cbk.linha_codebook(c)
+            cong = cbk.ultimo_congelado(c)
+            ult = c.execute("SELECT id FROM execucao WHERE tipo!='teste' ORDER BY id DESC LIMIT 1").fetchone()
+            ult_conc = c.execute("SELECT id FROM execucao WHERE tipo!='teste' AND status='concluida' "
+                                 "ORDER BY id DESC LIMIT 1").fetchone()
+            fila = len(adj.fila(c, ult_conc[0], ocultos=pil.artigos_ocultos(c))) if ult_conc else 0
+            tot = consumo(c)["total"]
+            return {
+                "nome": info.get("nome"), "pergunta": info.get("pergunta"), "tipo_revisao": info.get("tipo_revisao"),
+                "raiz": str(projeto.raiz), "versao_lutz": __version__,
+                "artigos": {"total": sum(cont.values()), "prontos": cont.get("pronto", 0),
+                            "sem_texto": cont.get("sem_texto", 0), "erro": cont.get("erro", 0),
+                            "duas_colunas": c.execute("SELECT count(*) FROM artigo WHERE duas_colunas=1").fetchone()[0]},
+                "codebook": {k: cb_row[k] for k in ("versao", "hash", "congelado")} if cb_row else None,
+                "codebook_congelado": {k: cong[k] for k in ("versao", "hash")} if cong else None,
+                "ultima_execucao": ex.resumo(c, ult[0]) if ult else None,
+                "ultima_concluida": ult_conc[0] if ult_conc else None,
+                "fila_adjudicacao": fila,
+                "piloto": (lambda p: {"id": p["id"], "sorteado": bool(p["sorteado_em"]),
+                                      "cegamento_aberto": bool(p["cegamento_aberto"])} if p else None)(pil.atual(c)),
+                "consumo": {"chamadas": tot["chamadas"], "custo_usd": tot["custo_usd"] or 0,
+                            "tokens": (tot["tokens_entrada"] or 0) + (tot["tokens_saida"] or 0)},
             }
-            for field in schema
-        ]
-    except Exception:
-        record_count = 0
-        last_updated = None
-        columns = [
-            {"name": name, "type": typ, "description": desc_map.get(name, "")}
-            for name, typ in fallback_cols
-        ]
+        return ler(f)
 
-    return {
-        "name": table_key,
-        "description": table_description,
-        "record_count": record_count,
-        "last_updated": last_updated,
-        "columns": columns,
-    }
+    @app.put(f"{api}/projeto")
+    def projeto_atualizar(body: dict):
+        campos = {k: v for k, v in body.items() if k in ("nome", "pergunta", "tipo_revisao")}
 
+        def f(c):
+            for k, v in campos.items():
+                c.execute(f"UPDATE projeto SET {k}=? WHERE id=1", (str(v),))
+            return info_projeto(c)
+        return escrever("projeto", f)
 
-@api.get("/store/catalog")
-async def get_store_catalog() -> dict:
-    """Return schema and record counts for all LanceDB stores."""
-    root = _get_root()
-    lutz_dir = root / ".lutz"
+    # ── library ─────────────────────────────────────────────────────────────
 
-    store_configs = [
-        ("articles", lutz_dir / "vector_store", "articles"),
-        ("context", lutz_dir / "context_store", "context"),
-        ("chat_files", lutz_dir / "chat_store", "context"),
-    ]
+    @app.get(f"{api}/artigos")
+    def artigos():
+        def f(c):
+            out = []
+            for a in c.execute("SELECT * FROM artigo ORDER BY chave"):
+                d = dict(a)
+                d["secoes"] = jload(d["secoes"], [])
+                d["legibilidade"] = legibilidade(d)
+                d.pop("hash_pdf", None)
+                out.append(d)
+            return out
+        return ler(f)
 
-    tables = [_build_catalog_table(k, p, t) for k, p, t in store_configs]
-    return {"tables": tables}
+    @app.post(f"{api}/artigos", status_code=202)
+    async def importar(arquivos: list[UploadFile] = File(...)):
+        tmp = Path(tempfile.mkdtemp(prefix="lutz-upload-"))
+        caminhos = []
+        for i, up in enumerate(arquivos):
+            nome = Path(up.filename or f"arquivo{i}.pdf").name
+            destino = tmp / f"{i:04d}_{nome}"
+            destino.write_bytes(await up.read())
+            caminhos.append(destino)
 
+        def tarefa(publicar, parar):
+            c = con()
+            res = []
+            try:
+                publicar({"tipo": "inicio", "total": len(caminhos)})
+                for p in caminhos:
+                    if parar.is_set():
+                        break
+                    r = importar_pdf(projeto, c, p)
+                    item = {"arquivo": p.name.split("_", 1)[-1], "status": r.status, "chave": r.chave,
+                            "mensagem": r.mensagem}
+                    res.append(item)
+                    publicar({"tipo": "artigo", **item})
+            finally:
+                c.close()
+                for p in caminhos:
+                    p.unlink(missing_ok=True)
+            return res
+        return iniciar_job("importacao", f"importar {len(caminhos)} PDF(s)", tarefa)
 
-# ── Agent ─────────────────────────────────────────────────────────────────────
+    @app.get(f"{api}/artigos/{{chave}}")
+    def artigo(chave: str):
+        def f(c):
+            a = um(c, "SELECT * FROM artigo WHERE chave=?", (chave,))
+            if a is None:
+                raise HTTPException(404, "artigo não encontrado")
+            a["secoes"] = jload(a["secoes"], [])
+            a["paginas"] = [dict(r) for r in c.execute(
+                "SELECT numero, rotulo, n_chars, frac_oculto, secao FROM pagina WHERE artigo_id=? ORDER BY numero",
+                (a["id"],))]
+            return a
+        return ler(f)
 
+    @app.get(f"{api}/artigos/{{chave}}/paginas/{{n}}")
+    def pagina(chave: str, n: int):
+        def f(c):
+            a = um(c, "SELECT id FROM artigo WHERE chave=?", (chave,))
+            if a is None:
+                raise HTTPException(404, "artigo não encontrado")
+            p = um(c, "SELECT * FROM pagina WHERE artigo_id=? AND numero=?", (a["id"], n))
+            if p is None:
+                raise HTTPException(404, "página não encontrada")
+            p["texto"] = projeto.abs(p["caminho_texto"]).read_text(encoding="utf-8")
+            p["unidades"] = [dict(r) for r in c.execute(
+                "SELECT uid, tipo, secao, texto FROM unidade WHERE artigo_id=? AND pagina=? ORDER BY ordem", (a["id"], n))]
+            return p
+        return ler(f)
 
-@api.get("/agent/tools")
-async def list_agent_tools() -> dict:
-    """Return all registered agent tools with their JSON Schema definitions."""
-    from lutz.agent.tools import get_tool_registry
-    registry = get_tool_registry()
-    return {"tools": registry.list_tools()}
+    @app.get(f"{api}/artigos/{{chave}}/pdf")
+    def pdf(chave: str):
+        c = con()
+        try:
+            a = um(c, "SELECT caminho_pdf FROM artigo WHERE chave=?", (chave,))
+        finally:
+            c.close()
+        if a is None:
+            raise HTTPException(404, "artigo não encontrado")
+        return FileResponse(projeto.abs(a["caminho_pdf"]), media_type="application/pdf")
 
+    # ── codebook ────────────────────────────────────────────────────────────
 
-@api.get("/agent/model-profiles")
-async def list_model_profiles() -> dict:
-    """Return all model profiles from the ModelSelector catalogue."""
-    from lutz.agent.model_router import ModelRouter
-    router = ModelRouter()
-    return {"profiles": router.selector._profiles}
+    def _codebook_payload(c, versao=None):
+        row = cbk.linha_codebook(c, versao)
+        if row is None:
+            return None
+        cb = cbk.carregar(c, row["versao"])
+        testados = {r[0] for r in c.execute("SELECT DISTINCT campo_chave FROM teste_rapido")}
+        return {"versao": row["versao"], "hash": row["hash"], "congelado": bool(row["congelado"]),
+                "origem": row["origem"], "nota": row["nota"], "criado_em": row["criado_em"],
+                "descricao": cb.descricao, "campos": [c_.model_dump(mode="json") | {"hash": c_.hash(),
+                                                                                   "testado": c_.nome in testados}
+                                                      for c_ in cb.campos],
+                "lint": cbk.lint(cb), "yaml": cb.para_yaml()}
 
+    @app.get(f"{api}/codebooks")
+    def codebooks():
+        return ler(lambda c: cbk.historico(c))
 
-@api.get("/agent/sessions")
-async def list_agent_sessions() -> dict:
-    """List all chat sessions (agent sessions share the same table)."""
-    from lutz.server import db as _db
-    root = _get_root()
-    return {"sessions": _db.list_sessions(root)}
+    @app.get(f"{api}/codebooks/atual")
+    def codebook_atual():
+        return ler(lambda c: _codebook_payload(c))
 
+    @app.get(f"{api}/codebooks/diff")
+    def codebook_diff(v1: int, v2: int):
+        return ler(lambda c: cbk.diff(c, v1, v2))
 
-@api.get("/agent/sessions/{session_id}")
-async def get_agent_session(session_id: str) -> dict:
-    """Return a single agent session with its message history."""
-    from lutz.server import db as _db
-    root = _get_root()
-    session = _db.get_session(root, session_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
-    return {"session": session}
+    @app.get(f"{api}/codebooks/{{versao}}")
+    def codebook_versao(versao: int):
+        r = ler(lambda c: _codebook_payload(c, versao))
+        if r is None:
+            raise HTTPException(404, "versão não encontrada")
+        return r
 
+    @app.put(f"{api}/codebooks/rascunho")
+    def codebook_rascunho(body: dict):
+        cb = cbk.de_dict({"campos": body.get("campos", []), "descricao": body.get("descricao", "")})
+        origem = "assistente" if any(c.origem == "assistente" for c in cb.campos) else "manual"
+        return escrever("codebook", lambda c: (cbk.salvar_rascunho(c, cb, origem=origem, nota=body.get("nota", "")),
+                                                _codebook_payload(c))[1])
 
-_MAX_AGENT_MESSAGE_CHARS = 8000
+    @app.post(f"{api}/codebooks/importar")
+    def codebook_importar(body: dict):
+        cb = cbk.ler_yaml(body.get("yaml", ""))
+        return escrever("codebook", lambda c: (cbk.salvar_rascunho(c, cb, nota=body.get("nota", "")),
+                                                _codebook_payload(c))[1])
 
+    @app.post(f"{api}/codebooks/lint")
+    def codebook_lint(body: dict, semantico: bool = False):
+        cb = cbk.de_dict({"campos": body.get("campos", []), "descricao": body.get("descricao", "")})
+        achados = cbk.lint(cb)
+        if semantico:
+            achados += assistente.lint_semantico(projeto, carregar_settings(projeto), cb)
+        return {"achados": achados, "erros": cbk.tem_erros(achados)}
 
-def _run_agent(session_id: str, user_message: str, root: "Path") -> dict:
-    """Execute AgentOrchestrator synchronously and return the raw result dict.
+    @app.post(f"{api}/codebooks/congelar")
+    def codebook_congelar(body: dict | None = None):
+        versao = (body or {}).get("versao")
+        return escrever("codebook", lambda c: (cbk.congelar(c, versao), _codebook_payload(c, versao))[1])
 
-    Intended to be called from a thread-executor so it does not block the
-    asyncio event loop.  Persists the exchange to SQLite best-effort.
-    """
-    from lutz.agent.orchestrator import AgentOrchestrator
-    from lutz.agent.tools import get_tool_registry
-    from lutz.agent.model_router import ModelRouter
-    from lutz.core.llm_client import LLMClient
-    from lutz.server import db as _db
+    @app.get(f"{api}/assistente/modelos")
+    def assistente_modelos():
+        return [{"id": k, "rotulo": v["rotulo"], "n_campos": len(v["campos"])} for k, v in assistente.MODELOS.items()]
 
-    env = load_env(root)
-    llm = LLMClient.from_env(env)
-    registry = get_tool_registry()
-    router = ModelRouter()
-    orch = AgentOrchestrator(llm, registry, router, _conversation_manager)
-    result = orch.process_message(
-        session_id, user_message, vector_store=None, job_manager=_job_manager
-    )
+    @app.post(f"{api}/assistente/modelo")
+    def assistente_modelo(body: dict):
+        return {"campos": [c.model_dump(mode="json") for c in assistente.modelo_de_partida(body.get("area", ""))]}
 
-    # Persist exchange to SQLite (best-effort)
-    try:
-        session = _db.get_session(root, session_id)
-        if session is None:
-            _db.create_session(root, user_message[:60])
-        _db.add_message(root, session_id, "user", user_message)
-        _db.add_message(root, session_id, "assistant", result.get("response", ""))
-        _db.update_session_updated_at(root, session_id)
-    except Exception:
-        pass
+    @app.post(f"{api}/assistente/sugestoes")
+    def assistente_sugestoes(body: dict):
+        r = assistente.sugerir_campos(projeto, carregar_settings(projeto), pergunta=body.get("pergunta", ""),
+                                      componentes=body.get("componentes") or {}, variaveis=body.get("variaveis") or [],
+                                      tipo_revisao=body.get("tipo_revisao", "sistematica"),
+                                      existentes=body.get("existentes") or [])
+        return {"campos": [c.model_dump(mode="json") for c in r["campos"]], "descartados": r["descartados"]}
 
-    return result
+    @app.post(f"{api}/codebooks/teste", status_code=202)
+    def codebook_teste(body: dict):
+        campos = body.get("campos") or []
+        n = int(body.get("n", 3))
+        s = carregar_settings(projeto)
 
+        def tarefa(publicar, parar):
+            c = con()
+            try:
+                chaves = body.get("artigos") or [r[0] for r in c.execute(
+                    "SELECT chave FROM artigo WHERE status='pronto' ORDER BY id LIMIT ?", (n,))]
+                eid = ex.planejar(projeto, c, s, tipo="teste", campos=campos, artigos=chaves)
+                est = ex.estimar(projeto, c, eid)
+                publicar({"tipo": "estimativa", **est})
+                ex.executar(projeto, eid, progresso=publicar, parar=parar)
+                linhas = []
+                for r in c.execute("""SELECT a.chave, c.campo_chave, c.valor_final, c.nao_reportado, c.trecho, c.pagina,
+                                      c.e, b.e_detalhe, b.erro, b.regras_detalhe FROM celula c JOIN artigo a ON a.id=c.artigo_id
+                                      LEFT JOIN extracao_bruta b ON b.celula_id=c.id WHERE c.execucao_id=?""", (eid,)):
+                    linhas.append(dict(r))
+                return {"execucao_id": eid, "estimativa": est, "resultados": linhas}
+            finally:
+                c.close()
+        return iniciar_job("teste", f"teste rápido: {', '.join(campos)}", tarefa)
 
-@api.post("/agent/chat")
-async def agent_chat(request: Request) -> dict:
-    """Process a message through the AgentOrchestrator and return the response.
+    # ── runs ────────────────────────────────────────────────────────────────
 
-    Body fields:
-      message (str, required): the user's natural language message
-      session_id (str, optional): existing session UUID; a new one is generated if absent
+    @app.get(f"{api}/execucoes")
+    def execucoes():
+        return ler(lambda c: [ex.resumo(c, r[0]) for r in c.execute("SELECT id FROM execucao ORDER BY id DESC")])
 
-    Returns:
-      session_id, response, state, plan, awaiting_confirmation, step_result
-    """
-    body = await request.json()
-    user_message: str = (body.get("message") or "").strip()
-    if not user_message:
-        raise HTTPException(status_code=400, detail="message required")
-    if len(user_message) > _MAX_AGENT_MESSAGE_CHARS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"message exceeds {_MAX_AGENT_MESSAGE_CHARS} characters",
-        )
+    @app.post(f"{api}/execucoes/estimativa")
+    def execucao_estimar(body: dict):
+        """Plans a run (status 'planejada') and returns its cost estimate. Nothing runs yet."""
+        s = carregar_settings(projeto)
 
-    session_id: str = body.get("session_id") or str(uuid.uuid4())
-    root = _get_root()
+        def f(c):
+            conjunto = body.get("conjunto")
+            p = pil.atual(c) if conjunto else None
+            eid = ex.planejar(projeto, c, s, campos=body.get("campos"), artigos=body.get("artigos"),
+                              piloto_id=p["id"] if p else None, conjunto=conjunto, forcar=bool(body.get("forcar")))
+            return ex.estimar(projeto, c, eid)
+        return escrever("planejar execução", f)
 
-    result = await asyncio.get_event_loop().run_in_executor(
-        None, lambda: _run_agent(session_id, user_message, root)
-    )
+    @app.post(f"{api}/execucoes/{{eid}}/iniciar", status_code=202)
+    def execucao_iniciar(eid: int, body: dict | None = None):
+        def tarefa(publicar, parar):
+            return ex.executar(projeto, eid, progresso=publicar, parar=parar)
+        if (body or {}).get("confirmar") is not True and carregar_settings(projeto).custo.confirmar:
+            raise LutzError("Confirme o custo estimado antes de iniciar (envie {\"confirmar\": true}).")
+        return iniciar_job("extracao", f"execução {eid}", tarefa, execucao_id=eid)
 
-    return {
-        "session_id": session_id,
-        **result,
-    }
+    @app.post(f"{api}/execucoes/{{eid}}/pausar")
+    def execucao_pausar(eid: int):
+        for j in jobs.jobs.values():
+            if j.execucao_id == eid and j.status == "rodando":
+                j.parar.set()
+        c = con()
+        try:
+            ex.pausar(c, eid)
+            return _limpo(ex.resumo(c, eid))
+        finally:
+            c.close()
 
+    @app.post(f"{api}/execucoes/{{eid}}/recalcular", status_code=202)
+    def execucao_recalcular(eid: int, body: dict | None = None):
+        atuais = bool((body or {}).get("limiares_atuais"))
+        return iniciar_job("recalculo", f"recalcular execução {eid}",
+                           lambda pub, parar: ex.recalcular(projeto, eid, usar_limiares_atuais=carregar_settings(projeto)
+                                                            if atuais else None), execucao_id=eid)
 
-@api.post("/agent/chat/stream")
-async def agent_chat_stream(request: Request) -> StreamingResponse:
-    """Stream the AgentOrchestrator response as Server-Sent Events.
+    @app.get(f"{api}/execucoes/{{eid}}")
+    def execucao(eid: int):
+        def f(c):
+            r = ex.resumo(c, eid)
+            e = um(c, "SELECT * FROM execucao WHERE id=?", (eid,))
+            r["extratores"] = [dict(x) for x in c.execute("SELECT * FROM extrator WHERE execucao_id=? ORDER BY rotulo",
+                                                          (eid,))]
+            obs = {x["rotulo"]: x["modelo_observado"] for x in consumo(c, eid)["por_papel"]}
+            for x in r["extratores"]:
+                x["modelo_observado"] = obs.get(x["rotulo"], "")
+            r["campos"] = jload(e["campos"])
+            r["hash_config"], r["hash_prompts"], r["versao_lutz"] = e["hash_config"], e["hash_prompts"], e["versao_lutz"]
+            r["codebook"] = um(c, "SELECT versao, hash FROM codebook WHERE id=?", (e["codebook_id"],))
+            r["orcamento_usd"] = jload(e["config"])["custo"]["orcamento_usd"]
+            r["job"] = next((j.publico() for j in jobs.jobs.values() if j.execucao_id == eid and j.status == "rodando"),
+                            None)
+            return r
+        return ler(f)
 
-    SSE event sequence:
-      1. {type: 'session', session_id}  — always first
-      2. {type: 'token', content}       — one per word of the response text
-      3. {type: 'done', state, plan, step_result, awaiting_confirmation}
+    @app.get(f"{api}/execucoes/{{eid}}/estimativa")
+    def execucao_estimativa(eid: int):
+        return ler(lambda c: ex.estimar(projeto, c, eid))
 
-    Body fields:
-      message (str, required)
-      session_id (str, optional)
-    """
-    body = await request.json()
-    session_id: str = body.get("session_id") or str(uuid.uuid4())
-    user_message: str = (body.get("message") or "").strip()
-    if not user_message:
-        raise HTTPException(status_code=400, detail="message is required")
-    if len(user_message) > _MAX_AGENT_MESSAGE_CHARS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"message exceeds {_MAX_AGENT_MESSAGE_CHARS} chars",
-        )
+    @app.get(f"{api}/execucoes/{{eid}}/metricas")
+    def execucao_metricas(eid: int):
+        def f(c):
+            m = metricas(c, eid)
+            campos = {r["chave"]: dict(r) for r in c.execute(
+                "SELECT cp.chave, cp.rotulo, cp.tipo FROM campo cp JOIN execucao e ON e.codebook_id=cp.codebook_id "
+                "WHERE e.id=? ORDER BY cp.ordem", (eid,))}
+            return {"campos": [{**info, "metricas": m.get(k, {})} for k, info in campos.items()],
+                    "geral": m.get(None, {})}
+        return ler(f)
 
-    root = _get_root()
+    @app.get(f"{api}/execucoes/{{eid}}/checagens")
+    def execucao_checagens(eid: int):
+        def f(c):
+            cel = [dict(r) for r in c.execute("SELECT a, e, v, nivel, regras_ok, valor_final, nao_reportado, escore "
+                                              "FROM celula WHERE execucao_id=? AND nivel IS NOT NULL", (eid,))]
+            com_valor = [x for x in cel if not x["nao_reportado"] and x["valor_final"] is not None]
+            tot = len(cel) or 1
+            tv = len(com_valor) or 1
+            vs = [x for x in cel if x["v"] is not None]
+            return {
+                "celulas": len(cel),
+                "concordancia": {"unanimes": sum(1 for x in cel if (x["a"] or 0) >= 0.999),
+                                 "dois_de_tres": sum(1 for x in cel if 0.6 < (x["a"] or 0) < 0.999),
+                                 "empates": sum(1 for x in cel if x["escore"] is None)},
+                "evidencia": {"exata": sum(1 for x in com_valor if (x["e"] or 0) >= 1) / tv,
+                              "parcial": sum(1 for x in com_valor if x["e"] == 0.5) / tv,
+                              "nao_encontrada": sum(1 for x in com_valor if (x["e"] or 0) == 0) / tv},
+                "verificador": {"sustenta": sum(1 for x in vs if x["v"] == 1) / (len(vs) or 1),
+                                "parcial": sum(1 for x in vs if x["v"] == 0.5) / (len(vs) or 1),
+                                "nao_sustenta": sum(1 for x in vs if x["v"] == 0) / (len(vs) or 1),
+                                "n": len(vs)},
+                "regras_barradas": sum(1 for x in cel if x["regras_ok"] == 0),
+                "niveis": {n: sum(1 for x in cel if x["nivel"] == n) for n in ("alta", "media", "baixa")},
+                "pct_niveis": {n: sum(1 for x in cel if x["nivel"] == n) / tot for n in ("alta", "media", "baixa")},
+            }
+        return ler(f)
 
-    async def generate():
-        # 1. Session event
-        yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n"
+    @app.get(f"{api}/execucoes/{{eid}}/log")
+    def execucao_log(eid: int, limite: int = 50):
+        def f(c):
+            ocultos = pil.artigos_ocultos(c)
+            out = []
+            for r in c.execute("""SELECT c.id, c.artigo_id, a.chave, c.campo_chave, c.valor_final, c.nao_reportado, c.nivel,
+                                  c.a, c.e, c.v, c.pagina, c.estado, c.motivos, c.atualizada_em FROM celula c
+                                  JOIN artigo a ON a.id=c.artigo_id WHERE c.execucao_id=? AND c.atualizada_em IS NOT NULL
+                                  ORDER BY c.atualizada_em DESC, c.id DESC LIMIT ?""", (eid, limite)):
+                d = dict(r)
+                if d["artigo_id"] in ocultos:
+                    continue
+                d["motivos"] = jload(d["motivos"], [])
+                out.append(d)
+            return out
+        return ler(f)
 
-        # 2. Run the synchronous orchestrator in a thread executor
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(
-            None, lambda: _run_agent(session_id, user_message, root)
-        )
+    # ── results and cells ───────────────────────────────────────────────────
 
-        # 3. Stream response text token-by-token (word chunks, capped to avoid DoS)
-        _MAX_STREAM_WORDS = 5000
-        response_text = result.get("response", "")
-        words = response_text.split(" ")[:_MAX_STREAM_WORDS]
-        for i, word in enumerate(words):
-            chunk = word + (" " if i < len(words) - 1 else "")
-            yield f"data: {json.dumps({'type': 'token', 'content': chunk})}\n\n"
-            await asyncio.sleep(0.01)
+    @app.get(f"{api}/execucoes/{{eid}}/tabela")
+    def tabela(eid: int, nivel: str | None = None, campo: str | None = None):
+        def f(c):
+            ocultos = pil.artigos_ocultos(c)
+            campos = [dict(r) for r in c.execute(
+                """SELECT cp.chave, cp.rotulo, cp.tipo FROM campo cp JOIN execucao e ON e.codebook_id=cp.codebook_id
+                   WHERE e.id=? AND cp.chave IN (SELECT value FROM json_each(e.campos)) ORDER BY cp.ordem""", (eid,))]
+            linhas: dict[int, dict] = {}
+            n_oc = 0
+            for r in c.execute("""SELECT c.*, a.chave, a.titulo, a.autores, a.ano FROM celula c JOIN artigo a ON a.id=c.artigo_id
+                                  WHERE c.execucao_id=? ORDER BY a.chave""", (eid,)):
+                if r["artigo_id"] in ocultos:
+                    n_oc += 1
+                    continue
+                if campo and r["campo_chave"] != campo:
+                    continue
+                ln = linhas.setdefault(r["artigo_id"], {"artigo": r["chave"], "titulo": r["titulo"],
+                                                         "autores": r["autores"], "ano": r["ano"], "celulas": {}})
+                ln["celulas"][r["campo_chave"]] = {
+                    "id": r["id"], "valor": r["valor_final"], "nao_reportado": bool(r["nao_reportado"]),
+                    "nivel": r["nivel"], "origem": r["origem"], "pagina": r["pagina"], "escore": r["escore"],
+                    "estado": r["estado"]}
+            lista = list(linhas.values())
+            if nivel:
+                lista = [x for x in lista if any(cel["nivel"] == nivel for cel in x["celulas"].values())]
+            return {"campos": campos, "linhas": lista, "ocultos_piloto": n_oc}
+        return ler(f)
 
-        # 4. Done event with full metadata
-        yield f"data: {json.dumps({'type': 'done', 'state': result.get('state'), 'plan': result.get('plan'), 'step_result': result.get('step_result'), 'awaiting_confirmation': result.get('awaiting_confirmation', False)})}\n\n"
+    @app.get(f"{api}/execucoes/{{eid}}/exportar.csv")
+    def exportar_csv(eid: int, formato: str = "largo"):
+        def f(c):
+            if pil.artigos_ocultos(c) & set(jload(um(c, "SELECT artigos FROM execucao WHERE id=?", (eid,))["artigos"])):
+                raise EstadoInvalido("Há artigos do piloto cego nesta execução.")
+            cab, linhas = (tabela_larga if formato == "largo" else tabela_longa)(c, eid)
+            buf = io.StringIO()
+            w = csv.writer(buf)
+            w.writerow(cab)
+            w.writerows([["" if x is None else x for x in ln] for ln in linhas])
+            return buf.getvalue()
+        texto = ler(f)
+        return Response("﻿" + texto, media_type="text/csv",
+                        headers={"Content-Disposition": f'attachment; filename="resultados_{eid}_{formato}.csv"'})
 
-    return StreamingResponse(
-        generate(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
+    def _celula_visivel(c, cid: int):
+        r = um(c, "SELECT artigo_id FROM celula WHERE id=?", (cid,))
+        if r is None:
+            raise HTTPException(404, "célula não encontrada")
+        if r["artigo_id"] in pil.artigos_ocultos(c):
+            raise EstadoInvalido("Célula de artigo do piloto cego: oculta até a importação das planilhas humanas.")
 
+    @app.get(f"{api}/celulas/{{cid}}")
+    def celula(cid: int):
+        def f(c):
+            _celula_visivel(c, cid)
+            d = adj.detalhe_celula(c, cid)
+            d["unidades_texto"] = [dict(r) for r in c.execute(
+                f"SELECT uid, pagina, tipo, texto FROM unidade WHERE artigo_id=? AND uid IN "
+                f"({','.join('?' * len(d['unidades']))})", (d["artigo_id"], *d["unidades"]))] if d["unidades"] else []
+            return d
+        return ler(f)
 
-# ---------------------------------------------------------------------------
-# Register API router + SPA static files
-# ---------------------------------------------------------------------------
+    @app.post(f"{api}/celulas/{{cid}}/enviar")
+    def celula_enviar(cid: int, body: dict | None = None):
+        def f(c):
+            _celula_visivel(c, cid)
+            adj.enviar_manual(c, cid, (body or {}).get("nota", ""))
+            return {"ok": True}
+        return escrever("enviar célula", f)
 
-app.include_router(api)
+    # ── adjudication and audit ──────────────────────────────────────────────
 
+    @app.get(f"{api}/execucoes/{{eid}}/fila")
+    def fila(eid: int, decididas: bool = False):
+        def f(c):
+            itens = adj.fila(c, eid, incluir_decididas=decididas, ocultos=pil.artigos_ocultos(c))
+            for it in itens:
+                it["brutas"] = [{k: b[k] for k in ("rotulo", "status", "valor", "valor_normalizado", "nao_reportado",
+                                                   "e", "e_detalhe", "trecho", "pagina", "erro")}
+                                for b in adj.brutas(c, it["id"])]
+            return itens
+        return ler(f)
 
-# ── WebSocket notifications ────────────────────────────────────────────────────
+    @app.get(f"{api}/execucoes/{{eid}}/adjudicacao/estatisticas")
+    def adj_estatisticas(eid: int):
+        def f(c):
+            r = adj.estatisticas(c, eid)
+            r["auditoria"] = aud.resultado(c, eid)
+            return r
+        return ler(f)
 
-@app.websocket("/ws/notifications")
-async def ws_notifications(websocket: WebSocket) -> None:
-    await _ws_manager.connect(websocket)
-    try:
-        await websocket.send_text(json.dumps({
-            "event": "init",
-            "jobs": _job_manager.list_all(),
-        }))
-        while True:
-            await websocket.receive_text()  # keep alive; client messages ignored
-    except WebSocketDisconnect:
-        pass
-    finally:
-        _ws_manager.disconnect(websocket)
+    @app.post(f"{api}/adjudicacoes")
+    def adjudicar(body: dict):
+        cid = int(body["celula_id"])
 
-# Serve pre-built React assets at /assets/*
-_assets_dir = WEB_DIR / "assets"
-if _assets_dir.exists():
-    app.mount("/assets", StaticFiles(directory=str(_assets_dir)), name="assets")
+        def f(c):
+            _celula_visivel(c, cid)
+            return adj.decidir(c, cid, valor=body.get("valor"), nao_reportado=bool(body.get("nao_reportado")),
+                               justificativa=body.get("justificativa", ""))
+        return escrever("adjudicação", f)
 
+    @app.get(f"{api}/execucoes/{{eid}}/adjudicacao.csv")
+    def adj_csv(eid: int):
+        with tempfile.TemporaryDirectory() as tmp:
+            destino = Path(tmp) / "adj.csv"
+            ler(lambda c: adj.exportar_csv(c, eid, destino, ocultos=pil.artigos_ocultos(c)))
+            dados = destino.read_bytes()
+        return Response(dados, media_type="text/csv",
+                        headers={"Content-Disposition": f'attachment; filename="adjudicacao_{eid}.csv"'})
 
-@app.get("/{full_path:path}", include_in_schema=False)
-async def spa_fallback(full_path: str) -> FileResponse:
-    """Serve static files or fall back to index.html for SPA routing."""
-    if not WEB_DIR.exists():
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "Web UI not found. "
-                "If running from source, build the frontend first: cd web && npm run build"
-            ),
-        )
-    candidate = WEB_DIR / full_path
-    if candidate.is_file():
-        return FileResponse(candidate)
-    return FileResponse(WEB_DIR / "index.html")
+    @app.post(f"{api}/adjudicacao/importar")
+    async def adj_importar(arquivo: UploadFile = File(...)):
+        dados = await arquivo.read()
+        return escrever("importar adjudicação", lambda c: adj.importar_csv(c, dados))
+
+    @app.post(f"{api}/execucoes/{{eid}}/auditoria")
+    def auditoria_criar(eid: int, body: dict | None = None):
+        n = (body or {}).get("n")
+        return escrever("auditoria", lambda c: aud.criar(c, eid, carregar_settings(projeto), n=n,
+                                                         ocultos=pil.artigos_ocultos(c)))
+
+    @app.get(f"{api}/execucoes/{{eid}}/auditoria")
+    def auditoria(eid: int):
+        def f(c):
+            a = aud.atual(c, eid)
+            if a is None:
+                n_alta = c.execute("SELECT count(*) FROM celula WHERE execucao_id=? AND nivel='alta'", (eid,)).fetchone()[0]
+                s = carregar_settings(projeto)
+                return {"auditoria": None, "n_alta": n_alta,
+                        "n_sugerido": min(n_alta, M.n_para_meia_largura(s.auditoria.meia_largura_alvo,
+                                                                          s.auditoria.p_esperado))}
+            return {"auditoria": a, "resultado": aud.resultado(c, eid), "itens": aud.itens(c, a["id"])}
+        return ler(f)
+
+    @app.post(f"{api}/auditoria/itens/{{item_id}}")
+    def auditoria_item(item_id: int, body: dict):
+        return escrever("auditoria", lambda c: (aud.registrar(c, item_id, bool(body.get("correto")),
+                                                              body.get("valor_correto"),
+                                                              bool(body.get("nao_reportado_correto")),
+                                                              body.get("nota", "")), {"ok": True})[1])
+
+    # ── pilot ───────────────────────────────────────────────────────────────
+
+    @app.get(f"{api}/piloto")
+    def piloto():
+        def f(c):
+            n_corpus = c.execute("SELECT count(*) FROM artigo WHERE status='pronto'").fetchone()[0]
+            st = pil.estado(c)
+            return {"estado": st, "n_corpus": n_corpus, "tamanho": M.tabela_tamanho_piloto(),
+                    "avisos": pil.avisos_plano(n_corpus, st["piloto"]["n_validacao"]) if st else
+                    pil.avisos_plano(n_corpus, 20)}
+        return ler(f)
+
+    @app.post(f"{api}/piloto/plano")
+    def piloto_plano(body: dict):
+        s = carregar_settings(projeto)
+
+        def f(c):
+            p = pil.planejar(c, s, n_ajuste=int(body.get("n_ajuste", 10)), n_validacao=int(body.get("n_validacao", 20)),
+                             n_reserva=int(body.get("n_reserva", 0)), estratos=body.get("estratos", ""),
+                             avaliadores=body.get("avaliadores") or ["A", "B"])
+            return p | {"plano": jload(p["plano"]), "avaliadores": jload(p["avaliadores"])}
+        return escrever("piloto", f)
+
+    @app.post(f"{api}/piloto/sorteio")
+    def piloto_sorteio():
+        return escrever("piloto", lambda c: pil.sortear(c, pil.atual(c)["id"]))
+
+    @app.get(f"{api}/piloto/planilha/{{avaliador}}.csv")
+    def piloto_planilha(avaliador: str):
+        with tempfile.TemporaryDirectory() as tmp:
+            destino = Path(tmp) / "p.csv"
+            ler(lambda c: pil.exportar_planilha(c, pil.atual(c)["id"], avaliador, destino))
+            dados = destino.read_bytes()
+        return Response(dados, media_type="text/csv",
+                        headers={"Content-Disposition": f'attachment; filename="piloto_{avaliador}.csv"'})
+
+    @app.post(f"{api}/piloto/importacao")
+    async def piloto_importacao(avaliador: str = Form(...), arquivo: UploadFile = File(...)):
+        dados = await arquivo.read()
+        return escrever("piloto", lambda c: pil.importar_planilha(c, pil.atual(c)["id"], avaliador, dados))
+
+    @app.get(f"{api}/piloto/formulario/{{avaliador}}")
+    def piloto_formulario(avaliador: str):
+        return ler(lambda c: pil.formulario(c, pil.atual(c)["id"], avaliador))
+
+    @app.post(f"{api}/piloto/respostas")
+    def piloto_resposta(body: dict):
+        return escrever("piloto", lambda c: pil.salvar_resposta(
+            c, pil.atual(c)["id"], body["avaliador"], body["artigo"], body["campo"], body.get("valor"),
+            bool(body.get("nao_reportado")), body.get("pagina")))
+
+    @app.get(f"{api}/piloto/consenso.csv")
+    def piloto_consenso_csv():
+        s = carregar_settings(projeto)
+        with tempfile.TemporaryDirectory() as tmp:
+            destino = Path(tmp) / "c.csv"
+            ler(lambda c: pil.exportar_consenso(c, pil.atual(c)["id"], destino, s))
+            dados = destino.read_bytes()
+        return Response(dados, media_type="text/csv",
+                        headers={"Content-Disposition": 'attachment; filename="consenso.csv"'})
+
+    @app.post(f"{api}/piloto/consenso")
+    async def piloto_consenso(arquivo: UploadFile = File(...)):
+        dados = await arquivo.read()
+        s = carregar_settings(projeto)
+        return escrever("piloto", lambda c: pil.importar_consenso(c, pil.atual(c)["id"], dados, s))
+
+    @app.post(f"{api}/piloto/comparacao")
+    def piloto_comparacao(body: dict):
+        s = carregar_settings(projeto)
+        return escrever("piloto", lambda c: pil.comparar(c, pil.atual(c)["id"], body.get("conjunto", "validacao"), s))
+
+    # ── reports ─────────────────────────────────────────────────────────────
+
+    @app.get(f"{api}/relatorios")
+    def relatorios():
+        def f(c):
+            out = []
+            for r in c.execute("SELECT DISTINCT execucao_id FROM relatorio ORDER BY execucao_id DESC"):
+                pasta = projeto.relatorios / f"execucao-{r[0]:04d}"
+                out.append({"execucao_id": r[0], "arquivos": sorted(p.name for p in pasta.glob("*")) if pasta.exists() else [],
+                            "gerado_em": c.execute("SELECT max(gerado_em) FROM relatorio WHERE execucao_id=?",
+                                                   (r[0],)).fetchone()[0]})
+            return out
+        return ler(f)
+
+    @app.post(f"{api}/relatorios", status_code=202)
+    def relatorio_gerar(body: dict):
+        eid = int(body["execucao_id"])
+
+        def tarefa(publicar, parar):
+            c = con()
+            try:
+                return gerar(projeto, c, eid, idiomas=body.get("idiomas"), formatos=body.get("formatos"))
+            finally:
+                c.close()
+        return iniciar_job("relatorio", f"relatório da execução {eid}", tarefa, execucao_id=eid)
+
+    @app.get(f"{api}/relatorios/{{eid}}/previa")
+    def relatorio_previa(eid: int, idioma: str = "pt"):
+        def f(c):
+            d = coletar(projeto, c, eid)
+            return {"markdown": render.markdown(d, "en" if idioma == "en" else "pt")}
+        return ler(f)
+
+    @app.get(f"{api}/relatorios/{{eid}}/arquivos/{{nome}}")
+    def relatorio_arquivo(eid: int, nome: str):
+        if not re.fullmatch(r"[\w.\-]+", nome):
+            raise HTTPException(400, "nome inválido")
+        p = projeto.relatorios / f"execucao-{eid:04d}" / nome
+        if not p.is_file():
+            raise HTTPException(404, "arquivo não encontrado")
+        return FileResponse(p, filename=nome)
+
+    # ── jobs ────────────────────────────────────────────────────────────────
+
+    @app.get(f"{api}/jobs")
+    def listar_jobs():
+        return _limpo(jobs.listar())
+
+    @app.get(f"{api}/jobs/{{job_id}}")
+    def job(job_id: str):
+        j = jobs.obter(job_id)
+        if j is None:
+            raise HTTPException(404, "job não encontrado")
+        d = j.publico()
+        d["resultado"] = j.resultado
+        d["eventos"] = j.eventos[-200:]
+        return _limpo(d)
+
+    @app.get(f"{api}/jobs/{{job_id}}/eventos")
+    async def job_eventos(job_id: str):
+        j = jobs.obter(job_id)
+        if j is None:
+            raise HTTPException(404, "job não encontrado")
+
+        async def fluxo():
+            i = 0
+            while True:
+                while i < len(j.eventos):
+                    yield f"data: {json.dumps(_limpo(j.eventos[i]), ensure_ascii=False, default=str)}\n\n"
+                    i += 1
+                if j.status != "rodando" and i >= len(j.eventos):
+                    break
+                await asyncio.sleep(0.3)
+        return StreamingResponse(fluxo(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    # ── configuration (kept from 0.5: .env read/write through the settings modal) ──
+
+    @app.get(f"{api}/config")
+    def config():
+        texto = projeto.yaml.read_text(encoding="utf-8") if projeto.yaml.exists() else ""
+        resumo: dict = {"valido": True, "erro": ""}
+        try:
+            s = validar_yaml(texto)
+            papeis = [{"rotulo": r, **m.model_dump(mode="json"), "temperatura": m.temperatura_efetiva()}
+                      for r, m in s.modelos.extratores().items()]
+            for r in ("V", "J"):
+                m = getattr(s.modelos, r)
+                if m:
+                    papeis.append({"rotulo": r, **m.model_dump(mode="json"), "temperatura": m.temperatura_efetiva()})
+            resumo.update({"papeis": papeis, "estrategia": estrategia_diversidade(s.modelos), "avisos": avisos(s),
+                           "hash": s.hash()[:16], "orcamento_usd": s.custo.orcamento_usd,
+                           "idiomas": s.relatorio.idiomas, "formatos": s.relatorio.formatos,
+                           "limiares": s.limiares.model_dump()})
+        except ConfigInvalida as exc:
+            resumo.update({"valido": False, "erro": str(exc)})
+        return _limpo({"env": valores_com_origem(projeto), "lutz_yaml": {"caminho": str(projeto.yaml),
+                                                                          "texto": texto, **resumo}})
+
+    @app.put(f"{api}/config")
+    def config_salvar(body: dict):
+        mudancas = {k: (v if v not in ("",) else None) for k, v in body.items()}
+        sombreadas = salvar_env(projeto, mudancas)
+        return {"ok": True, "sombreadas": sombreadas}
+
+    @app.get(f"{api}/consumo")
+    def consumo_api(execucao: int | None = None, limite: int = 200):
+        def f(c):
+            r = consumo(c, execucao)
+            filtro, params = ("WHERE l.execucao_id=?", (execucao,)) if execucao else ("", ())
+            r["chamadas"] = [dict(x) for x in c.execute(
+                f"""SELECT l.id, l.execucao_id, l.papel, l.rotulo, a.chave artigo, l.provedor, l.modelo_pedido,
+                    l.modelo_observado, l.tokens_entrada, l.tokens_saida, l.custo_usd, l.latencia_ms, l.status,
+                    l.cache, l.criado_em FROM chamada_llm l LEFT JOIN artigo a ON a.id=l.artigo_id {filtro}
+                    ORDER BY l.id DESC LIMIT ?""", (*params, limite))]
+            r["por_execucao"] = [dict(x) for x in c.execute(
+                """SELECT execucao_id, count(*) chamadas, sum(tokens_entrada+tokens_saida) tokens, sum(custo_usd) custo_usd
+                   FROM chamada_llm GROUP BY execucao_id ORDER BY execucao_id DESC""")]
+            return r
+        return ler(f)
+
+    @app.get(f"{api}/consumo.csv")
+    def consumo_csv():
+        def f(c):
+            buf = io.StringIO()
+            w = csv.writer(buf)
+            cols = ["id", "execucao_id", "papel", "rotulo", "provedor", "modelo_pedido", "modelo_observado",
+                    "tokens_entrada", "tokens_saida", "custo_usd", "latencia_ms", "status", "cache", "criado_em"]
+            w.writerow(cols)
+            for r in c.execute(f"SELECT {', '.join(cols)} FROM chamada_llm ORDER BY id"):
+                w.writerow(["" if x is None else x for x in r])
+            return buf.getvalue()
+        return Response("﻿" + ler(f), media_type="text/csv",
+                        headers={"Content-Disposition": 'attachment; filename="lutz_consumo.csv"'})
+
+    @app.get(f"{api}/mcp")
+    def mcp_info():
+        from lutz.server.mcp import FERRAMENTAS
+
+        cfg = {"mcpServers": {"lutz": {"command": "lutz", "args": ["mcp", "--projeto", str(projeto.raiz)]}}}
+        return {"comando": f"lutz mcp --projeto {projeto.raiz}", "transporte": "stdio", "somente_leitura": True,
+                "config_claude_desktop": cfg, "config_cursor": cfg,
+                "config_vscode": {"servers": {"lutz": {"type": "stdio", "command": "lutz",
+                                                       "args": ["mcp", "--projeto", str(projeto.raiz)]}}},
+                "ferramentas": FERRAMENTAS, "openapi": "/api/docs"}
+
+    @app.get("/api/v1")
+    def raiz_api():
+        return {"lutz": __version__, "docs": "/api/docs"}
+
+    # ── SPA ─────────────────────────────────────────────────────────────────
+
+    dist = _dist_web()
+    if dist is not None:
+        if (dist / "assets").is_dir():
+            app.mount("/assets", StaticFiles(directory=dist / "assets"), name="assets")
+
+        @app.get("/{caminho:path}", include_in_schema=False)
+        def spa(caminho: str):
+            if caminho.startswith("api/") or caminho == "api":
+                raise HTTPException(404, "rota da API não encontrada")
+            alvo = (dist / caminho).resolve()
+            if caminho and alvo.is_file() and dist.resolve() in alvo.parents:
+                return FileResponse(alvo)
+            return FileResponse(dist / "index.html")
+    else:
+        @app.get("/", include_in_schema=False)
+        def sem_spa():
+            return PlainTextResponse("Interface web não empacotada. Em desenvolvimento: cd web && npm run build. "
+                                     "A API está em /api/docs.")
+
+    return app
