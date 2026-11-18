@@ -26,7 +26,14 @@ from fastapi.staticfiles import StaticFiles
 from lutz import __version__
 from lutz.calibrated import piloto as pil
 from lutz.config.env import carregar_env, salvar_env, valores_com_origem
-from lutz.config.settings import avisos, carregar_settings, estrategia_diversidade, gravar_modelos, validar_yaml
+from lutz.config.settings import (
+    avisos,
+    carregar_settings,
+    estrategia_diversidade,
+    gravar_modelos,
+    temperatura_aplicada,
+    validar_yaml,
+)
 from lutz.core import assistente
 from lutz.core import codebook as cbk
 from lutz.core import metricas as M
@@ -406,6 +413,7 @@ def criar_app(projeto: Projeto) -> FastAPI:
                                                           (eid,))]
             obs = {x["rotulo"]: x["modelo_observado"] for x in consumo(c, eid)["por_papel"]}
             for x in r["extratores"]:
+                x["temperatura"] = temperatura_aplicada(x["provedor"], x["modelo"], x["temperatura"])
                 x["modelo_observado"] = obs.get(x["rotulo"], "")
             r["campos"] = jload(e["campos"])
             r["hash_config"], r["hash_prompts"], r["versao_lutz"] = e["hash_config"], e["hash_prompts"], e["versao_lutz"]

@@ -262,3 +262,12 @@ def test_api_catalogo_conta_e_modelos(projeto, rede, monkeypatch):
     assert r.status_code in (400, 422) and "E1" in r.json()["erro"]
     nomes = {v["nome"] for v in c.get("/api/v1/config").json()["env"]}
     assert nomes == {"OPENROUTER_API_KEY", "OPENROUTER_BASE_URL"}
+
+
+def test_temperatura_aplicada_e_na_para_modelos_anthropic():
+    from lutz.config.settings import temperatura_aplicada
+
+    assert temperatura_aplicada("openrouter", "anthropic/claude-opus-5.5", 0.0) is None
+    assert temperatura_aplicada("anthropic", "claude-sonnet-5-5", 0.0) is None  # runs before ADR-004
+    assert temperatura_aplicada("openrouter", "openai/gpt-4.1-mini", 0.0) == 0.0
+    assert temperatura_aplicada("fake", "fake-a", 0.3) == 0.3

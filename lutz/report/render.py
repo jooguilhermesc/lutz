@@ -6,6 +6,7 @@ import html
 import re
 from datetime import datetime, timezone
 
+from lutz.config.settings import temperatura_aplicada
 from lutz.core.dependencias import carregar_pymupdf
 from lutz.report import textos as tx
 from lutz.report.textos import T, num, pct
@@ -57,7 +58,8 @@ def markdown(d: dict, lang: str) -> str:
         ["Codebook", f"v{d['codebook_row']['versao']} · hash {d['codebook_row']['hash']}"],
     ]
     for e in d["extratores"]:
-        temp = "n/a" if e["temperatura"] is None or e["provedor"] == "anthropic" else num(e["temperatura"], lang, 1)
+        t = temperatura_aplicada(e["provedor"], e["modelo"], e["temperatura"])
+        temp = "n/a" if t is None else num(t, lang, 1)
         obs = e.get("modelo_observado") or "—"
         m_sha = re.search(r"sha256[:/]([0-9a-f]{12})", obs)
         if m_sha:

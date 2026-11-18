@@ -67,6 +67,18 @@ class ModeloPapel(_Base):
         return None if self.fornecedor == "anthropic" else self.temperatura
 
 
+def temperatura_aplicada(provedor: str, modelo: str, temperatura: float | None) -> float | None:
+    """Temperature a recorded role really ran with; None ("n/a") for Anthropic models.
+
+    The ``extrator`` table stores the configured value (NOT NULL). Anthropic models never get
+    sampling parameters, whether called directly (runs before ADR-004) or through OpenRouter
+    (``anthropic/...``), so the report and the API must not print that value as if applied.
+    """
+    if provedor == "anthropic" or str(modelo).startswith("anthropic/"):
+        return None
+    return temperatura
+
+
 class Modelos(_Base):
     E1: ModeloPapel
     E2: ModeloPapel
