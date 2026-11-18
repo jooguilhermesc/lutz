@@ -12,7 +12,7 @@ Versioná-los ao lado da documentação oficial cria duas fontes de requisitos q
 
 ## Decisão
 
-1. O conteúdo de `specs/` fica fora do git. O `.gitignore` ignora `specs/*` e só libera `specs/.gitkeep` e os ADRs desta pasta (`specs/ADR-*.md`).
+1. O conteúdo de `specs/` fica fora do git. O `.gitignore` ignora `specs/*` e só libera os ADRs desta pasta (`specs/ADR-*.md`).
 2. A fonte única de requisitos é `docs/spec-1.0.md`. As decisões tomadas a partir dos rascunhos estão em `docs/designs/lutz-1.0-concepts-brief.md` e nos ADRs de `docs/adr/`.
 3. Os rascunhos continuam disponíveis localmente para consulta da equipe de pesquisa.
 
