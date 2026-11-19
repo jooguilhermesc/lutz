@@ -1,6 +1,6 @@
 # Validação de ponta a ponta com um artigo real
 
-> Registro histórico da validação da 1.0.0a1, feita com Docker Model Runner. Desde o [ADR-004](adr/ADR-004-somente-openrouter.md) o Lutz usa só o OpenRouter.
+> Registro histórico da validação da versão de desenvolvimento da 1.0 (antes do ADR-004), feita com Docker Model Runner. Desde o [ADR-004](adr/ADR-004-somente-openrouter.md) o Lutz usa só o OpenRouter.
 
 Critério de sucesso do brief: um artigo real passa pelo fluxo completo e gera o relatório.
 

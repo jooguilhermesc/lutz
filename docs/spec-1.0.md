@@ -1,6 +1,6 @@
 # Lutz 1.0 — Especificação do sistema
 
-* **Versão do documento:** 1.0.0a1 · **Estado:** implementado na branch `feat/lutz-1.0`
+* **Versão do documento:** 1.0.0a1 · **Estado:** publicado como 1.0.0a1 (pré-release)
 * **Fonte única.** Este documento substitui a especificação inicial, os diagramas e a tela "API e MCP" dos mockups (rascunhos fora do repositório, escritos como "Lutz 2.0" antes da renumeração para 1.0) onde eles divergem. As decisões vêm de `docs/designs/lutz-1.0-concepts-brief.md`.
 
 ## 1. Objetivo e escopo
