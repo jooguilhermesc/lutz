@@ -6,7 +6,7 @@
 
 ## Contexto
 
-O Lutz 1.0.0a1 falava com quatro provedores (Anthropic pelo SDK oficial, OpenAI, OpenRouter e Docker Model Runner). Para montar três extratores de fornecedores diferentes, a pessoa pesquisadora precisava de até três chaves e de três contas. Também precisava digitar ids de modelo no `lutz.yaml` sem ver a lista de modelos disponíveis, e manter preços à mão para tudo o que não fosse Anthropic. A tela de Configurações tinha quatro abas, e o `lutz.yaml` aparecia nela só para leitura.
+A versão de desenvolvimento do Lutz 1.0, antes deste ADR, falava com quatro provedores (Anthropic pelo SDK oficial, OpenAI, OpenRouter e Docker Model Runner). Para montar três extratores de fornecedores diferentes, a pessoa pesquisadora precisava de até três chaves e de três contas. Também precisava digitar ids de modelo no `lutz.yaml` sem ver a lista de modelos disponíveis, e manter preços à mão para tudo o que não fosse Anthropic. A tela de Configurações tinha quatro abas, e o `lutz.yaml` aparecia nela só para leitura.
 
 O OpenRouter dá acesso aos modelos de todos esses fornecedores com uma única chave. Ele publica o catálogo (id, contexto, preço por token), informa o gasto e o limite da chave e devolve o custo cobrado em cada resposta.
 
@@ -21,7 +21,7 @@ O OpenRouter dá acesso aos modelos de todos esses fornecedores com uma única c
 
 ## Consequências
 
-* Modelos locais deixam de ser suportados; quem precisa deles fica na 1.0.0a1. Nenhum texto sai do computador sem passar pelo OpenRouter, o que passa a constar da spec (§1.2).
+* Modelos locais deixam de ser suportados; não há versão publicada da 1.0 com eles; o código anterior a este ADR está no commit `900ed7b` (merge do PR #38). Nenhum texto sai do computador sem passar pelo OpenRouter, o que passa a constar da spec (§1.2).
 * Projetos criados antes desta decisão precisam trocar os quatro modelos (pela tela ou à mão). Execuções antigas continuam legíveis e o relatório delas não muda. Retomar uma execução antiga que usava um provedor removido falha com a mesma mensagem, porque a execução retomada usa a configuração registrada nela.
 * O Lutz passa a depender da disponibilidade e dos preços do OpenRouter. O modelo observado e o provedor que atendeu (`provider`) continuam registrados em cada chamada.
 * A tela grava o `lutz.yaml`. Como cada execução guarda a configuração resolvida e o hash, mudar os modelos não altera execuções já iniciadas.

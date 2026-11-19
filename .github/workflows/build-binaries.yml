@@ -77,4 +77,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          prerelease: ${{ contains((github.event.inputs.tag || github.ref_name), 'a') || contains((github.event.inputs.tag || github.ref_name), 'b') || contains((github.event.inputs.tag || github.ref_name), 'rc') }}
           files: dist/lutz.exe
